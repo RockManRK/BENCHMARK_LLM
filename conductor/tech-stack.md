@@ -9,6 +9,7 @@
 
 ## Data & Validation
 - **pydantic** - Data validation and settings management
+- **pydantic-settings** - Settings management from environment variables
 - **Pillow (PIL)** - Image processing for multimodal questions
 
 ## Database
@@ -18,7 +19,7 @@
 - **python-dotenv** - Environment variable management from `.env` files
 
 ## Logging
-- **logging** (native) - Operational logs to `.log` files
+- **logging** (native) - Operational logs to `.log` files with RotatingFileHandler
 - Custom loggers for separating operational vs. experimental data
 
 ## Testing
@@ -27,5 +28,16 @@
 - **pytest-mock** - Mocking utilities
 
 ## Utilities
-- **rich** - Terminal output and progress bars
+- **rich** - Terminal output, progress bars, and tables
 - **PyYAML** - Configuration file parsing (optional)
+
+## Project Structure
+
+```
+src/
+├── api/           # OpenRouter API client, retry logic, parsers
+├── cli/           # CLI parser, statistics calculator, output formatter
+├── core/          # Business logic (loader, filter, randomizer, executors)
+├── db/            # Database schema, models, repositories
+└── utils/         # Configuration, logging, image handler, progress
+```
