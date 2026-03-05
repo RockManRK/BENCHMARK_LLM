@@ -219,41 +219,41 @@ Implement comprehensive logging and error management.
 
 ---
 
-## Phase 7: CLI & Basic Statistics [checkpoint: ]
+## Phase 7: CLI & Basic Statistics [checkpoint: 9b8294e]
 
 Implement command-line interface and basic output.
 
-- [ ] Task: Create CLI module
-    - [ ] Parse command-line arguments
-    - [ ] Support model selection (--models)
-    - [ ] Support iteration count (--iterations)
-    - [ ] Support question filtering (--questions)
-    - [ ] Support config file (--config)
+- [x] Task: Create CLI module `9b8294e`
+    - [x] Parse command-line arguments
+    - [x] Support model selection (--models)
+    - [x] Support iteration count (--iterations)
+    - [x] Support question filtering (--questions)
+    - [x] Support config file (--config)
 
-- [ ] Task: Create statistics module
-    - [ ] Calculate accuracy per model
-    - [ ] Calculate average latency per model
-    - [ ] Calculate token usage statistics
-    - [ ] Calculate consistency across iterations
-    - [ ] Generate error summary
+- [x] Task: Create statistics module `9b8294e`
+    - [x] Calculate accuracy per model
+    - [x] Calculate average latency per model
+    - [x] Calculate token usage statistics
+    - [x] Calculate consistency across iterations
+    - [x] Generate error summary
 
-- [ ] Task: Create output formatter
-    - [ ] Console output with rich tables
-    - [ ] JSON export option
-    - [ ] CSV export option
-    - [ ] Markdown summary export
+- [x] Task: Create output formatter `9b8294e`
+    - [x] Console output with rich tables
+    - [x] JSON export option
+    - [x] CSV export option
+    - [x] Markdown summary export
 
-- [ ] Task: Create main entry point
-    - [ ] Wire up CLI to execution engine
-    - [ ] Handle graceful shutdown
-    - [ ] Display final statistics
-    - [ ] Log completion summary
+- [x] Task: Create main entry point `9b8294e`
+    - [x] Wire up CLI to execution engine
+    - [x] Handle graceful shutdown
+    - [x] Display final statistics
+    - [x] Log completion summary
 
-- [ ] Task: Create CLI tests
-    - [ ] Test argument parsing
-    - [ ] Test statistics calculations
-    - [ ] Test output formatting
-    - [ ] Test end-to-end execution (mocked)
+- [x] Task: Create CLI tests `9b8294e`
+    - [x] Test argument parsing
+    - [x] Test statistics calculations
+    - [x] Test output formatting
+    - [x] Test end-to-end execution (mocked)
 
 - [ ] Task: Conductor - User Manual Verification 'CLI & Basic Statistics' (Protocol in workflow.md)
 
