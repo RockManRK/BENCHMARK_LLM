@@ -39,33 +39,33 @@ Setup project structure, dependencies, and configuration.
 
 ---
 
-## Phase 2: Database Layer [checkpoint: ]
+## Phase 2: Database Layer [checkpoint: 7432a5c]
 
 Implement SQLite database schema and data access layer.
 
-- [ ] Task: Create database schema module
-    - [ ] Define CREATE TABLE statements for all tables
-    - [ ] Implement database initialization function
-    - [ ] Create database connection manager
+- [x] Task: Create database schema module `3494f8f`
+    - [x] Define CREATE TABLE statements for all tables
+    - [x] Implement database initialization function
+    - [x] Create database connection manager
 
-- [ ] Task: Create models module (data classes)
-    - [ ] Run model dataclass
-    - [ ] Question model dataclass
-    - [ ] Response model dataclass
-    - [ ] Error model dataclass
-    - [ ] Iteration model dataclass
+- [x] Task: Create models module (data classes) `3494f8f`
+    - [x] Run model dataclass
+    - [x] Question model dataclass
+    - [x] Response model dataclass
+    - [x] Error model dataclass
+    - [x] Iteration model dataclass
 
-- [ ] Task: Create repository module (data access)
-    - [ ] RunRepository - CRUD operations for runs
-    - [ ] ModelRepository - CRUD operations for models
-    - [ ] ResponseRepository - CRUD operations for responses
-    - [ ] ErrorRepository - CRUD operations for errors
-    - [ ] IterationRepository - CRUD operations for iterations
+- [x] Task: Create repository module (data access) `273c35f`
+    - [x] RunRepository - CRUD operations for runs
+    - [x] ModelRepository - CRUD operations for models
+    - [x] ResponseRepository - CRUD operations for responses
+    - [x] ErrorRepository - CRUD operations for errors
+    - [x] IterationRepository - CRUD operations for iterations
 
-- [ ] Task: Create database tests
-    - [ ] Test database initialization
-    - [ ] Test CRUD operations for each repository
-    - [ ] Test transaction handling
+- [x] Task: Create database tests `7432a5c`
+    - [x] Test database initialization
+    - [x] Test CRUD operations for each repository
+    - [x] Test transaction handling
 
 - [ ] Task: Conductor - User Manual Verification 'Database Layer' (Protocol in workflow.md)
 
