@@ -70,7 +70,9 @@ class RunRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_id(self, run_id: str) -> Optional[Run]:
         """Retrieve a run by its ID.
@@ -98,7 +100,9 @@ class RunRepository:
                 status=row["status"],
             )
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_all(self) -> list[Run]:
         """Retrieve all runs.
@@ -122,7 +126,9 @@ class RunRepository:
                 )
             return runs
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def update(self, run: Run) -> Optional[Run]:
         """Update an existing run record.
@@ -157,7 +163,9 @@ class RunRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def delete(self, run_id: str) -> bool:
         """Delete a run record.
@@ -178,7 +186,9 @@ class RunRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
 
 class ModelRepository:
@@ -228,7 +238,9 @@ class ModelRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_id(self, model_id: str) -> Optional[Model]:
         """Retrieve a model by its ID.
@@ -255,7 +267,9 @@ class ModelRepository:
                 provider=row["provider"],
             )
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_all(self) -> list[Model]:
         """Retrieve all models.
@@ -278,7 +292,9 @@ class ModelRepository:
                 )
             return models
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def update(self, model_id: str, model_name: str, provider: str) -> Optional[Model]:
         """Update an existing model record.
@@ -306,7 +322,9 @@ class ModelRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def delete(self, model_id: str) -> bool:
         """Delete a model record.
@@ -327,7 +345,9 @@ class ModelRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
 
 class ResponseRepository:
@@ -397,7 +417,9 @@ class ResponseRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_id(self, response_id: int) -> Optional[Response]:
         """Retrieve a response by its ID.
@@ -445,7 +467,9 @@ class ResponseRepository:
                 status=row["status"],
             )
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_iteration(self, iteration_id: int) -> list[Response]:
         """Retrieve all responses for an iteration.
@@ -495,7 +519,9 @@ class ResponseRepository:
                 )
             return responses
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_run(self, run_id: str) -> list[Response]:
         """Retrieve all responses for a run.
@@ -545,7 +571,9 @@ class ResponseRepository:
                 )
             return responses
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def update(self, response: Response) -> Optional[Response]:
         """Update an existing response record.
@@ -599,7 +627,9 @@ class ResponseRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def delete(self, response_id: int) -> bool:
         """Delete a response record.
@@ -620,7 +650,9 @@ class ResponseRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
 
 class ErrorRepository:
@@ -669,7 +701,9 @@ class ErrorRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_id(self, error_id: int) -> Optional[Error]:
         """Retrieve an error by its ID.
@@ -702,7 +736,9 @@ class ErrorRepository:
                 timestamp=datetime.fromisoformat(row["timestamp"]),
             )
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_response(self, response_id: int) -> list[Error]:
         """Retrieve all errors for a response.
@@ -737,7 +773,9 @@ class ErrorRepository:
                 )
             return errors
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def delete(self, error_id: int) -> bool:
         """Delete an error record.
@@ -758,7 +796,9 @@ class ErrorRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
 
 class IterationRepository:
@@ -813,7 +853,9 @@ class IterationRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close connection for in-memory databases
+            if str(self.db_manager.database_path) != ":memory:":
+                conn.close()
 
     def get_by_id(self, iteration_id: int) -> Optional[Iteration]:
         """Retrieve an iteration by its ID.
@@ -848,7 +890,9 @@ class IterationRepository:
                 status=row["status"],
             )
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_run(self, run_id: str) -> list[Iteration]:
         """Retrieve all iterations for a run.
@@ -885,7 +929,9 @@ class IterationRepository:
                 )
             return iterations
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def get_by_model(self, model_id: str) -> list[Iteration]:
         """Retrieve all iterations for a model.
@@ -922,7 +968,9 @@ class IterationRepository:
                 )
             return iterations
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def update(self, iteration: Iteration) -> Optional[Iteration]:
         """Update an existing iteration record.
@@ -964,7 +1012,9 @@ class IterationRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
 
     def delete(self, iteration_id: int) -> bool:
         """Delete an iteration record.
@@ -985,4 +1035,6 @@ class IterationRepository:
             conn.rollback()
             raise
         finally:
-            conn.close()
+            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()

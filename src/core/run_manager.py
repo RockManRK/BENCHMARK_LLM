@@ -6,11 +6,12 @@ including run initialization, configuration storage, and status tracking.
 
 import json
 import logging
+import sqlite3
 import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from src.db.models import Run
+from src.db.models import Model, Run
 from src.db.repository import RunRepository
 from src.db.schema import DatabaseManager
 
@@ -93,6 +94,26 @@ class RunManager:
 
         # Save to database
         self._run_repository.create(run)
+
+        # Register models in database (required for foreign key constraints)
+        from src.db.repository import ModelRepository
+        model_repo = ModelRepository(self.db_manager)
+        models = config.get("models", [])
+        for model_id in models:
+            # Extract provider from model_id (e.g., "openai/gpt-4" -> "openai")
+            if "/" in model_id:
+                provider = model_id.split("/")[0]
+                model_name = model_id.split("/")[1]
+            else:
+                provider = "unknown"
+                model_name = model_id
+            
+            try:
+                model_repo.create(model_id, model_name, provider)
+                logger.debug(f"Registered model: {model_id}")
+            except sqlite3.Error:
+                # Model might already exist, ignore error
+                pass
 
         # Set as current run
         self.current_run = run

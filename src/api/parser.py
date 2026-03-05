@@ -120,6 +120,14 @@ class ResponseParser:
         message = choice.get("message", {})
         content = message.get("content", "")
         finish_reason = choice.get("finish_reason", "")
+        
+        # Handle reasoning models (e.g., Qwen with llama.cpp)
+        # Some models output reasoning_content separately from content
+        # If content is empty but reasoning_content exists, use reasoning_content
+        if not content or not content.strip():
+            reasoning_content = message.get("reasoning_content", "")
+            if reasoning_content:
+                content = reasoning_content
 
         if content is None:
             raise ParseError("Empty content in response")
@@ -213,10 +221,12 @@ class ResponseParser:
             r"[Cc]orrect\s*(?:answer)?\s*(?:is)?\s*([A-E])\b",
             r"[Oo]ption\s*([A-E])\b",
             r"\(\s*([A-E])\s*\)",
+            r"^([A-E])\s*:",  # Matches "A: text" at start of line
+            r"^([A-E])\s*\)",  # Matches "A) text" at start of line
         ]
-        
+
         for pattern in answer_patterns:
-            match = re.search(pattern, content)
+            match = re.search(pattern, content, re.MULTILINE)
             if match:
                 return match.group(1).upper()
 

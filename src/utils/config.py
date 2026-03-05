@@ -76,10 +76,44 @@ class Settings(BaseSettings):
         description="Default number of test iterations per model",
     )
 
+    # Test mode configuration
+    use_memory_db: bool = Field(
+        default=False,
+        description="Use in-memory database for testing (not persistent)",
+    )
+
     # Randomization
     random_seed: Optional[int] = Field(
         default=None,
         description="Optional seed for reproducible randomization",
+    )
+
+    # Questionnaire Configuration
+    questionnaire_path: Path = Field(
+        default=Path("./data/enamed_questions.json"),
+        description="Path to the JSON questionnaire file",
+    )
+
+    # Model Generation Parameters (optional, None = use model defaults)
+    model_max_tokens: Optional[int] = Field(
+        default=None,
+        description="Maximum tokens for model generation (leave None for model default)",
+    )
+    model_temperature: Optional[float] = Field(
+        default=None,
+        description="Temperature for model generation (leave None for model default)",
+    )
+    model_top_p: Optional[float] = Field(
+        default=None,
+        description="Top-p sampling parameter (leave None for model default)",
+    )
+    model_top_k: Optional[int] = Field(
+        default=None,
+        description="Top-k sampling parameter (leave None for model default)",
+    )
+    model_repeat_penalty: Optional[float] = Field(
+        default=None,
+        description="Repeat penalty parameter (leave None for model default)",
     )
 
     @field_validator("log_level")
@@ -104,19 +138,40 @@ class Settings(BaseSettings):
             )
         return value_upper
 
-    @field_validator("random_seed")
+    @field_validator("random_seed", mode="before")
     @classmethod
-    def validate_random_seed(cls, value: Optional[int]) -> Optional[int]:
-        """Validate that random seed is a valid integer if provided.
-
-        Args:
-            value: The random seed value to validate.
-
-        Returns:
-            The validated random seed or None.
-        """
-        if value is not None and value < 0:
+    def validate_random_seed(cls, value: Optional[str | int]) -> Optional[int]:
+        """Validate that random seed is a valid integer if provided."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError:
+                raise ValueError(f"Random seed must be an integer, got '{value}'")
+        if value < 0:
             raise ValueError("Random seed must be a non-negative integer")
+        return value
+
+    @field_validator("model_max_tokens", mode="before")
+    @classmethod
+    def validate_model_max_tokens(cls, value: Optional[str | int]) -> Optional[int]:
+        """Validate model_max_tokens, converting empty string to None."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError:
+                raise ValueError(f"model_max_tokens must be an integer, got '{value}'")
+        return value
+
+    @field_validator("model_temperature", "model_top_p", "model_top_k", "model_repeat_penalty", mode="before")
+    @classmethod
+    def validate_model_params(cls, value: Optional[str | int | float]) -> Optional[float | int]:
+        """Validate model parameters, converting empty string to None."""
+        if value is None or value == "":
+            return None
         return value
 
     @property

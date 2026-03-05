@@ -57,6 +57,7 @@ class QuestionExecutor:
         run_id: str,
         model_id: str,
         iteration_id: int,
+        model_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -67,11 +68,15 @@ class QuestionExecutor:
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
             iteration_id: ID of the current iteration.
+            model_kwargs: Optional dict with model generation parameters
+                (max_tokens, temperature, top_p, top_k, repeat_penalty).
+                If None, uses model defaults.
 
         Example:
             >>> executor = QuestionExecutor(
             ...     db_manager, api_client, randomizer,
-            ...     run_id="run-123", model_id="gpt-4", iteration_id=1
+            ...     run_id="run-123", model_id="gpt-4", iteration_id=1,
+            ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0}
             ... )
         """
         self.db_manager = db_manager
@@ -80,11 +85,13 @@ class QuestionExecutor:
         self._run_id = run_id
         self._model_id = model_id
         self._iteration_id = iteration_id
+        self._model_kwargs = model_kwargs or {}
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
         logger.debug(
             f"QuestionExecutor initialized for run={run_id}, "
-            f"model={model_id}, iteration={iteration_id}"
+            f"model={model_id}, iteration={iteration_id}, "
+            f"model_kwargs={self._model_kwargs}"
         )
 
     async def execute_question(self, question: Question) -> dict[str, Any]:
@@ -144,12 +151,25 @@ class QuestionExecutor:
 
             # Step 3: Send request and capture response
             latency_start = time.time()
-            api_response = await self._api_client.chat_completion(
-                model=self._model_id,
-                messages=[request_content],
-                max_tokens=100,
-                temperature=0.0,
-            )
+            
+            # Build API request with model kwargs (only include non-None values)
+            api_kwargs = {
+                "model": self._model_id,
+                "messages": [request_content],
+            }
+            # Add optional parameters only if configured
+            if "max_tokens" in self._model_kwargs:
+                api_kwargs["max_tokens"] = self._model_kwargs["max_tokens"]
+            if "temperature" in self._model_kwargs:
+                api_kwargs["temperature"] = self._model_kwargs["temperature"]
+            if "top_p" in self._model_kwargs:
+                api_kwargs["top_p"] = self._model_kwargs["top_p"]
+            if "top_k" in self._model_kwargs:
+                api_kwargs["top_k"] = self._model_kwargs["top_k"]
+            if "repeat_penalty" in self._model_kwargs:
+                api_kwargs["repeat_penalty"] = self._model_kwargs["repeat_penalty"]
+            
+            api_response = await self._api_client.chat_completion(**api_kwargs)
             latency_ms = int((time.time() - latency_start) * 1000)
 
             # Step 4: Parse response
@@ -268,6 +288,13 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
         if choices:
             message = choices[0].get("message", {})
             response_text = message.get("content", "")
+            
+            # Handle reasoning models (e.g., Qwen with llama.cpp)
+            # If content is empty but reasoning_content exists, use reasoning_content
+            if not response_text or not response_text.strip():
+                reasoning_content = message.get("reasoning_content", "")
+                if reasoning_content:
+                    response_text = reasoning_content
 
         # Extract token usage
         usage = api_response.get("usage", {})
@@ -307,21 +334,24 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
         """
         # Common patterns for answer extraction
         patterns = [
-            r"\*\*([A-D])\*\*",  # **A**, **B**, etc.
-            r"\b([A-D])\b\s*:",  # A:, B:, etc.
-            r"answer\s*is\s*([A-D])",  # "answer is A"
-            r"correct\s*answer\s*is\s*([A-D])",  # "correct answer is A"
-            r"option\s*([A-D])",  # "option A"
-            r"^[A-D]\b",  # Line starting with A, B, C, or D
-            r"\b([A-D])\b",  # Any standalone letter A-D
+            (r"\*\*([A-D])\*\*", True),  # **A**, **B**, etc. (has group)
+            (r"\b([A-D])\b\s*:", True),  # A:, B:, etc. (has group)
+            (r"answer\s*is\s*([A-D])", True),  # "answer is A" (has group)
+            (r"correct\s*answer\s*is\s*([A-D])", True),  # "correct answer is A" (has group)
+            (r"option\s*([A-D])", True),  # "option A" (has group)
+            (r"^[A-D]\b", False),  # Line starting with A, B, C, or D (no group)
+            (r"\b([A-D])\b", True),  # Any standalone letter A-D (has group)
         ]
 
         response_upper = response_text.upper()
 
-        for pattern in patterns:
+        for pattern, has_group in patterns:
             match = re.search(pattern, response_text, re.IGNORECASE)
             if match:
-                letter = match.group(1).upper()
+                if has_group:
+                    letter = match.group(1).upper()
+                else:
+                    letter = match.group(0).upper()
                 if letter in ("A", "B", "C", "D"):
                     logger.debug(f"Extracted answer '{letter}' using pattern: {pattern}")
                     return letter

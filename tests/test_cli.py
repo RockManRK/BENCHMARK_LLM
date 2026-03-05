@@ -133,6 +133,18 @@ class TestCLIParser:
         args = parser.parse(["--dry-run"])
         assert args.dry_run is True
 
+    def test_parse_test_mode(self) -> None:
+        """Test parsing test-mode flag."""
+        parser = CLIParser()
+        args = parser.parse(["--test-mode"])
+        assert args.test_mode is True
+
+    def test_parse_vary_seed(self) -> None:
+        """Test parsing vary-seed flag."""
+        parser = CLIParser()
+        args = parser.parse(["--vary-seed"])
+        assert args.vary_seed is True
+
     def test_parse_all_arguments(self) -> None:
         """Test parsing all arguments together."""
         parser = CLIParser()
@@ -146,6 +158,8 @@ class TestCLIParser:
             "--seed", "42",
             "--verbose",
             "--dry-run",
+            "--test-mode",
+            "--vary-seed",
         ])
         assert args.models == ["gpt-4", "claude-3"]
         assert args.iterations == 3
@@ -156,6 +170,8 @@ class TestCLIParser:
         assert args.seed == 42
         assert args.verbose is True
         assert args.dry_run is True
+        assert args.test_mode is True
+        assert args.vary_seed is True
 
 
 class TestParseArguments:

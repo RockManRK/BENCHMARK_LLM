@@ -55,6 +55,7 @@ class IterationExecutor:
         run_id: str,
         model_id: str,
         iteration_number: int,
+        model_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
         """Initialize the IterationExecutor.
 
@@ -65,11 +66,13 @@ class IterationExecutor:
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
             iteration_number: Sequential iteration number (1-based).
+            model_kwargs: Optional dict with model generation parameters.
 
         Example:
             >>> executor = IterationExecutor(
             ...     db_manager, api_client, randomizer,
-            ...     run_id="run-123", model_id="gpt-4", iteration_number=1
+            ...     run_id="run-123", model_id="gpt-4", iteration_number=1,
+            ...     model_kwargs={"max_tokens": 16384}
             ... )
         """
         self.db_manager = db_manager
@@ -79,6 +82,7 @@ class IterationExecutor:
         self.model_id = model_id
         self.iteration_number = iteration_number
         self._iteration_repository = IterationRepository(db_manager)
+        self._model_kwargs = model_kwargs or {}
         self._current_iteration: Optional[Iteration] = None
         self._progress_tracker: Optional[ProgressTracker] = None
 
@@ -261,6 +265,7 @@ class IterationExecutor:
             run_id=self.run_id,
             model_id=self.model_id,
             iteration_id=iteration_id,
+            model_kwargs=self._model_kwargs,
         )
 
         # Execute question and await result

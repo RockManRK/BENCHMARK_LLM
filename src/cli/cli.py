@@ -137,6 +137,20 @@ Examples:
             help="Validate configuration without executing benchmark",
         )
 
+        # Test mode
+        parser.add_argument(
+            "--test-mode",
+            action="store_true",
+            help="Run in test mode without saving results to the main database",
+        )
+
+        # Vary seed per iteration
+        parser.add_argument(
+            "--vary-seed",
+            action="store_true",
+            help="Use a different seed for each iteration (for consistency testing)",
+        )
+
         return parser
 
     def parse(self, args: Optional[list[str]] = None) -> argparse.Namespace:

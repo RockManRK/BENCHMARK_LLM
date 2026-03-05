@@ -146,13 +146,25 @@ class BenchmarkRunner:
             print("Error: Iterations must be at least 1", file=sys.stderr)
             return False
 
+        # Log test mode
+        if self.args.test_mode:
+            print("⚠️  TEST MODE: Results will not be saved to the main database")
+            logger.info("Running in test mode with in-memory database")
+
         logger.info("Configuration validated")
         return True
 
     def _init_database(self) -> None:
         """Initialize the database connection and schema."""
-        # Ensure data directory exists
-        self.settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.args.test_mode:
+            # Use in-memory database for testing
+            from pathlib import Path
+            self.settings.database_path = Path(":memory:")
+            logger.info("Using in-memory database for test mode")
+
+        # Ensure data directory exists (skip for in-memory)
+        if str(self.settings.database_path) != ":memory:":
+            self.settings.database_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db_manager = DatabaseManager(self.settings.database_path)
         self.db_manager.initialize()
@@ -165,43 +177,120 @@ class BenchmarkRunner:
 
         Returns:
             Dictionary containing execution results and statistics.
-
-        Note:
-            This is a placeholder that will be connected to the full
-            execution engine when Phases 5-6 are complete.
         """
         logger.info("Starting benchmark execution")
 
-        # Initialize run
+        # Step 1: Load questions from JSON
+        from src.core.loader import QuestionLoader
+        
+        loader = QuestionLoader(str(self.settings.questionnaire_path))
+        questions = loader.load()
+        logger.info(f"Loaded {len(questions)} questions from {self.settings.questionnaire_path}")
+
+        # Step 2: Filter questions if --questions argument provided
+        if self.args.questions:
+            from src.core.filter import QuestionFilter
+            
+            filter_obj = QuestionFilter(questions)
+            filter_obj.by_ids(self.args.questions)
+            questions = filter_obj.get_results()
+            logger.info(f"Filtered to {len(questions)} questions")
+
+        # Step 3: Initialize run
         config = {
             "models": self.args.models,
             "iterations": self.args.iterations,
-            "questions": self.args.questions,
+            "questions": [q.question_id for q in questions],
             "seed": self.args.seed,
+            "vary_seed": self.args.vary_seed,
+            "test_mode": self.args.test_mode,
+            "questionnaire": str(self.settings.questionnaire_path),
         }
 
+        run = None
         if self.run_manager:
             run = self.run_manager.initialize_run(config)
             logger.info(f"Run initialized: {run.run_id}")
 
-        # Placeholder for full execution
-        # In the complete implementation, this would:
-        # 1. Load questions from JSON
-        # 2. Filter questions based on args.questions
-        # 3. For each model:
-        #    a. For each iteration:
-        #       - Execute all questions
-        #       - Store responses in database
-        # 4. Return execution results
+        # Step 4: Execute benchmark for each model and iteration
+        from src.api.client import OpenRouterClient
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.iteration_executor import IterationExecutor
+        
+        all_results = []
+        
+        client = OpenRouterClient(
+            api_key=self.settings.openrouter_api_key,
+            base_url=self.settings.openrouter_base_url,
+        )
 
-        # Simulated results for now
+        for model_id in self.args.models:
+            logger.info(f"Starting benchmark for model: {model_id}")
+            
+            for iteration_num in range(1, self.args.iterations + 1):
+                logger.info(f"  Starting iteration {iteration_num} for {model_id}")
+
+                # Create randomizer with seed (use args.seed for reproducibility, or hash of run_id)
+                if self.args.seed:
+                    base_seed = self.args.seed
+                elif run:
+                    # Hash the run_id to get a reproducible int seed
+                    base_seed = hash(run.run_id) % (2**31)
+                else:
+                    base_seed = 42
+
+                # Vary seed per iteration if requested
+                if self.args.vary_seed:
+                    # Use different seed for each iteration
+                    randomizer_seed = (base_seed + (iteration_num * 1000)) % (2**31)
+                    logger.info(f"  Using seed {randomizer_seed} for iteration {iteration_num} (base: {base_seed})")
+                else:
+                    randomizer_seed = base_seed
+
+                randomizer = AnswerRandomizer(run_id=randomizer_seed)
+
+                # Build model kwargs from settings (only include non-None values)
+                model_kwargs = {}
+                if self.settings.model_max_tokens is not None:
+                    model_kwargs["max_tokens"] = self.settings.model_max_tokens
+                if self.settings.model_temperature is not None:
+                    model_kwargs["temperature"] = self.settings.model_temperature
+                if self.settings.model_top_p is not None:
+                    model_kwargs["top_p"] = self.settings.model_top_p
+                if self.settings.model_top_k is not None:
+                    model_kwargs["top_k"] = self.settings.model_top_k
+                if self.settings.model_repeat_penalty is not None:
+                    model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
+
+                # Create iteration executor
+                executor = IterationExecutor(
+                    db_manager=self.db_manager,
+                    api_client=client,
+                    randomizer=randomizer,
+                    run_id=run.run_id if run else "",
+                    model_id=model_id,
+                    iteration_number=iteration_num,
+                    model_kwargs=model_kwargs,
+                )
+                
+                # Execute iteration
+                result = executor.execute_iteration(questions)
+                all_results.append(result)
+                
+                logger.info(
+                    f"  Iteration {iteration_num} completed: "
+                    f"{result['completed_questions']}/{result['total_questions']} questions, "
+                    f"{result['errors']} errors"
+                )
+
+        # Step 5: Compile and return results
         results = {
             "status": "completed",
             "models_tested": self.args.models,
             "iterations": self.args.iterations,
-            "total_questions": 0,
-            "responses": [],
-            "errors": [],
+            "total_questions": len(questions),
+            "results": all_results,
+            "run_id": run.run_id if run else None,
         }
 
         logger.info("Benchmark execution completed")

@@ -92,6 +92,36 @@ RANDOM_SEED=
 | `DEFAULT_ITERATIONS` | Number of test iterations per model | `1` | No |
 | `RANDOM_SEED` | Seed for reproducible randomization | `None` | No |
 
+### Model Generation Parameters (Optional)
+
+These parameters control how the model generates responses. **If left blank, the system will not send them, allowing the model/server to use its own defaults.**
+
+| Variable | Description | Recommended | Notes |
+|----------|-------------|-------------|-------|
+| `MODEL_MAX_TOKENS` | Maximum tokens for generation | `16384` for reasoning models | **Important:** llama.cpp defaults to 100 tokens, which is insufficient for reasoning models (Qwen, o1, etc.). Set to `16384` or higher for models with chain-of-thought. |
+| `MODEL_TEMPERATURE` | Sampling temperature | `0.0` for deterministic | Lower = more deterministic, higher = more creative |
+| `MODEL_TOP_P` | Nucleus sampling parameter | Leave blank | Alternative to temperature |
+| `MODEL_TOP_K` | Top-k sampling parameter | Leave blank | Limits token selection |
+| `MODEL_REPEAT_PENALTY` | Penalty for repetition | Leave blank | Reduces repetitive output |
+
+**Example Configuration for Reasoning Models:**
+```env
+MODEL_MAX_TOKENS=16384
+MODEL_TEMPERATURE=0.0
+MODEL_TOP_P=
+MODEL_TOP_K=
+MODEL_REPEAT_PENALTY=
+```
+
+**Example Configuration for Standard Models (using defaults):**
+```env
+MODEL_MAX_TOKENS=
+MODEL_TEMPERATURE=
+MODEL_TOP_P=
+MODEL_TOP_K=
+MODEL_REPEAT_PENALTY=
+```
+
 ## Basic Usage
 
 ### Running a Benchmark Test
@@ -243,6 +273,32 @@ export DATABASE_PATH=/tmp/benchmark.db
 - Check your internet connection
 - The model may be experiencing high load - retry later
 - Consider using a model with faster response times
+
+#### Response Cut Off / Incomplete
+
+**Error:** Model response is cut off mid-sentence, or `finish_reason: "length"` in logs
+
+**Cause:** The model was limited by `max_tokens`. This is common with:
+- **llama.cpp local servers** (default: 100 tokens)
+- **Reasoning models** (Qwen, o1, etc.) that need more tokens for chain-of-thought
+
+**Solution:**
+```env
+# In .env file, set a higher max_tokens value
+MODEL_MAX_TOKENS=16384
+```
+
+**Note:** If `MODEL_MAX_TOKENS` is left blank, the system uses the model/server default. For llama.cpp, this is typically 100 tokens, which is insufficient for reasoning models.
+
+#### Empty Response from Reasoning Models
+
+**Error:** Model returns `reasoning_content` but `content` is empty
+
+**Cause:** Some models (Qwen, o1) separate reasoning from final answer. If `max_tokens` is too low, the model never reaches the final answer.
+
+**Solution:**
+1. Increase `MODEL_MAX_TOKENS` to `16384` or higher
+2. The system automatically handles `reasoning_content` fallback
 
 ### Getting Help
 

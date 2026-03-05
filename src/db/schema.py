@@ -156,8 +156,9 @@ class DatabaseManager:
             >>> manager = DatabaseManager(Path("./data/benchmark.db"))
             >>> manager.initialize()
         """
-        # Ensure parent directory exists
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure parent directory exists (skip for in-memory databases)
+        if str(self.database_path) != ":memory:":
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
 
         conn = self.get_connection()
         try:
@@ -172,11 +173,12 @@ class DatabaseManager:
     def get_connection(self) -> sqlite3.Connection:
         """Get a database connection.
 
-        Returns a new connection each time to ensure thread safety
-        and proper isolation.
+        For in-memory databases, returns the same connection to ensure
+        tables persist. For file databases, returns a new connection each
+        time to ensure thread safety and proper isolation.
 
         Returns:
-            A new SQLite connection to the database.
+            A SQLite connection to the database.
 
         Raises:
             sqlite3.Error: If there's an error connecting to the database.
@@ -188,6 +190,15 @@ class DatabaseManager:
             >>> cursor.execute("SELECT 1")
             >>> conn.close()
         """
+        # For in-memory databases, reuse the same connection
+        if str(self.database_path) == ":memory:":
+            if self._connection is None:
+                self._connection = sqlite3.connect(":memory:")
+                self._connection.row_factory = sqlite3.Row
+                self._connection.execute("PRAGMA foreign_keys = ON")
+            return self._connection
+        
+        # For file databases, create a new connection each time
         conn = sqlite3.connect(str(self.database_path))
         conn.row_factory = sqlite3.Row
         # Enable foreign key support
@@ -209,6 +220,18 @@ class DatabaseManager:
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+
+    def should_close_connection(self) -> bool:
+        """Check if connections should be closed after operations.
+        
+        For in-memory databases, connections should NOT be closed
+        after each operation to preserve data.
+        
+        Returns:
+            True if connections should be closed (file databases),
+            False for in-memory databases.
+        """
+        return str(self.database_path) != ":memory:"
 
     def __enter__(self) -> "DatabaseManager":
         """Context manager entry.
