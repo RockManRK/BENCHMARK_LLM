@@ -18,7 +18,7 @@ from src.core.randomizer import AnswerRandomizer
 from src.core.run_manager import RunManager
 from src.db.schema import DatabaseManager
 from src.utils.config import get_settings
-from src.utils.logging_config import setup_logging
+from src.utils.logging_config import LoggingConfig, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,12 @@ class BenchmarkRunner:
         self.db_manager: Optional[DatabaseManager] = None
         self.run_manager: Optional[RunManager] = None
 
-        # Setup logging
-        setup_logging(self.settings)
+        # Setup logging with LoggingConfig
+        log_config = LoggingConfig(
+            log_file_path=self.settings.log_file_path,
+            log_level=self.settings.log_level,
+        )
+        setup_logging(log_config)
 
         logger.info("BenchmarkRunner initialized")
         logger.debug(f"Arguments: {self.args}")
