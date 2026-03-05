@@ -129,14 +129,23 @@ benchmark_llm/
 │   ├── core/          # Core business logic
 │   ├── api/           # OpenRouter API integration
 │   ├── db/            # Database layer
+│   ├── cli/           # Command-line interface
 │   └── utils/         # Utilities and configuration
-├── tests/             # Unit tests
+├── tests/             # Unit and integration tests
+├── docs/              # Documentation
+│   ├── USAGE.md       # Detailed usage guide
+│   └── CONFIGURATION.md # Configuration reference
 ├── logs/              # Operational logs
 ├── data/              # Database and data files
 ├── .env.example       # Environment template
 ├── requirements.txt   # Python dependencies
 └── README.md          # This file
 ```
+
+## Documentation
+
+- **[Usage Guide](docs/USAGE.md)** - Comprehensive usage instructions and examples
+- **[Configuration Guide](docs/CONFIGURATION.md)** - Complete configuration reference
 
 ## Development
 
@@ -162,25 +171,85 @@ This project follows:
 ## Supported Models
 
 The tool supports all models available through OpenRouter, including:
-- OpenAI (GPT-4, GPT-3.5)
-- Anthropic (Claude 3, Claude 2)
-- Google (Gemini Pro, Gemini Ultra)
-- Meta (Llama 2, Llama 3)
-- And many more via OpenRouter
+- **OpenAI**: GPT-4, GPT-4 Turbo, GPT-3.5 Turbo
+- **Anthropic**: Claude 3 (Opus, Sonnet, Haiku), Claude 2
+- **Google**: Gemini Pro, Gemini Ultra, Gemini 1.5
+- **Meta**: Llama 2, Llama 3, Llama 3.1
+- **Mistral**: Mistral Large, Mistral Medium, Mixtral
+- **And many more** via OpenRouter's unified API
+
+For a complete list of available models, visit [OpenRouter Models](https://openrouter.ai/models).
 
 ## Data Collection
 
 The benchmark collects comprehensive metrics:
 - **Response Data**: Selected answer, full response text
 - **Performance Metrics**: Response time/latency
-- **Token Usage**: Input tokens, output tokens
-- **Error Tracking**: All errors and failures
-- **Consistency Data**: Multiple run comparisons
+- **Token Usage**: Input tokens, output tokens, total tokens
+- **Error Tracking**: All errors, failures, and edge cases
+- **Consistency Data**: Multiple run comparisons when configured
+- **Metadata**: Timestamp, model version, configuration used
 
 ## Logging
 
 - **Operational Logs**: Written to `.log` files (progress, errors, status)
-- **Experimental Data**: Stored in SQLite database (input, output, metrics)
+- **Experimental Data**: Stored in SQLite database (input, output, complete metrics)
+
+## Troubleshooting
+
+### Common Issues
+
+#### API Key Not Configured
+
+**Error:** `Error: OpenRouter API key not configured`
+
+**Solution:**
+```bash
+# Set via environment
+export OPENROUTER_API_KEY=your-api-key
+
+# Or add to .env file
+OPENROUTER_API_KEY=your-api-key
+```
+
+#### Rate Limit Exceeded
+
+**Error:** `HTTPError_429: Rate limit exceeded`
+
+**Solutions:**
+- Wait a few minutes and retry
+- Reduce the number of iterations
+- Check your OpenRouter account limits
+
+#### Database Permission Error
+
+**Error:** `sqlite3.OperationalError: unable to open database file`
+
+**Solution:**
+```bash
+# Ensure data directory exists and is writable
+mkdir -p data
+chmod 755 data
+
+# Or use a different location
+export DATABASE_PATH=/tmp/benchmark.db
+```
+
+#### Timeout Errors
+
+**Error:** `TimeoutError: Request timed out`
+
+**Solutions:**
+- Check your internet connection
+- The model may be experiencing high load - retry later
+- Consider using a model with faster response times
+
+### Getting Help
+
+1. **Check logs**: Review `logs/benchmark.log` for detailed error information
+2. **Dry run**: Validate configuration with `--dry-run` flag
+3. **Debug mode**: Set `LOG_LEVEL=DEBUG` for verbose output
+4. **Documentation**: See [docs/USAGE.md](docs/USAGE.md) and [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ## License
 
