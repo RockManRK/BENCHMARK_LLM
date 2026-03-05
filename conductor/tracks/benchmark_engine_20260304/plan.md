@@ -108,42 +108,42 @@ Implement questionnaire loading and parsing.
 
 ---
 
-## Phase 4: OpenRouter API Client [checkpoint: ]
+## Phase 4: OpenRouter API Client [checkpoint: f6c254b]
 
 Implement API integration with retry logic.
 
-- [ ] Task: Create API client module
-    - [ ] Initialize httpx AsyncClient
-    - [ ] Implement authentication with API key
-    - [ ] Create chat completion request builder
-    - [ ] Handle text-only messages
-    - [ ] Handle multimodal messages (text + image)
+- [x] Task: Create API client module `f6c254b`
+    - [x] Initialize httpx AsyncClient
+    - [x] Implement authentication with API key
+    - [x] Create chat completion request builder
+    - [x] Handle text-only messages
+    - [x] Handle multimodal messages (text + image)
 
-- [ ] Task: Implement retry logic
-    - [ ] Exponential backoff strategy
-    - [ ] Handle rate limiting (429)
-    - [ ] Handle timeouts
-    - [ ] Maximum retry count configuration
-    - [ ] Log retry attempts
+- [x] Task: Implement retry logic `f6c254b`
+    - [x] Exponential backoff strategy
+    - [x] Handle rate limiting (429)
+    - [x] Handle timeouts
+    - [x] Maximum retry count configuration
+    - [x] Log retry attempts
 
-- [ ] Task: Implement response parser
-    - [ ] Parse successful responses
-    - [ ] Extract selected answer from response text
-    - [ ] Extract token usage (input/output)
-    - [ ] Extract latency
-    - [ ] Handle malformed responses
+- [x] Task: Implement response parser `f6c254b`
+    - [x] Parse successful responses
+    - [x] Extract selected answer from response text
+    - [x] Extract token usage (input/output)
+    - [x] Extract latency
+    - [x] Handle malformed responses
 
-- [ ] Task: Implement model capability checker
-    - [ ] Check if model supports vision/images
-    - [ ] Mark questions as "unsupported" for incompatible models
-    - [ ] Cache model capabilities
+- [x] Task: Implement model capability checker `f6c254b`
+    - [x] Check if model supports vision/images
+    - [x] Mark questions as "unsupported" for incompatible models
+    - [x] Cache model capabilities
 
-- [ ] Task: Create API client tests
-    - [ ] Test successful API call (mocked)
-    - [ ] Test retry logic (mocked failures)
-    - [ ] Test rate limit handling
-    - [ ] Test response parsing
-    - [ ] Test image message formatting
+- [x] Task: Create API client tests `f6c254b`
+    - [x] Test successful API call (mocked)
+    - [x] Test retry logic (mocked failures)
+    - [x] Test rate limit handling
+    - [x] Test response parsing
+    - [x] Test image message formatting
 
 - [ ] Task: Conductor - User Manual Verification 'OpenRouter API Client' (Protocol in workflow.md)
 
