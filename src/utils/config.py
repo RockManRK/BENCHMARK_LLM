@@ -88,6 +88,12 @@ class Settings(BaseSettings):
         description="Optional seed for reproducible randomization",
     )
 
+    # Structured Outputs Configuration
+    use_structured_outputs: bool = Field(
+        default=False,
+        description="Use structured outputs (JSON schema) if model supports it",
+    )
+
     # Questionnaire Configuration
     questionnaire_path: Path = Field(
         default=Path("./data/enamed_questions.json"),
@@ -114,6 +120,24 @@ class Settings(BaseSettings):
     model_repeat_penalty: Optional[float] = Field(
         default=None,
         description="Repeat penalty parameter (leave None for model default)",
+    )
+
+    # Reasoning Configuration (OpenRouter standard)
+    reasoning_effort: Optional[str] = Field(
+        default=None,
+        description="Reasoning effort level: xhigh, high, medium, low, minimal, none",
+    )
+    reasoning_max_tokens: Optional[int] = Field(
+        default=None,
+        description="Maximum tokens for reasoning",
+    )
+    reasoning_exclude: bool = Field(
+        default=False,
+        description="Exclude reasoning from response (use internally but don't return)",
+    )
+    reasoning_enabled: bool = Field(
+        default=False,
+        description="Enable reasoning with default parameters",
     )
 
     @field_validator("log_level")
@@ -174,6 +198,26 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def validate_reasoning_effort(cls, value: Optional[str]) -> Optional[str]:
+        """Validate reasoning_effort is a valid level."""
+        if value is None or value == "":
+            return None
+        
+        # Strip whitespace
+        value = value.strip()
+        
+        valid_efforts = {"xhigh", "high", "medium", "low", "minimal", "none"}
+        value_lower = value.lower()
+        
+        if value_lower not in valid_efforts:
+            raise ValueError(
+                f"reasoning_effort must be one of: {', '.join(sorted(valid_efforts))}, got '{value}'"
+            )
+        
+        return value_lower
+
     @property
     def is_api_configured(self) -> bool:
         """Check if the OpenRouter API is properly configured.
@@ -183,9 +227,13 @@ class Settings(BaseSettings):
         """
         return bool(self.openrouter_api_key)
 
-    def __init__(self) -> None:
-        """Initialize settings and log configuration status."""
-        super().__init__()
+    def __init__(self, **kwargs) -> None:
+        """Initialize settings and log configuration status.
+
+        Args:
+            **kwargs: Optional keyword arguments to override settings.
+        """
+        super().__init__(**kwargs)
         self._log_configuration_status()
 
     def _log_configuration_status(self) -> None:

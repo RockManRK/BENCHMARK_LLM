@@ -153,9 +153,12 @@ class OpenRouterClient:
         self._timeout = timeout
         
         # Initialize httpx client with authentication headers
+        # Use limits to force connection cleanup and avoid "Event loop is closed" errors
+        # Set max_keepalive_connections=0 to disable keepalive and force close after each request
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(self._timeout),
+            limits=httpx.Limits(max_keepalive_connections=0, max_connections=10),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -179,8 +182,9 @@ class OpenRouterClient:
         self,
         model: str,
         messages: list[dict[str, Any]],
-        max_tokens: int = 100,
-        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        reasoning: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Send a chat completion request to OpenRouter API.
@@ -190,6 +194,7 @@ class OpenRouterClient:
             messages: List of message dictionaries with role and content.
             max_tokens: Maximum tokens to generate in the response.
             temperature: Sampling temperature (0.0 for deterministic).
+            reasoning: Reasoning configuration (OpenRouter standard).
             **kwargs: Additional parameters to pass to the API.
 
         Returns:
@@ -211,10 +216,20 @@ class OpenRouterClient:
         payload = {
             "model": model,
             "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            **kwargs,
         }
+
+        # Add optional parameters only if provided
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if temperature is not None:
+            payload["temperature"] = temperature
+        
+        # Add reasoning configuration if provided
+        if reasoning is not None:
+            payload["reasoning"] = reasoning
+
+        # Add other kwargs
+        payload.update(kwargs)
 
         logger.debug(f"Sending chat completion request to {self.base_url}/chat/completions")
         logger.debug(f"Model: {model}, Messages: {len(messages)}")

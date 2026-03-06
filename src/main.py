@@ -71,6 +71,23 @@ class BenchmarkRunner:
 
         logger.info("BenchmarkRunner initialized")
         logger.debug(f"Arguments: {self.args}")
+        
+        # Apply CLI reasoning args to settings
+        self._apply_cli_reasoning_args()
+
+    def _apply_cli_reasoning_args(self) -> None:
+        """Apply CLI reasoning arguments to settings."""
+        if self.args.reasoning_effort:
+            self.settings.reasoning_effort = self.args.reasoning_effort
+            logger.info(f"Set reasoning_effort from CLI: {self.args.reasoning_effort}")
+        
+        if self.args.reasoning_tokens:
+            self.settings.reasoning_max_tokens = self.args.reasoning_tokens
+            logger.info(f"Set reasoning_max_tokens from CLI: {self.args.reasoning_tokens}")
+        
+        if self.args.reasoning_exclude:
+            self.settings.reasoning_exclude = self.args.reasoning_exclude
+            logger.info(f"Set reasoning_exclude from CLI: {self.args.reasoning_exclude}")
 
     def run(self) -> int:
         """Execute the benchmark.
@@ -314,6 +331,27 @@ class BenchmarkRunner:
                 if self.settings.model_repeat_penalty is not None:
                     model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
 
+                # Build reasoning config from settings
+                reasoning_config = None
+                if any([
+                    self.settings.reasoning_effort,
+                    self.settings.reasoning_max_tokens,
+                    self.settings.reasoning_exclude,
+                    self.settings.reasoning_enabled
+                ]):
+                    reasoning_config = {}
+                    
+                    if self.settings.reasoning_effort:
+                        reasoning_config["effort"] = self.settings.reasoning_effort
+                    if self.settings.reasoning_max_tokens:
+                        reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
+                    if self.settings.reasoning_exclude:
+                        reasoning_config["exclude"] = self.settings.reasoning_exclude
+                    if self.settings.reasoning_enabled:
+                        reasoning_config["enabled"] = self.settings.reasoning_enabled
+                    
+                    logger.info(f"Using reasoning config: {reasoning_config}")
+
                 # Create iteration executor
                 executor = IterationExecutor(
                     db_manager=self.db_manager,
@@ -323,6 +361,8 @@ class BenchmarkRunner:
                     model_id=actual_model_id,  # Use actual model ID from API
                     iteration_number=iteration_num,
                     model_kwargs=model_kwargs,
+                    use_structured_outputs=self.settings.use_structured_outputs,
+                    reasoning_config=reasoning_config,
                 )
                 
                 # Execute iteration
@@ -354,12 +394,33 @@ class BenchmarkRunner:
         Args:
             results: Dictionary containing execution results.
         """
-        # Convert results to format expected by StatisticsCalculator
-        responses = results.get("responses", [])
-        errors = results.get("errors", [])
+        # Fetch responses and errors from database
+        from src.db.repository import ResponseRepository
+        
+        response_repo = ResponseRepository(self.db_manager)
+        
+        # Get all responses for this run
+        run_id = results.get("run_id", "")
+        responses = response_repo.get_by_run(run_id) if run_id else []
+        
+        # Convert to format expected by StatisticsCalculator
+        responses_data = [
+            {
+                "model_id": r.model_id,
+                "is_correct": r.is_correct,
+                "latency_ms": r.latency_ms,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "status": "success",
+            }
+            for r in responses
+        ]
+        
+        # Errors are not tracked separately in test mode
+        errors_data = []
 
         # Calculate statistics
-        calculator = StatisticsCalculator(responses, errors)
+        calculator = StatisticsCalculator(responses_data, errors_data)
 
         # Get statistics for all models
         all_stats = calculator.get_all_statistics()

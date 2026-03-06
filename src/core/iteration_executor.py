@@ -56,6 +56,8 @@ class IterationExecutor:
         model_id: str,
         iteration_number: int,
         model_kwargs: Optional[dict[str, Any]] = None,
+        use_structured_outputs: bool = False,
+        reasoning_config: Optional[dict[str, Any]] = None,
     ) -> None:
         """Initialize the IterationExecutor.
 
@@ -67,12 +69,17 @@ class IterationExecutor:
             model_id: ID of the model being tested.
             iteration_number: Sequential iteration number (1-based).
             model_kwargs: Optional dict with model generation parameters.
+            use_structured_outputs: Whether to use structured outputs (JSON schema)
+                for model responses. Falls back to traditional method if not supported.
+            reasoning_config: Optional reasoning configuration (OpenRouter standard).
 
         Example:
             >>> executor = IterationExecutor(
             ...     db_manager, api_client, randomizer,
             ...     run_id="run-123", model_id="gpt-4", iteration_number=1,
-            ...     model_kwargs={"max_tokens": 16384}
+            ...     model_kwargs={"max_tokens": 16384},
+            ...     use_structured_outputs=True,
+            ...     reasoning_config={"effort": "high"}
             ... )
         """
         self.db_manager = db_manager
@@ -83,12 +90,15 @@ class IterationExecutor:
         self.iteration_number = iteration_number
         self._iteration_repository = IterationRepository(db_manager)
         self._model_kwargs = model_kwargs or {}
+        self._use_structured_outputs = use_structured_outputs
+        self._reasoning_config = reasoning_config
         self._current_iteration: Optional[Iteration] = None
         self._progress_tracker: Optional[ProgressTracker] = None
 
         logger.info(
             f"IterationExecutor initialized for run={run_id}, "
-            f"model={model_id}, iteration={iteration_number}"
+            f"model={model_id}, iteration={iteration_number}, "
+            f"reasoning_config={self._reasoning_config}"
         )
 
     def execute_iteration(
@@ -155,41 +165,39 @@ class IterationExecutor:
         completed = 0
         errors = 0
 
-        for question in questions:
-            try:
-                # Execute question
-                import asyncio
+        # Create a single event loop for all questions to avoid httpx connection close issues
+        import asyncio
 
-                # Check if we're already in a running event loop
+        async def execute_all_questions():
+            """Execute all questions in a single event loop."""
+            nonlocal completed, errors
+            
+            for question in questions:
                 try:
-                    loop = asyncio.get_running_loop()
-                    # We're in a running loop, use create_task or run_until_complete
-                    coroutine = self._execute_question(question, iteration_id)
-                    result = loop.run_until_complete(coroutine)
-                except RuntimeError:
-                    # No running loop, use asyncio.run
-                    result = asyncio.run(
-                        self._execute_question(question, iteration_id)
-                    )
+                    # Execute question in the current running loop
+                    result = await self._execute_question(question, iteration_id)
 
-                if result.get("status") == "success":
-                    completed += 1
-                else:
+                    if result.get("status") == "success":
+                        completed += 1
+                    else:
+                        errors += 1
+                        logger.warning(
+                            f"Question {question.question_id} failed: "
+                            f"{result.get('error_message', 'Unknown error')}"
+                        )
+
+                except Exception as e:
                     errors += 1
-                    logger.warning(
-                        f"Question {question.question_id} failed: "
-                        f"{result.get('error_message', 'Unknown error')}"
+                    logger.exception(
+                        f"Unexpected error executing question {question.question_id}: {e}"
                     )
 
-            except Exception as e:
-                errors += 1
-                logger.exception(
-                    f"Unexpected error executing question {question.question_id}: {e}"
-                )
+                # Update progress
+                if self._progress_tracker:
+                    self._progress_tracker.update(1)
 
-            # Update progress
-            if self._progress_tracker:
-                self._progress_tracker.update(1)
+        # Run all questions in a single event loop
+        asyncio.run(execute_all_questions())
 
         # Calculate duration
         duration_ms = int((time.time() - start_time) * 1000)
@@ -266,6 +274,8 @@ class IterationExecutor:
             model_id=self.model_id,
             iteration_id=iteration_id,
             model_kwargs=self._model_kwargs,
+            use_structured_outputs=self._use_structured_outputs,
+            reasoning_config=self._reasoning_config,
         )
 
         # Execute question and await result

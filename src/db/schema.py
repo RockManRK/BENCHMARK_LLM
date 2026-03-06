@@ -76,6 +76,8 @@ def get_schema_sql() -> str:
         latency_ms INTEGER DEFAULT 0,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         status TEXT NOT NULL DEFAULT 'pending',
+        reasoning_details TEXT DEFAULT NULL,  -- JSON string with reasoning details
+        reasoning_tokens INTEGER DEFAULT NULL,  -- Number of reasoning tokens used
         FOREIGN KEY (iteration_id) REFERENCES iterations(iteration_id),
         FOREIGN KEY (model_id) REFERENCES models(model_id),
         FOREIGN KEY (run_id) REFERENCES runs(run_id)

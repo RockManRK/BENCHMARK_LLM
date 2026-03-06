@@ -151,6 +151,26 @@ Examples:
             help="Use a different seed for each iteration (for consistency testing)",
         )
 
+        # Reasoning parameters (OpenRouter standard)
+        parser.add_argument(
+            "--reasoning-effort",
+            type=str,
+            choices=["xhigh", "high", "medium", "low", "minimal", "none"],
+            help="Reasoning effort level (OpenRouter standard)",
+        )
+
+        parser.add_argument(
+            "--reasoning-tokens",
+            type=int,
+            help="Maximum tokens for reasoning",
+        )
+
+        parser.add_argument(
+            "--reasoning-exclude",
+            action="store_true",
+            help="Exclude reasoning from response (use internally but don't return)",
+        )
+
         return parser
 
     def parse(self, args: Optional[list[str]] = None) -> argparse.Namespace:

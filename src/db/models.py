@@ -133,6 +133,8 @@ class Response:
         latency_ms: Response time in milliseconds.
         timestamp: When the response was received.
         status: Response status (pending, success, error, unsupported).
+        reasoning_details: JSON string with reasoning details from the model.
+        reasoning_tokens: Number of reasoning tokens used.
 
     Example:
         >>> response = Response(
@@ -172,6 +174,8 @@ class Response:
     latency_ms: int = 0
     timestamp: datetime = field(default_factory=datetime.now)
     status: str = "pending"
+    reasoning_details: Optional[str] = None
+    reasoning_tokens: Optional[int] = None
 
 
 @dataclass

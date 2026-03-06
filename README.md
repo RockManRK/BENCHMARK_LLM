@@ -11,6 +11,9 @@ This tool enables researchers and developers to:
 - Collect comprehensive metrics (response time, token usage, accuracy)
 - Store all experimental data in SQLite for analysis
 - Handle both text-only and image-based questions
+- **NEW:** Automatic model detection with metadata
+- **NEW:** Structured outputs (JSON schema) support
+- **NEW:** Simplified CLI with `bcllm` command
 
 ## Requirements
 
@@ -19,13 +22,15 @@ This tool enables researchers and developers to:
 
 ## Installation
 
+### Option 1: Direct Usage (Recommended for Testing)
+
 1. Clone the repository:
 ```bash
 git clone <repository-url>
 cd benchmark_llm
 ```
 
-2. Create a virtual environment (recommended):
+2. Create a virtual environment:
 ```bash
 python -m venv .venv
 ```
@@ -45,6 +50,24 @@ source .venv/bin/activate
 4. Install dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+5. Run with:
+```bash
+python bcllm.py --help
+```
+
+### Option 2: Install as Package (Recommended for Production)
+
+After steps 1-4 above, install as package:
+
+```bash
+pip install -e .
+```
+
+Then use the `bcllm` command directly:
+```bash
+bcllm --help
 ```
 
 ## Configuration

@@ -468,8 +468,8 @@ class ResponseRepository:
                     question_text, options_json, options_randomized,
                     selected_answer, correct_answer, is_correct,
                     response_text, input_tokens, output_tokens,
-                    latency_ms, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    latency_ms, status, reasoning_details, reasoning_tokens
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.iteration_id,
@@ -487,6 +487,8 @@ class ResponseRepository:
                     response.output_tokens,
                     response.latency_ms,
                     response.status,
+                    response.reasoning_details,
+                    response.reasoning_tokens,
                 ),
             )
             conn.commit()
@@ -518,7 +520,7 @@ class ResponseRepository:
                        question_text, options_json, options_randomized,
                        selected_answer, correct_answer, is_correct,
                        response_text, input_tokens, output_tokens,
-                       latency_ms, timestamp, status
+                       latency_ms, timestamp, status, reasoning_details, reasoning_tokens
                 FROM responses WHERE response_id = ?
                 """,
                 (response_id,),
@@ -544,6 +546,8 @@ class ResponseRepository:
                 latency_ms=row["latency_ms"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
                 status=row["status"],
+                reasoning_details=row["reasoning_details"],
+                reasoning_tokens=row["reasoning_tokens"],
             )
         finally:
             # Don't close for in-memory databases
@@ -568,7 +572,7 @@ class ResponseRepository:
                        question_text, options_json, options_randomized,
                        selected_answer, correct_answer, is_correct,
                        response_text, input_tokens, output_tokens,
-                       latency_ms, timestamp, status
+                       latency_ms, timestamp, status, reasoning_details, reasoning_tokens
                 FROM responses WHERE iteration_id = ? ORDER BY question_id
                 """,
                 (iteration_id,),
@@ -594,6 +598,8 @@ class ResponseRepository:
                         latency_ms=row["latency_ms"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         status=row["status"],
+                        reasoning_details=row["reasoning_details"],
+                        reasoning_tokens=row["reasoning_tokens"],
                     )
                 )
             return responses
@@ -620,7 +626,7 @@ class ResponseRepository:
                        question_text, options_json, options_randomized,
                        selected_answer, correct_answer, is_correct,
                        response_text, input_tokens, output_tokens,
-                       latency_ms, timestamp, status
+                       latency_ms, timestamp, status, reasoning_details, reasoning_tokens
                 FROM responses WHERE run_id = ? ORDER BY iteration_id, question_id
                 """,
                 (run_id,),
@@ -646,6 +652,8 @@ class ResponseRepository:
                         latency_ms=row["latency_ms"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         status=row["status"],
+                        reasoning_details=row["reasoning_details"],
+                        reasoning_tokens=row["reasoning_tokens"],
                     )
                 )
             return responses
@@ -676,7 +684,7 @@ class ResponseRepository:
                     question_text = ?, options_json = ?, options_randomized = ?,
                     selected_answer = ?, correct_answer = ?, is_correct = ?,
                     response_text = ?, input_tokens = ?, output_tokens = ?,
-                    latency_ms = ?, status = ?
+                    latency_ms = ?, status = ?, reasoning_details = ?, reasoning_tokens = ?
                 WHERE response_id = ?
                 """,
                 (
@@ -695,6 +703,8 @@ class ResponseRepository:
                     response.output_tokens,
                     response.latency_ms,
                     response.status,
+                    response.reasoning_details,
+                    response.reasoning_tokens,
                     response.response_id,
                 ),
             )

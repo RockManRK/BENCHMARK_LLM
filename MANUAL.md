@@ -62,7 +62,7 @@ bcllm --models Qwen
 
 **O que é:** Número máximo de tokens que o modelo pode gerar.
 
-**Por que importa:** 
+**Por que importa:**
 - llama.cpp padrão: 100 tokens (insuficiente para reasoning)
 - OpenRouter padrão: 4096-8192 tokens
 - Reasoning models precisam de 10000+ tokens
@@ -103,6 +103,72 @@ bcllm --models Qwen --seed 42 --iterations 3
 **O que é:** Seed para randomização das opções de resposta.
 
 **Por que usar:** Garante que testes sejam reprodutíveis.
+
+#### vary-seed (consistência entre iterações)
+```bash
+# Usar seed diferente para cada iteração
+bcllm --models Qwen --iterations 3 --seed 42 --vary-seed
+```
+
+**O que é:** Varia a seed automaticamente para cada iteração.
+
+**Quando usar:**
+- Testar consistência do modelo
+- Evitar viés de randomização fixa
+- Estudos estatísticos
+
+**Como funciona:**
+- Iteração 1: seed = 42
+- Iteração 2: seed = 1042
+- Iteração 3: seed = 2042
+
+### Structured Outputs (Experimental)
+
+```bash
+# Habilitar structured outputs (via .env)
+# USE_STRUCTURED_OUTPUTS=true
+
+bcllm --models openai/gpt-4o --questions Q001
+```
+
+**O que é:** Força o modelo a responder em JSON estruturado.
+
+**Vantagens:**
+- ✅ Resposta sempre no formato correto
+- ✅ Sem necessidade de parser complexo
+- ✅ Inclui metadados (confiança, etc.)
+
+**Modelos suportados:**
+- ✅ OpenAI GPT-4o e posteriores
+- ✅ Google Gemini 2.x
+- ✅ Anthropic Sonnet 4.5+, Opus 4.1+
+- ✅ Fireworks (todos)
+- ⚠️ Qwen/llama.cpp: Provavelmente não suporta (fallback automático)
+
+**Como funciona:**
+1. Sistema tenta com structured outputs
+2. Se modelo não suportar → fallback automático
+3. Metadata salva: `used_structured_outputs: true/false`
+
+**Schema usado:**
+```json
+{
+  "answer": "A"
+}
+```
+
+### Reasoning Tokens (Opcional)
+
+```bash
+# Com reasoning effort
+bcllm --models openai/o3-mini --reasoning-effort high --questions Q001
+
+# Com max tokens
+bcllm --models anthropic/claude-sonnet-4.5 --reasoning-tokens 2000 --questions Q001
+
+# Excluir reasoning da resposta
+bcllm --models openai/o1 --reasoning-exclude --questions Q001
+```
 
 ### Modos de Execução
 
@@ -222,6 +288,57 @@ MODEL_MAX_TOKENS=16384
 MODEL_TEMPERATURE=0.0
 ```
 
+### Configuração Completa (Todas Opções)
+```env
+# OpenRouter API
+OPENROUTER_API_KEY=sua-chave-aqui
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# Database
+DATABASE_PATH=./data/benchmark.db
+
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE_PATH=./logs/benchmark.log
+
+# Test Configuration
+DEFAULT_ITERATIONS=1
+
+# Model Generation (Opcionais, em branco = padrão do modelo)
+MODEL_MAX_TOKENS=16384
+MODEL_TEMPERATURE=0.0
+MODEL_TOP_P=
+MODEL_TOP_K=
+MODEL_REPEAT_PENALTY=
+
+# Reprodutibilidade
+RANDOM_SEED=
+
+# Structured Outputs (Experimental)
+USE_STRUCTURED_OUTPUTS=false
+```
+
+### Detecção Automática de Modelo
+
+O sistema automaticamente:
+1. Consulta a API para obter informações do modelo
+2. Salva metadados no banco (n_params, size, context_length)
+3. Usa o nome exato retornado pela API
+
+**Exemplo:**
+```bash
+# Usuário digita
+bcllm --models Qwen
+
+# Sistema detecta e salva
+model_id: "Qwen"
+metadata: {
+  "n_params": 34660610688,
+  "size": 21158128128,
+  "n_ctx_train": 262144
+}
+```
+
 ## Troubleshooting
 
 ### Resposta Cortada
@@ -238,16 +355,61 @@ MODEL_TEMPERATURE=0.0
 
 ## Referência Rápida
 
+### Flags de Comando
+
 | Flag | Descrição | Exemplo |
 |------|-----------|---------|
 | `--models` | Modelos para testar | `--models Qwen gpt-4` |
 | `--questions` | Questões para testar | `--questions Q001-Q010` |
 | `--iterations` | Iterações por modelo | `--iterations 3` |
-| `--max-tokens` | Máximo de tokens | `--max-tokens 16384` |
-| `--temperature` | Temperatura (0-1) | `--temperature 0.0` |
 | `--seed` | Seed para reprodução | `--seed 42` |
+| `--vary-seed` | Varia seed por iteração | `--vary-seed` |
 | `--test-mode` | Não salva no banco | `--test-mode` |
 | `--dry-run` | Valida sem executar | `--dry-run` |
 | `--verbose` | Logs detalhados | `--verbose` |
 | `--output` | Formato de saída | `--output json` |
 | `--output-file` | Salvar em arquivo | `--output-file results.json` |
+| `--reasoning-effort` | Reasoning effort level | `--reasoning-effort high` |
+| `--reasoning-tokens` | Max reasoning tokens | `--reasoning-tokens 2000` |
+| `--reasoning-exclude` | Exclude reasoning from response | `--reasoning-exclude` |
+
+### Configurações via .env
+
+| Variável | Descrição | Padrão | Recomendado |
+|----------|-----------|--------|-------------|
+| `OPENROUTER_API_KEY` | Chave da API | - | Obrigatório |
+| `OPENROUTER_BASE_URL` | URL base | `openrouter.ai` | Local: `http://localhost:8080/v1` |
+| `MODEL_MAX_TOKENS` | Máximo de tokens | Padrão do modelo | `16384` (reasoning) |
+| `MODEL_TEMPERATURE` | Temperatura | Padrão do modelo | `0.0` (determinístico) |
+| `MODEL_TOP_P` | Nucleus sampling | Padrão do modelo | Deixar em branco |
+| `MODEL_TOP_K` | Top-k sampling | Padrão do modelo | Deixar em branco |
+| `MODEL_REPEAT_PENALTY` | Penalidade repetição | Padrão do modelo | Deixar em branco |
+| `RANDOM_SEED` | Seed global | `None` | `42` ou outro |
+| `USE_STRUCTURED_OUTPUTS` | JSON estruturado | `false` | `true` (se suportado) |
+| `REASONING_EFFORT` | Reasoning effort level | `None` | `high` para modelos reasoning |
+| `REASONING_MAX_TOKENS` | Max reasoning tokens | `None` | `2000` ou conforme necessário |
+| `REASONING_EXCLUDE` | Exclude reasoning | `false` | `true` para usar internamente |
+| `REASONING_ENABLED` | Enable reasoning | `false` | `true` para habilitar |
+
+### Metadados Salvos
+
+O sistema salva automaticamente:
+
+```json
+{
+  "model_id": "Qwen",
+  "model_metadata": {
+    "n_params": 34660610688,
+    "size": 21158128128,
+    "n_ctx_train": 262144,
+    "owned_by": "llamacpp"
+  },
+  "used_structured_outputs": false,
+  "latency_ms": 15234,
+  "tokens": {
+    "input": 315,
+    "output": 1837,
+    "total": 2152
+  }
+}
+```

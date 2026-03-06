@@ -439,6 +439,9 @@ class TestQuestionExecutor:
         executor._run_id = "run-123"
         executor._model_id = "gpt-4"
         executor._iteration_id = 1
+        executor._model_kwargs = {}
+        executor._use_structured_outputs = False
+        executor._reasoning_config = None
         executor._response_repository = mock_response_repository
         executor._error_repository = mock_error_repository
         return executor

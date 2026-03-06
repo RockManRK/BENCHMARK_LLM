@@ -638,3 +638,28 @@ class TestOutputFormatterExportToFile:
         output_file = tmp_path / "results.txt"
         formatter.export_to_file(sample_statistics, str(output_file), "console")
         assert output_file.exists()
+
+
+class TestReasoningCLI:
+    """Test reasoning CLI flags."""
+
+    def test_reasoning_effort_flag(self) -> None:
+        """Test --reasoning-effort flag."""
+        parser = CLIParser()
+        args = parser.parse(["--reasoning-effort", "high"])
+        assert args.reasoning_effort == "high"
+
+    def test_reasoning_tokens_flag(self) -> None:
+        """Test --reasoning-tokens flag."""
+        parser = CLIParser()
+        args = parser.parse(["--reasoning-tokens", "2000"])
+        assert args.reasoning_tokens == 2000
+
+    def test_reasoning_exclude_flag(self) -> None:
+        """Test --reasoning-exclude flag."""
+        parser = CLIParser()
+        args = parser.parse(["--reasoning-exclude"])
+        assert args.reasoning_exclude is True
+
+        args = parser.parse([])
+        assert args.reasoning_exclude is False

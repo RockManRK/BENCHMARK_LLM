@@ -6,6 +6,7 @@ and database storage.
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -19,6 +20,7 @@ from src.core.randomizer import AnswerRandomizer
 from src.db.models import Error, Question, Response
 from src.db.repository import ErrorRepository, ResponseRepository
 from src.db.schema import DatabaseManager
+from src.utils.answer_schema import ANSWER_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,8 @@ class QuestionExecutor:
         model_id: str,
         iteration_id: int,
         model_kwargs: Optional[dict[str, Any]] = None,
+        use_structured_outputs: bool = False,
+        reasoning_config: Optional[dict[str, Any]] = None,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -71,12 +75,17 @@ class QuestionExecutor:
             model_kwargs: Optional dict with model generation parameters
                 (max_tokens, temperature, top_p, top_k, repeat_penalty).
                 If None, uses model defaults.
+            use_structured_outputs: Whether to use structured outputs (JSON schema)
+                for model responses. Falls back to traditional method if not supported.
+            reasoning_config: Optional reasoning configuration (OpenRouter standard).
 
         Example:
             >>> executor = QuestionExecutor(
             ...     db_manager, api_client, randomizer,
             ...     run_id="run-123", model_id="gpt-4", iteration_id=1,
-            ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0}
+            ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0},
+            ...     use_structured_outputs=True,
+            ...     reasoning_config={"effort": "high"}
             ... )
         """
         self.db_manager = db_manager
@@ -86,12 +95,16 @@ class QuestionExecutor:
         self._model_id = model_id
         self._iteration_id = iteration_id
         self._model_kwargs = model_kwargs or {}
+        self._use_structured_outputs = use_structured_outputs
+        self._reasoning_config = reasoning_config
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
         logger.debug(
             f"QuestionExecutor initialized for run={run_id}, "
             f"model={model_id}, iteration={iteration_id}, "
-            f"model_kwargs={self._model_kwargs}"
+            f"model_kwargs={self._model_kwargs}, "
+            f"use_structured_outputs={self._use_structured_outputs}, "
+            f"reasoning_config={self._reasoning_config}"
         )
 
     async def execute_question(self, question: Question) -> dict[str, Any]:
@@ -118,7 +131,7 @@ class QuestionExecutor:
             - output_tokens: Number of output tokens generated
             - latency_ms: Response time in milliseconds
             - error_type: Type of error if status is "error"
-            - error_message: Error message if status is "error"
+            - metadata: Additional metadata (e.g., used_structured_outputs)
 
         Raises:
             Exception: Any unexpected errors during execution.
@@ -150,40 +163,58 @@ class QuestionExecutor:
             request_content = self._build_request_content(randomized_question)
 
             # Step 3: Send request and capture response
-            latency_start = time.time()
-            
-            # Build API request with model kwargs (only include non-None values)
-            api_kwargs = {
-                "model": self._model_id,
-                "messages": [request_content],
-            }
-            # Add optional parameters only if configured
-            if "max_tokens" in self._model_kwargs:
-                api_kwargs["max_tokens"] = self._model_kwargs["max_tokens"]
-            if "temperature" in self._model_kwargs:
-                api_kwargs["temperature"] = self._model_kwargs["temperature"]
-            if "top_p" in self._model_kwargs:
-                api_kwargs["top_p"] = self._model_kwargs["top_p"]
-            if "top_k" in self._model_kwargs:
-                api_kwargs["top_k"] = self._model_kwargs["top_k"]
-            if "repeat_penalty" in self._model_kwargs:
-                api_kwargs["repeat_penalty"] = self._model_kwargs["repeat_penalty"]
-            
-            api_response = await self._api_client.chat_completion(**api_kwargs)
-            latency_ms = int((time.time() - latency_start) * 1000)
+            # Try structured outputs if enabled, otherwise use traditional method
+            used_structured_outputs = False
+            parsed: dict[str, Any] = {}
+            latency_ms = 0
 
-            # Step 4: Parse response
-            parsed = self._parse_api_response(api_response, randomized_question)
+            if self._use_structured_outputs:
+                try:
+                    # Try with structured outputs
+                    latency_start = time.time()
+                    api_response = await self._execute_with_structured_output(
+                        request_content
+                    )
+                    latency_ms = int((time.time() - latency_start) * 1000)
+                    parsed = self._parse_structured_response(
+                        api_response, randomized_question
+                    )
+                    used_structured_outputs = True
+                    logger.debug(
+                        f"Question {question.question_id}: Used structured outputs"
+                    )
+                except Exception as e:
+                    # Check if it's an unsupported error
+                    if self._is_unsupported_error(e):
+                        logger.info(
+                            f"Model doesn't support structured outputs, falling back "
+                            f"for question {question.question_id}"
+                        )
+                    else:
+                        # Re-raise if it's a different error
+                        raise
+
+            # If not using structured outputs or fallback
+            if not used_structured_outputs:
+                latency_start = time.time()
+                api_response = await self._execute_traditional(request_content)
+                latency_ms = int((time.time() - latency_start) * 1000)
+                parsed = self._parse_api_response(api_response, randomized_question)
 
             # Calculate total execution time
             total_latency_ms = int((time.time() - start_time) * 1000)
 
-            # Step 5: Store response in database
+            # Extract reasoning details
+            reasoning_details, reasoning_tokens = self._extract_reasoning_details(api_response)
+
+            # Step 4: Store response in database
             response = self._create_response_object(
                 question=randomized_question,
                 parsed=parsed,
                 api_response=api_response,
                 latency_ms=total_latency_ms,
+                reasoning_details=reasoning_details,
+                reasoning_tokens=reasoning_tokens,
             )
             self._response_repository.create(response)
 
@@ -198,6 +229,7 @@ class QuestionExecutor:
                     "output_tokens": parsed["output_tokens"],
                     "latency_ms": latency_ms,
                     "response_text": parsed["response_text"],
+                    "metadata": {"used_structured_outputs": used_structured_outputs},
                 }
             )
 
@@ -206,7 +238,8 @@ class QuestionExecutor:
                 f"selected={parsed['selected_answer']}, "
                 f"correct={randomized_question.correct_answer}, "
                 f"is_correct={parsed['is_correct']}, "
-                f"latency={latency_ms}ms"
+                f"latency={latency_ms}ms, "
+                f"structured_outputs={used_structured_outputs}"
             )
 
         except httpx.HTTPStatusError as e:
@@ -260,6 +293,142 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
                 return MessageBuilder.build_multimodal_message(prompt, image_path)
 
         return MessageBuilder.build_user_message(prompt)
+
+    async def _execute_with_structured_output(
+        self, request_content: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute request with structured output format.
+
+        Args:
+            request_content: The request content dictionary.
+
+        Returns:
+            Raw API response dictionary.
+        """
+        # Build API request with response_format
+        api_kwargs = {
+            "model": self._model_id,
+            "messages": [request_content],
+            "response_format": ANSWER_SCHEMA,
+        }
+        # Add optional parameters only if configured
+        if "max_tokens" in self._model_kwargs:
+            api_kwargs["max_tokens"] = self._model_kwargs["max_tokens"]
+        if "temperature" in self._model_kwargs:
+            api_kwargs["temperature"] = self._model_kwargs["temperature"]
+        if "top_p" in self._model_kwargs:
+            api_kwargs["top_p"] = self._model_kwargs["top_p"]
+        if "top_k" in self._model_kwargs:
+            api_kwargs["top_k"] = self._model_kwargs["top_k"]
+        if "repeat_penalty" in self._model_kwargs:
+            api_kwargs["repeat_penalty"] = self._model_kwargs["repeat_penalty"]
+        
+        # Add reasoning config if provided
+        if self._reasoning_config:
+            api_kwargs["reasoning"] = self._reasoning_config
+
+        return await self._api_client.chat_completion(**api_kwargs)
+
+    async def _execute_traditional(
+        self, request_content: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute request with traditional method (no structured output).
+
+        Args:
+            request_content: The request content dictionary.
+
+        Returns:
+            Raw API response dictionary.
+        """
+        # Build API request with model kwargs (only include non-None values)
+        api_kwargs = {
+            "model": self._model_id,
+            "messages": [request_content],
+        }
+        # Add optional parameters only if configured
+        if "max_tokens" in self._model_kwargs:
+            api_kwargs["max_tokens"] = self._model_kwargs["max_tokens"]
+        if "temperature" in self._model_kwargs:
+            api_kwargs["temperature"] = self._model_kwargs["temperature"]
+        if "top_p" in self._model_kwargs:
+            api_kwargs["top_p"] = self._model_kwargs["top_p"]
+        if "top_k" in self._model_kwargs:
+            api_kwargs["top_k"] = self._model_kwargs["top_k"]
+        if "repeat_penalty" in self._model_kwargs:
+            api_kwargs["repeat_penalty"] = self._model_kwargs["repeat_penalty"]
+        
+        # Add reasoning config if provided
+        if self._reasoning_config:
+            api_kwargs["reasoning"] = self._reasoning_config
+
+        return await self._api_client.chat_completion(**api_kwargs)
+
+    def _parse_structured_response(
+        self, api_response: dict[str, Any], question: Question
+    ) -> dict[str, Any]:
+        """Parse structured JSON response.
+
+        Args:
+            api_response: Raw API response dictionary.
+            question: Question object (for answer validation).
+
+        Returns:
+            Dictionary containing parsed response data.
+        """
+        # Extract content
+        choices = api_response.get("choices", [])
+        content = ""
+        if choices:
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+
+        # Parse JSON
+        try:
+            data = json.loads(content)
+            selected_answer = data.get("answer", "").upper()
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse structured response: {e}")
+            selected_answer = self._extract_answer_letter(content) or ""
+
+        # Extract token usage
+        usage = api_response.get("usage", {})
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+
+        # Capture actual model from response
+        actual_model = api_response.get("model", self._model_id)
+
+        # Determine if answer is correct
+        is_correct = selected_answer == question.correct_answer
+
+        return {
+            "selected_answer": selected_answer,
+            "is_correct": is_correct,
+            "response_text": content,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "actual_model": actual_model,
+        }
+
+    def _is_unsupported_error(self, error: Exception) -> bool:
+        """Check if error indicates lack of structured output support.
+
+        Args:
+            error: The exception to check.
+
+        Returns:
+            True if the error indicates structured outputs are not supported.
+        """
+        error_str = str(error).lower()
+        return any(
+            keyword in error_str
+            for keyword in [
+                "structured",
+                "response_format",
+                "not supported",
+                "unsupported",
+            ]
+        )
 
     def _parse_api_response(
         self, api_response: dict[str, Any], question: Question
@@ -371,12 +540,51 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
         logger.warning(f"Could not extract answer letter from: {response_text[:100]}")
         return None
 
+    def _extract_reasoning_details(
+        self, api_response: dict[str, Any]
+    ) -> tuple[Optional[str], Optional[int]]:
+        """Extract reasoning details and tokens from API response.
+
+        Args:
+            api_response: Raw API response dictionary.
+
+        Returns:
+            Tuple of (reasoning_details_json, reasoning_tokens)
+        """
+        reasoning_details = None
+        reasoning_tokens = None
+
+        # Extract reasoning_details array from message
+        message = api_response.get("choices", [{}])[0].get("message", {})
+
+        # Get reasoning_details if present
+        if "reasoning_details" in message:
+            details = message["reasoning_details"]
+            if details:
+                reasoning_details = json.dumps(details)
+                logger.debug(f"Extracted reasoning_details: {len(details)} items")
+
+        # Extract reasoning tokens from usage
+        usage = api_response.get("usage", {})
+
+        # Some APIs provide reasoning_tokens separately
+        if "reasoning_tokens" in usage:
+            reasoning_tokens = usage["reasoning_tokens"]
+        elif "completion_tokens" in usage:
+            # If no separate reasoning_tokens, completion_tokens may include them
+            # We'll track this in metadata
+            pass
+
+        return reasoning_details, reasoning_tokens
+
     def _create_response_object(
         self,
         question: Question,
         parsed: dict[str, Any],
         api_response: dict[str, Any],
         latency_ms: int,
+        reasoning_details: Optional[str] = None,
+        reasoning_tokens: Optional[int] = None,
     ) -> Response:
         """Create a Response object for database storage.
 
@@ -385,6 +593,8 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
             parsed: Parsed response data.
             api_response: Raw API response.
             latency_ms: Total latency in milliseconds.
+            reasoning_details: Optional JSON string with reasoning details.
+            reasoning_tokens: Optional number of reasoning tokens used.
 
         Returns:
             Response object ready for database storage.
@@ -408,6 +618,8 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
             latency_ms=latency_ms,
             timestamp=datetime.now(),
             status="success",
+            reasoning_details=reasoning_details,
+            reasoning_tokens=reasoning_tokens,
         )
 
     def _handle_http_error(
