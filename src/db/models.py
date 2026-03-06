@@ -47,6 +47,9 @@ class Model:
         model_id: Unique identifier for the model.
         model_name: Human-readable name of the model.
         provider: Name of the model provider (e.g., OpenAI, Anthropic).
+        metadata: JSON string with model metadata (n_params, size, etc.).
+        context_length: Context window size in tokens.
+        max_completion_tokens: Maximum completion tokens.
 
     Example:
         >>> model = Model(
@@ -61,6 +64,9 @@ class Model:
     model_id: str
     model_name: str
     provider: str
+    metadata: str = "{}"
+    context_length: Optional[int] = None
+    max_completion_tokens: Optional[int] = None
 
 
 @dataclass

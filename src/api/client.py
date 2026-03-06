@@ -250,6 +250,67 @@ class OpenRouterClient:
             logger.error(f"Request error: {e}")
             raise
 
+    async def get_model_info(self, model_id: str) -> dict[str, Any]:
+        """Get model information from the API.
+        
+        Queries the /v1/models endpoint to get detailed model information
+        including architecture, context length, and other metadata.
+        
+        Args:
+            model_id: The model identifier to query.
+            
+        Returns:
+            Dictionary with model information:
+            - id: Exact model ID from API
+            - object: Type of object
+            - created: Timestamp
+            - owned_by: Provider name
+            - meta: Metadata (n_params, size, n_ctx_train, etc.)
+            - context_length: Context window size (if available)
+            - max_completion_tokens: Max output tokens (if available)
+            
+        Example:
+            >>> info = await client.get_model_info('Qwen')
+            >>> print(info['meta']['n_params'])
+            34660610688
+        """
+        try:
+            # Get list of all models
+            response = await self._client.get("/models")
+            response.raise_for_status()
+            data = response.json()
+            
+            # Search for matching model
+            models_list = data.get("data", data.get("models", []))
+            
+            for model in models_list:
+                model_id_field = model.get("id", model.get("model", ""))
+                
+                # Match by exact ID or by name contains
+                if model_id_field == model_id or model_id in model_id_field:
+                    # Build enriched model info
+                    model_info = {
+                        "id": model_id_field,
+                        "object": model.get("object", "model"),
+                        "created": model.get("created"),
+                        "owned_by": model.get("owned_by", "unknown"),
+                        "meta": model.get("meta", {}),
+                        "context_length": model.get("context_length"),
+                        "max_completion_tokens": model.get("max_completion_tokens"),
+                    }
+                    
+                    logger.info(f"Found model info for {model_id}: {model_info['id']}")
+                    return model_info
+            
+            # Model not found in list
+            logger.warning(f"Model {model_id} not found in /v1/models list")
+            return {"id": model_id, "object": "model"}
+            
+        except Exception as e:
+            logger.error(f"Error fetching model info for {model_id}: {e}")
+            # Fallback to provided ID
+            return {"id": model_id, "object": "model"}
+
     async def close(self) -> None:
         """Close the HTTP client and release resources.
 

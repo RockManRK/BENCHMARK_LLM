@@ -299,6 +299,84 @@ class TestOpenRouterClientAuthentication:
         
         messages = [{"role": "user", "content": "Test"}]
         await client.chat_completion(model="openai/gpt-4", messages=messages)
-        
+
         # Verify post was called (authentication is handled by httpx client setup)
         post_mock.assert_called_once()
+
+
+class TestOpenRouterClientGetModelInfo:
+    """Test cases for OpenRouterClient get_model_info method."""
+
+    @pytest.mark.asyncio
+    async def test_get_model_info_success(
+        self, client: OpenRouterClient, mocker: MockerFixture
+    ) -> None:
+        """Test successful model info retrieval."""
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "Qwen/Qwen3.5-32B-Instruct-GGUF",
+            "object": "model",
+            "created": 1234567890,
+            "owned_by": "Qwen"
+        }
+        mock_response.raise_for_status = mocker.Mock()
+
+        get_mock = mocker.AsyncMock(return_value=mock_response)
+        mocker.patch.object(client._client, 'get', get_mock)
+
+        result = await client.get_model_info("Qwen")
+
+        assert result is not None
+        assert result["id"] == "Qwen/Qwen3.5-32B-Instruct-GGUF"
+        assert result["object"] == "model"
+        get_mock.assert_called_once_with("/models/Qwen")
+
+    @pytest.mark.asyncio
+    async def test_get_model_info_not_found_fallback(
+        self, client: OpenRouterClient, mocker: MockerFixture
+    ) -> None:
+        """Test model info with 404 returns provided ID as fallback."""
+        import httpx
+
+        mock_response = mocker.Mock()
+        mock_response.status_code = 404
+        mock_response.raise_for_status = mocker.Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Not Found",
+                request=mocker.Mock(),
+                response=mock_response
+            )
+        )
+
+        get_mock = mocker.AsyncMock(return_value=mock_response)
+        mocker.patch.object(client._client, 'get', get_mock)
+
+        result = await client.get_model_info("UnknownModel")
+
+        assert result is not None
+        assert result["id"] == "UnknownModel"
+        assert result["object"] == "model"
+
+    @pytest.mark.asyncio
+    async def test_get_model_info_other_error_raises(
+        self, client: OpenRouterClient, mocker: MockerFixture
+    ) -> None:
+        """Test that non-404 errors are raised."""
+        import httpx
+
+        mock_response = mocker.Mock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status = mocker.Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Internal Server Error",
+                request=mocker.Mock(),
+                response=mock_response
+            )
+        )
+
+        get_mock = mocker.AsyncMock(return_value=mock_response)
+        mocker.patch.object(client._client, 'get', get_mock)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.get_model_info("SomeModel")

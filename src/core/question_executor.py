@@ -277,10 +277,7 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
             - response_text: Full response text
             - input_tokens: Input token count
             - output_tokens: Output token count
-
-        Example:
-            >>> parsed = self._parse_api_response(response, question)
-            >>> print(f"Model selected: {parsed['selected_answer']}")
+            - actual_model: The actual model ID from the response
         """
         # Extract response text
         choices = api_response.get("choices", [])
@@ -288,7 +285,7 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
         if choices:
             message = choices[0].get("message", {})
             response_text = message.get("content", "")
-            
+
             # Handle reasoning models (e.g., Qwen with llama.cpp)
             # If content is empty but reasoning_content exists, use reasoning_content
             if not response_text or not response_text.strip():
@@ -300,6 +297,14 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
         usage = api_response.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
+
+        # Capture actual model from response for verification
+        actual_model = api_response.get("model", self._model_id)
+        if actual_model != self._model_id:
+            logger.info(
+                f"API response indicates different model: "
+                f"requested={self._model_id}, actual={actual_model}"
+            )
 
         # Parse selected answer from response text
         selected_answer = self._extract_answer_letter(response_text)
@@ -313,6 +318,7 @@ Select the correct answer by providing only the letter (A, B, C, or D)."""
             "response_text": response_text,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "actual_model": actual_model,
         }
 
     def _extract_answer_letter(self, response_text: str) -> Optional[str]:

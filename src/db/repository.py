@@ -211,13 +211,24 @@ class ModelRepository:
         """
         self.db_manager = db_manager
 
-    def create(self, model_id: str, model_name: str, provider: str) -> Model:
+    def create(
+        self,
+        model_id: str,
+        model_name: str,
+        provider: str,
+        metadata: Optional[dict] = None,
+        context_length: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ) -> Model:
         """Create a new model record.
 
         Args:
             model_id: Unique identifier for the model.
             model_name: Human-readable name of the model.
             provider: Name of the model provider.
+            metadata: Optional dict with model metadata (n_params, size, etc.).
+            context_length: Optional context window size in tokens.
+            max_completion_tokens: Optional max completion tokens.
 
         Returns:
             The created Model object.
@@ -225,15 +236,34 @@ class ModelRepository:
         Raises:
             sqlite3.IntegrityError: If a model with the same ID already exists.
         """
+        import json
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO models (model_id, model_name, provider) VALUES (?, ?, ?)",
-                (model_id, model_name, provider),
+                """
+                INSERT INTO models (model_id, model_name, provider, metadata, context_length, max_completion_tokens)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    model_id,
+                    model_name,
+                    provider,
+                    json.dumps(metadata or {}),
+                    context_length,
+                    max_completion_tokens,
+                ),
             )
             conn.commit()
-            return Model(model_id=model_id, model_name=model_name, provider=provider)
+            return Model(
+                model_id=model_id,
+                model_name=model_name,
+                provider=provider,
+                metadata=json.dumps(metadata or {}),
+                context_length=context_length,
+                max_completion_tokens=max_completion_tokens,
+            )
         except sqlite3.Error:
             conn.rollback()
             raise
@@ -251,11 +281,16 @@ class ModelRepository:
         Returns:
             Model object if found, None otherwise.
         """
+        import json
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT model_id, model_name, provider FROM models WHERE model_id = ?",
+                """
+                SELECT model_id, model_name, provider, metadata, context_length, max_completion_tokens
+                FROM models WHERE model_id = ?
+                """,
                 (model_id,),
             )
             row = cursor.fetchone()
@@ -265,6 +300,9 @@ class ModelRepository:
                 model_id=row["model_id"],
                 model_name=row["model_name"],
                 provider=row["provider"],
+                metadata=row["metadata"] or "{}",
+                context_length=row["context_length"],
+                max_completion_tokens=row["max_completion_tokens"],
             )
         finally:
             # Don't close for in-memory databases
@@ -277,10 +315,17 @@ class ModelRepository:
         Returns:
             List of all Model objects in the database.
         """
+        import json
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT model_id, model_name, provider FROM models ORDER BY model_name")
+            cursor.execute(
+                """
+                SELECT model_id, model_name, provider, metadata, context_length, max_completion_tokens
+                FROM models ORDER BY model_name
+                """
+            )
             models = []
             for row in cursor.fetchall():
                 models.append(
@@ -288,6 +333,9 @@ class ModelRepository:
                         model_id=row["model_id"],
                         model_name=row["model_name"],
                         provider=row["provider"],
+                        metadata=row["metadata"] or "{}",
+                        context_length=row["context_length"],
+                        max_completion_tokens=row["max_completion_tokens"],
                     )
                 )
             return models
@@ -296,28 +344,59 @@ class ModelRepository:
             if self.db_manager.should_close_connection():
                 conn.close()
 
-    def update(self, model_id: str, model_name: str, provider: str) -> Optional[Model]:
+    def update(
+        self,
+        model_id: str,
+        model_name: str,
+        provider: str,
+        metadata: Optional[dict] = None,
+        context_length: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ) -> Optional[Model]:
         """Update an existing model record.
 
         Args:
             model_id: The unique identifier of the model.
             model_name: Updated human-readable name.
             provider: Updated provider name.
+            metadata: Updated metadata dict.
+            context_length: Updated context window size.
+            max_completion_tokens: Updated max completion tokens.
 
         Returns:
             The updated Model object if successful, None if model not found.
         """
+        import json
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE models SET model_name = ?, provider = ? WHERE model_id = ?",
-                (model_name, provider, model_id),
+                """
+                UPDATE models
+                SET model_name = ?, provider = ?, metadata = ?, context_length = ?, max_completion_tokens = ?
+                WHERE model_id = ?
+                """,
+                (
+                    model_name,
+                    provider,
+                    json.dumps(metadata or {}),
+                    context_length,
+                    max_completion_tokens,
+                    model_id,
+                ),
             )
             conn.commit()
             if cursor.rowcount == 0:
                 return None
-            return Model(model_id=model_id, model_name=model_name, provider=provider)
+            return Model(
+                model_id=model_id,
+                model_name=model_name,
+                provider=provider,
+                metadata=json.dumps(metadata or {}),
+                context_length=context_length,
+                max_completion_tokens=max_completion_tokens,
+            )
         except sqlite3.Error:
             conn.rollback()
             raise

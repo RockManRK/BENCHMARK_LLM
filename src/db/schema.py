@@ -36,7 +36,10 @@ def get_schema_sql() -> str:
     CREATE TABLE IF NOT EXISTS models (
         model_id TEXT PRIMARY KEY,
         model_name TEXT NOT NULL,
-        provider TEXT NOT NULL
+        provider TEXT NOT NULL,
+        metadata TEXT DEFAULT '{}',  -- JSON string with model details
+        context_length INTEGER,
+        max_completion_tokens INTEGER
     );
 
     -- Table: iterations

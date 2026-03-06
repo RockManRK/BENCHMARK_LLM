@@ -5,6 +5,7 @@ wiring together CLI argument parsing, execution engine, statistics
 calculation, and output formatting.
 """
 
+import asyncio
 import logging
 import random
 import sys
@@ -216,9 +217,9 @@ class BenchmarkRunner:
         from src.api.client import OpenRouterClient
         from src.core.randomizer import AnswerRandomizer
         from src.core.iteration_executor import IterationExecutor
-        
+
         all_results = []
-        
+
         client = OpenRouterClient(
             api_key=self.settings.openrouter_api_key,
             base_url=self.settings.openrouter_base_url,
@@ -226,7 +227,58 @@ class BenchmarkRunner:
 
         for model_id in self.args.models:
             logger.info(f"Starting benchmark for model: {model_id}")
-            
+
+            # Fetch actual model name and metadata from API
+            actual_model_id = model_id  # Fallback to provided name
+            model_info = {}
+            try:
+                # Fetch actual model info using asyncio
+                async def fetch_model_info():
+                    return await client.get_model_info(model_id)
+
+                model_info = asyncio.run(fetch_model_info())
+                actual_model_id = model_info.get("id", model_id)
+                logger.info(f"Model {model_id} resolved to {actual_model_id}")
+                
+                # Log model metadata if available
+                meta = model_info.get("meta", {})
+                if meta:
+                    n_params = meta.get("n_params", "N/A")
+                    size = meta.get("size", "N/A")
+                    n_ctx_train = meta.get("n_ctx_train", "N/A")
+                    logger.info(f"Model metadata: n_params={n_params}, size={size}, n_ctx_train={n_ctx_train}")
+            except Exception as e:
+                logger.warning(f"Could not fetch model info for {model_id}: {e}")
+                logger.info(f"Using provided model name: {model_id}")
+
+            # Save model to database with metadata
+            if self.run_manager:
+                try:
+                    from src.db.repository import ModelRepository
+                    
+                    model_repo = ModelRepository(self.db_manager)
+                    
+                    # Extract metadata fields
+                    meta = model_info.get("meta", {})
+                    context_length = model_info.get("context_length")
+                    max_completion_tokens = model_info.get("max_completion_tokens")
+                    
+                    # Determine provider from owned_by or use 'unknown'
+                    owned_by = model_info.get("owned_by", "unknown")
+                    
+                    # Create or update model record
+                    model_repo.create(
+                        model_id=actual_model_id,
+                        model_name=model_info.get("id", model_id),
+                        provider=owned_by,
+                        metadata=meta if meta else {},
+                        context_length=context_length,
+                        max_completion_tokens=max_completion_tokens,
+                    )
+                    logger.info(f"Model {actual_model_id} saved to database")
+                except Exception as e:
+                    logger.warning(f"Could not save model to database: {e}")
+
             for iteration_num in range(1, self.args.iterations + 1):
                 logger.info(f"  Starting iteration {iteration_num} for {model_id}")
 
@@ -268,7 +320,7 @@ class BenchmarkRunner:
                     api_client=client,
                     randomizer=randomizer,
                     run_id=run.run_id if run else "",
-                    model_id=model_id,
+                    model_id=actual_model_id,  # Use actual model ID from API
                     iteration_number=iteration_num,
                     model_kwargs=model_kwargs,
                 )
