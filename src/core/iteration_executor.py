@@ -276,6 +276,7 @@ class IterationExecutor:
             model_kwargs=self._model_kwargs,
             use_structured_outputs=self._use_structured_outputs,
             reasoning_config=self._reasoning_config,
+            enable_vision=self.settings.enable_vision if hasattr(self, 'settings') else False,
         )
 
         # Execute question and await result

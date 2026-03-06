@@ -62,6 +62,7 @@ class QuestionExecutor:
         model_kwargs: Optional[dict[str, Any]] = None,
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
+        enable_vision: bool = False,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -78,6 +79,7 @@ class QuestionExecutor:
             use_structured_outputs: Whether to use structured outputs (JSON schema)
                 for model responses. Falls back to traditional method if not supported.
             reasoning_config: Optional reasoning configuration (OpenRouter standard).
+            enable_vision: Whether to send images with questions (default: False).
 
         Example:
             >>> executor = QuestionExecutor(
@@ -85,7 +87,8 @@ class QuestionExecutor:
             ...     run_id="run-123", model_id="gpt-4", iteration_id=1,
             ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0},
             ...     use_structured_outputs=True,
-            ...     reasoning_config={"effort": "high"}
+            ...     reasoning_config={"effort": "high"},
+            ...     enable_vision=True
             ... )
         """
         self.db_manager = db_manager
@@ -97,13 +100,15 @@ class QuestionExecutor:
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
+        self._enable_vision = enable_vision
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
         logger.debug(
             f"QuestionExecutor initialized for run={run_id}, "
             f"model={model_id}, iteration={iteration_id}, "
-            f"model_kwargs={self._model_kwargs}, "
             f"use_structured_outputs={self._use_structured_outputs}, "
+            f"enable_vision={self._enable_vision}, "
+            f"model_kwargs={self._model_kwargs}, "
             f"reasoning_config={self._reasoning_config}"
         )
 
@@ -284,13 +289,15 @@ Options:
 
 Select the correct answer by providing only the letter (A, B, C, or D)."""
 
-        # Check if question has an image
-        if question.has_image and question.image_path:
+        # Check if question has an image and vision is enabled
+        if question.has_image and question.image_path and self._enable_vision:
             from pathlib import Path
 
             image_path = Path(question.image_path)
             if image_path.exists():
                 return MessageBuilder.build_multimodal_message(prompt, image_path)
+            else:
+                logger.warning(f"Image not found for question {question.question_id}: {image_path}")
 
         return MessageBuilder.build_user_message(prompt)
 

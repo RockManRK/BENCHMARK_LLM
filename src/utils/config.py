@@ -94,6 +94,12 @@ class Settings(BaseSettings):
         description="Use structured outputs (JSON schema) if model supports it",
     )
 
+    # Vision Support Configuration
+    enable_vision: bool = Field(
+        default=False,
+        description="Enable vision support (send images with questions)",
+    )
+
     # Questionnaire Configuration
     questionnaire_path: Path = Field(
         default=Path("./data/enamed_questions.json"),
