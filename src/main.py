@@ -363,6 +363,7 @@ class BenchmarkRunner:
                     model_kwargs=model_kwargs,
                     use_structured_outputs=self.settings.use_structured_outputs,
                     reasoning_config=reasoning_config,
+                    settings=self.settings,
                 )
                 
                 # Execute iteration

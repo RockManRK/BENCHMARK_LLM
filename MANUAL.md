@@ -364,11 +364,23 @@ metadata: {
 | `--iterations` | Iterações por modelo | `--iterations 3` |
 | `--seed` | Seed para reprodução | `--seed 42` |
 | `--vary-seed` | Varia seed por iteração | `--vary-seed` |
+| `--reasoning-effort` | Reasoning effort level | `--reasoning-effort high` |
+| `--reasoning-tokens` | Max reasoning tokens | `--reasoning-tokens 2000` |
+| `--reasoning-exclude` | Exclude reasoning | `--reasoning-exclude` |
 | `--test-mode` | Não salva no banco | `--test-mode` |
 | `--dry-run` | Valida sem executar | `--dry-run` |
 | `--verbose` | Logs detalhados | `--verbose` |
 | `--output` | Formato de saída | `--output json` |
 | `--output-file` | Salvar em arquivo | `--output-file results.json` |
+
+### Testes com Mock
+
+```bash
+# Rodar testes sem servidor
+python -m pytest tests/test_mock_basic.py -v
+
+# 3 testes em ~2 segundos, zero custo
+```
 | `--reasoning-effort` | Reasoning effort level | `--reasoning-effort high` |
 | `--reasoning-tokens` | Max reasoning tokens | `--reasoning-tokens 2000` |
 | `--reasoning-exclude` | Exclude reasoning from response | `--reasoning-exclude` |

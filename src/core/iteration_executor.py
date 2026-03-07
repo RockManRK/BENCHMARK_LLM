@@ -58,6 +58,7 @@ class IterationExecutor:
         model_kwargs: Optional[dict[str, Any]] = None,
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
+        settings: Optional[Any] = None,
     ) -> None:
         """Initialize the IterationExecutor.
 
@@ -92,6 +93,7 @@ class IterationExecutor:
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
+        self.settings = settings
         self._current_iteration: Optional[Iteration] = None
         self._progress_tracker: Optional[ProgressTracker] = None
 
@@ -277,6 +279,7 @@ class IterationExecutor:
             use_structured_outputs=self._use_structured_outputs,
             reasoning_config=self._reasoning_config,
             enable_vision=self.settings.enable_vision if hasattr(self, 'settings') else False,
+            settings=self.settings if hasattr(self, 'settings') else None,
         )
 
         # Execute question and await result

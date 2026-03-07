@@ -277,6 +277,27 @@ python bcllm.py --models Qwen gpt-4 --questions Q001 --test-mode
 
 ---
 
+## 🧪 Testes com Mock (Sem Servidor)
+
+### Executar testes
+```bash
+python -m pytest tests/test_mock_basic.py -v
+# Esperado: 3 testes passam em ~2 segundos
+```
+
+### Fixtures disponíveis
+- `mock_chat_completion()` - Mock de resposta da API
+- `mock_chat_completion_error()` - Mock de erro (500, 429)
+- `mock_models_endpoint()` - Mock de models endpoint
+
+### Vantagens
+- ✅ Rápido (~0.5s por teste)
+- ✅ Sem custo (zero créditos)
+- ✅ Sem servidor necessário
+- ✅ Controle total dos cenários
+
+---
+
 ## ✅ Critérios de Aceite
 
 O sistema está pronto quando:

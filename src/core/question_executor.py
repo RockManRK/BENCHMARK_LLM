@@ -63,6 +63,7 @@ class QuestionExecutor:
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
         enable_vision: bool = False,
+        settings: Optional[Any] = None,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -101,6 +102,7 @@ class QuestionExecutor:
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
         self._enable_vision = enable_vision
+        self._settings = settings
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
         logger.debug(
@@ -282,12 +284,22 @@ class QuestionExecutor:
         )
 
         # Build the prompt
+        # Base instruction for text-only questions
+        default_instruction = "Select the correct answer by providing only the letter (A, B, C, or D)."
+        
+        # Get custom prompt from settings or use default
+        if question.has_image and self._enable_vision:
+            default_with_image = "First, describe what you see in the image in detail. Then, " + default_instruction.lower()
+            instruction = self._settings.prompt_with_image or default_with_image
+        else:
+            instruction = default_instruction
+        
         prompt = f"""Question: {question.question_text}
 
 Options:
 {options_text}
 
-Select the correct answer by providing only the letter (A, B, C, or D)."""
+{instruction}"""
 
         # Check if question has an image and vision is enabled
         if question.has_image and question.image_path and self._enable_vision:

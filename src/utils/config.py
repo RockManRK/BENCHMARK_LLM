@@ -100,6 +100,12 @@ class Settings(BaseSettings):
         description="Enable vision support (send images with questions)",
     )
 
+    # Prompt Configuration
+    prompt_with_image: Optional[str] = Field(
+        default=None,
+        description="Custom prompt for questions with images (leave None for default)",
+    )
+
     # Questionnaire Configuration
     questionnaire_path: Path = Field(
         default=Path("./data/enamed_questions.json"),
