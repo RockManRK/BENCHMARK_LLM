@@ -346,6 +346,81 @@ def log_execution_progress(
     )
 
 
+def log_initialization_summary(
+    logger: logging.Logger,
+    execution_mode: str,
+    experiment_name: Optional[str],
+    persist_data: bool,
+    config_frozen: bool,
+    config_hash: Optional[str],
+    seed: Optional[int],
+    models: list[str],
+    questions: list[str],
+    system_prompt: Optional[str] = None,
+) -> None:
+    """Log a clear, unambiguous initialization summary.
+
+    This function creates a standardized log header that eliminates
+    any ambiguity about the execution context. When looking at this
+    log months later, you should know exactly:
+    - What mode was used
+    - Whether data was saved
+    - If configuration was frozen
+    - Which experiment (if any)
+    - What effective seed was used
+
+    Args:
+        logger: Logger instance to use.
+        execution_mode: Execution mode (test, dev, experiment).
+        experiment_name: Name of the experiment (or None).
+        persist_data: Whether data will be persisted.
+        config_frozen: Whether configuration is frozen.
+        config_hash: Configuration hash (for experiment mode).
+        seed: Random seed used.
+        models: List of models being benchmarked.
+        questions: List of questions being executed.
+        system_prompt: System prompt used (for experiment mode).
+
+    Example:
+        >>> logger = get_logger()
+        >>> log_initialization_summary(
+        ...     logger,
+        ...     execution_mode="experiment",
+        ...     experiment_name="gpt4_vs_claude3",
+        ...     persist_data=True,
+        ...     config_frozen=True,
+        ...     config_hash="8f3a9c2e",
+        ...     seed=42,
+        ...     models=["openai/gpt-4", "anthropic/claude-3"],
+        ...     questions=["Q001", "Q002", "Q003"]
+        ... )
+    """
+    logger.info("=" * 60)
+    logger.info("Benchmark LLM - Initialization")
+    logger.info("=" * 60)
+    logger.info(f"Execution mode      : {execution_mode.upper()}")
+    logger.info(f"Experiment          : {experiment_name or 'None'}")
+    logger.info(f"Persist data        : {'YES' if persist_data else 'NO'}")
+    
+    if config_frozen:
+        logger.info(f"Configuration       : FROZEN (config_hash={config_hash})")
+        if system_prompt:
+            logger.info(f"System prompt       : {system_prompt}")
+    else:
+        logger.info("Configuration       : MUTABLE (CLI/.env)")
+    
+    logger.info(f"Seed                : {seed if seed is not None else 'None'}")
+    logger.info(f"Models              : {', '.join(models)}")
+    
+    # Format question range for readability
+    if len(questions) <= 5:
+        questions_str = ', '.join(questions)
+    else:
+        questions_str = f"{questions[0]}-{questions[-1]} ({len(questions)} questions)"
+    logger.info(f"Questions           : {questions_str}")
+    logger.info("=" * 60)
+
+
 def log_configuration_startup(
     logger: logging.Logger,
     database_path: str,

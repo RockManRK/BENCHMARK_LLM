@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from src.utils.config import ExecutionMode
+
 
 class CLIParser:
     """Command-line argument parser for benchmark_llm.
@@ -137,11 +139,28 @@ Examples:
             help="Validate configuration without executing benchmark",
         )
 
-        # Test mode
+        # Execution mode
+        parser.add_argument(
+            "--mode",
+            type=str,
+            choices=["test", "dev", "experiment"],
+            default=None,
+            help="Execution mode: test (no persistence), dev (default), experiment (frozen config)",
+        )
+
+        # Experiment name
+        parser.add_argument(
+            "--experiment",
+            type=str,
+            required=False,
+            help="Name of the experiment (required for experiment mode)",
+        )
+
+        # Test mode (backward compatibility - alias for --mode test)
         parser.add_argument(
             "--test-mode",
             action="store_true",
-            help="Run in test mode without saving results to the main database",
+            help="Run in test mode without saving results (alias for --mode test)",
         )
 
         # Vary seed per iteration
@@ -200,11 +219,53 @@ Examples:
         if parsed_args.iterations < 1:
             self.parser.error("--iterations must be at least 1")
 
+        # Post-process execution mode
+        # --test-mode is an alias for --mode test (backward compatibility)
+        parsed_args = self._normalize_execution_mode(parsed_args)
+
         # Post-process question ranges (e.g., Q001-Q010)
         if parsed_args.questions:
             parsed_args.questions = self._expand_question_ranges(parsed_args.questions)
 
         return parsed_args
+
+    def _normalize_execution_mode(
+        self, args: argparse.Namespace
+    ) -> argparse.Namespace:
+        """Normalize execution mode from CLI arguments.
+
+        Handles the following logic:
+        - If --test-mode is set, set mode to 'test' (backward compatibility)
+        - If --mode is not set and --test-mode is not set, default to 'dev'
+        - If --experiment is provided without --mode experiment, raise error
+
+        Args:
+            args: Parsed arguments namespace.
+
+        Returns:
+            Modified namespace with normalized execution_mode field.
+        """
+        # Determine execution mode
+        if args.test_mode:
+            # --test-mode overrides --mode for backward compatibility
+            execution_mode = "test"
+        elif args.mode:
+            execution_mode = args.mode
+        else:
+            # Default to dev mode
+            execution_mode = "dev"
+
+        # Validate experiment mode requirements
+        if execution_mode == "experiment" and not args.experiment:
+            self.parser.error(
+                "--experiment is required when using --mode experiment"
+            )
+
+        # Set normalized execution_mode
+        args.execution_mode = execution_mode
+        args.experiment_name = args.experiment if args.experiment else None
+
+        return args
 
     def _expand_question_ranges(self, questions: list[str]) -> list[str]:
         """Expand question ranges into individual question IDs.

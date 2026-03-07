@@ -4,117 +4,36 @@ This module provides the database schema definition, initialization functions,
 and connection management utilities for the SQLite database layer.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Final
+
+logger = logging.getLogger(__name__)
 
 
 def get_schema_sql() -> str:
     """Return the SQL schema for creating all database tables.
 
+    Reads the schema from the schema.sql file for maintainability.
+
     Returns:
         A string containing CREATE TABLE statements for all tables:
-        runs, models, iterations, responses, errors, and operational_logs.
+        experiments, runs, models, questions, responses, and errors.
 
     Example:
         >>> schema = get_schema_sql()
+        >>> assert "CREATE TABLE experiments" in schema
         >>> assert "CREATE TABLE runs" in schema
-        >>> assert "CREATE TABLE responses" in schema
     """
-    return """
-    -- Table: runs
-    -- Stores information about benchmark test runs
-    CREATE TABLE IF NOT EXISTS runs (
-        run_id TEXT PRIMARY KEY,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        config TEXT NOT NULL DEFAULT '{}',
-        status TEXT NOT NULL DEFAULT 'pending'
-    );
-
-    -- Table: models
-    -- Stores information about LLM models being benchmarked
-    CREATE TABLE IF NOT EXISTS models (
-        model_id TEXT PRIMARY KEY,
-        model_name TEXT NOT NULL,
-        provider TEXT NOT NULL,
-        metadata TEXT DEFAULT '{}',  -- JSON string with model details
-        context_length INTEGER,
-        max_completion_tokens INTEGER
-    );
-
-    -- Table: iterations
-    -- Stores information about test iterations within runs
-    CREATE TABLE IF NOT EXISTS iterations (
-        iteration_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT NOT NULL,
-        model_id TEXT NOT NULL,
-        iteration_number INTEGER NOT NULL,
-        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP,
-        status TEXT NOT NULL DEFAULT 'running',
-        FOREIGN KEY (run_id) REFERENCES runs(run_id),
-        FOREIGN KEY (model_id) REFERENCES models(model_id)
-    );
-
-    -- Table: responses
-    -- Stores model responses to questions
-    CREATE TABLE IF NOT EXISTS responses (
-        response_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        iteration_id INTEGER NOT NULL,
-        question_id TEXT NOT NULL,
-        model_id TEXT NOT NULL,
-        run_id TEXT NOT NULL,
-        question_text TEXT NOT NULL,
-        options_json TEXT NOT NULL,
-        options_randomized BOOLEAN NOT NULL DEFAULT 0,
-        selected_answer TEXT,
-        correct_answer TEXT,
-        is_correct BOOLEAN,
-        response_text TEXT,
-        input_tokens INTEGER DEFAULT 0,
-        output_tokens INTEGER DEFAULT 0,
-        latency_ms INTEGER DEFAULT 0,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        status TEXT NOT NULL DEFAULT 'pending',
-        reasoning_details TEXT DEFAULT NULL,  -- JSON string with reasoning details
-        reasoning_tokens INTEGER DEFAULT NULL,  -- Number of reasoning tokens used
-        FOREIGN KEY (iteration_id) REFERENCES iterations(iteration_id),
-        FOREIGN KEY (model_id) REFERENCES models(model_id),
-        FOREIGN KEY (run_id) REFERENCES runs(run_id)
-    );
-
-    -- Table: errors
-    -- Stores error information for failed responses
-    CREATE TABLE IF NOT EXISTS errors (
-        error_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        response_id INTEGER NOT NULL,
-        error_type TEXT NOT NULL,
-        error_message TEXT NOT NULL,
-        stack_trace TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (response_id) REFERENCES responses(response_id)
-    );
-
-    -- Table: operational_logs
-    -- Stores operational log entries (optional, primary logging is to files)
-    CREATE TABLE IF NOT EXISTS operational_logs (
-        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT,
-        level TEXT NOT NULL,
-        message TEXT NOT NULL,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (run_id) REFERENCES runs(run_id)
-    );
-
-    -- Indexes for common query patterns
-    CREATE INDEX IF NOT EXISTS idx_iterations_run_id ON iterations(run_id);
-    CREATE INDEX IF NOT EXISTS idx_iterations_model_id ON iterations(model_id);
-    CREATE INDEX IF NOT EXISTS idx_responses_iteration_id ON responses(iteration_id);
-    CREATE INDEX IF NOT EXISTS idx_responses_run_id ON responses(run_id);
-    CREATE INDEX IF NOT EXISTS idx_responses_model_id ON responses(model_id);
-    CREATE INDEX IF NOT EXISTS idx_errors_response_id ON errors(response_id);
-    CREATE INDEX IF NOT EXISTS idx_operational_logs_run_id ON operational_logs(run_id);
-    """
+    # Get the directory containing this module
+    schema_path = Path(__file__).parent / "schema.sql"
+    
+    if not schema_path.exists():
+        logger.error(f"Schema file not found at {schema_path}")
+        raise FileNotFoundError(f"Schema file not found at {schema_path}")
+    
+    return schema_path.read_text(encoding="utf-8")
 
 
 class DatabaseManager:
@@ -174,6 +93,11 @@ class DatabaseManager:
         except sqlite3.Error as e:
             conn.rollback()
             raise e
+        finally:
+            if not self.is_in_memory():
+                conn.close()
+
+        logger.debug(f"Database initialized at {self.database_path}")
 
     def get_connection(self) -> sqlite3.Connection:
         """Get a database connection.
@@ -228,15 +152,23 @@ class DatabaseManager:
 
     def should_close_connection(self) -> bool:
         """Check if connections should be closed after operations.
-        
+
         For in-memory databases, connections should NOT be closed
         after each operation to preserve data.
-        
+
         Returns:
             True if connections should be closed (file databases),
             False for in-memory databases.
         """
         return str(self.database_path) != ":memory:"
+    
+    def is_in_memory(self) -> bool:
+        """Check if the database is in-memory.
+
+        Returns:
+            True if using in-memory database, False for file databases.
+        """
+        return str(self.database_path) == ":memory:"
 
     def __enter__(self) -> "DatabaseManager":
         """Context manager entry.

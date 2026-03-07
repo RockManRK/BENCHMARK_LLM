@@ -3,6 +3,9 @@
 This module provides functionality to execute a single iteration
 of benchmark testing for a specific model, coordinating question
 execution and tracking progress.
+
+Note: Iterations are no longer stored as separate entities. The iteration
+number is stored directly in the responses table.
 """
 
 import logging
@@ -13,8 +16,7 @@ from typing import Any, Optional
 from src.api.client import OpenRouterClient
 from src.core.question_executor import QuestionExecutor
 from src.core.randomizer import AnswerRandomizer
-from src.db.models import Iteration
-from src.db.repository import IterationRepository
+from src.db.repository import ResponseRepository
 from src.db.schema import DatabaseManager
 from src.utils.progress import ProgressTracker
 
@@ -89,12 +91,11 @@ class IterationExecutor:
         self.run_id = run_id
         self.model_id = model_id
         self.iteration_number = iteration_number
-        self._iteration_repository = IterationRepository(db_manager)
+        self._response_repository = ResponseRepository(db_manager)
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
         self.settings = settings
-        self._current_iteration: Optional[Iteration] = None
         self._progress_tracker: Optional[ProgressTracker] = None
 
         logger.info(
@@ -111,6 +112,9 @@ class IterationExecutor:
         This method coordinates the execution of all questions in the
         iteration, tracking progress and handling errors.
 
+        Note: Iterations are no longer stored as separate entities.
+        The iteration number is stored directly in responses.
+
         Args:
             questions: List of Question objects to execute.
             progress_tracker: Optional ProgressTracker for progress updates.
@@ -122,7 +126,7 @@ class IterationExecutor:
             - completed_questions: Number successfully completed
             - errors: Number of errors encountered
             - duration_ms: Total iteration duration in milliseconds
-            - iteration_id: Database ID of the iteration
+            - iteration_number: Iteration number (not an ID)
 
         Example:
             >>> results = executor.execute_iteration(questions)
@@ -135,22 +139,6 @@ class IterationExecutor:
             f"Starting iteration {self.iteration_number} for model {self.model_id} "
             f"with {len(questions)} questions"
         )
-
-        # Create iteration record in database
-        self._current_iteration = self._create_iteration_record()
-        iteration_id = self._current_iteration.iteration_id
-
-        if iteration_id is None:
-            logger.error("Failed to create iteration record")
-            return {
-                "status": "failed",
-                "total_questions": len(questions),
-                "completed_questions": 0,
-                "errors": 1,
-                "duration_ms": 0,
-                "iteration_id": None,
-                "error_message": "Failed to create iteration record",
-            }
 
         # Initialize progress tracker if not provided
         if self._progress_tracker is None:
@@ -173,11 +161,11 @@ class IterationExecutor:
         async def execute_all_questions():
             """Execute all questions in a single event loop."""
             nonlocal completed, errors
-            
+
             for question in questions:
                 try:
                     # Execute question in the current running loop
-                    result = await self._execute_question(question, iteration_id)
+                    result = await self._execute_question(question)
 
                     if result.get("status") == "success":
                         completed += 1
@@ -204,21 +192,16 @@ class IterationExecutor:
         # Calculate duration
         duration_ms = int((time.time() - start_time) * 1000)
 
-        # Update iteration status
-        status = "completed" if errors == 0 or completed > 0 else "failed"
-        self._complete_iteration(status)
-
         # Compile results
         results = {
-            "status": status,
+            "status": "completed" if errors == 0 or completed > 0 else "failed",
             "total_questions": len(questions),
             "completed_questions": completed,
             "errors": errors,
             "duration_ms": duration_ms,
-            "iteration_id": iteration_id,
+            "iteration_number": self.iteration_number,
             "run_id": self.run_id,
             "model_id": self.model_id,
-            "iteration_number": self.iteration_number,
         }
 
         logger.info(
@@ -229,40 +212,11 @@ class IterationExecutor:
 
         return results
 
-    def _create_iteration_record(self) -> Iteration:
-        """Create an iteration record in the database.
-
-        Returns:
-            The created Iteration object with database-generated ID.
-
-        Raises:
-            Exception: If database operation fails.
-        """
-        iteration = Iteration(
-            run_id=self.run_id,
-            model_id=self.model_id,
-            iteration_number=self.iteration_number,
-            started_at=datetime.now(),
-            status="running",
-        )
-
-        self._iteration_repository.create(iteration)
-
-        logger.debug(
-            f"Created iteration record: run={self.run_id}, "
-            f"model={self.model_id}, iteration={self.iteration_number}"
-        )
-
-        return iteration
-
-    async def _execute_question(
-        self, question: Any, iteration_id: int
-    ) -> dict[str, Any]:
+    async def _execute_question(self, question: Any) -> dict[str, Any]:
         """Execute a single question.
 
         Args:
             question: Question object to execute.
-            iteration_id: Database ID of the current iteration.
 
         Returns:
             Dictionary containing execution results.
@@ -274,7 +228,7 @@ class IterationExecutor:
             randomizer=self._randomizer,
             run_id=self.run_id,
             model_id=self.model_id,
-            iteration_id=iteration_id,
+            iteration_number=self.iteration_number,
             model_kwargs=self._model_kwargs,
             use_structured_outputs=self._use_structured_outputs,
             reasoning_config=self._reasoning_config,
@@ -286,40 +240,6 @@ class IterationExecutor:
         result = await question_executor.execute_question(question)
 
         return result
-
-    def _complete_iteration(self, status: str) -> None:
-        """Mark the iteration as complete.
-
-        Args:
-            status: Final status ("completed" or "failed").
-        """
-        if self._current_iteration is None:
-            return
-
-        self._current_iteration.status = status
-        self._current_iteration.completed_at = datetime.now()
-
-        # Update in database
-        self._iteration_repository.update(self._current_iteration)
-
-        logger.info(
-            f"Iteration {self.iteration_number} marked as {status} "
-            f"for model {self.model_id}"
-        )
-
-    def get_iteration_id(self) -> Optional[int]:
-        """Get the current iteration ID.
-
-        Returns:
-            The iteration ID if an iteration has been created, None otherwise.
-
-        Example:
-            >>> executor.execute_iteration(questions)
-            >>> iteration_id = executor.get_iteration_id()
-        """
-        if self._current_iteration:
-            return self._current_iteration.iteration_id
-        return None
 
     def get_progress_tracker(self) -> Optional[ProgressTracker]:
         """Get the progress tracker for this iteration.

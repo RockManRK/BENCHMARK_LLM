@@ -3,38 +3,256 @@
 This module provides repository classes for each entity in the database,
 encapsulating all data access logic and providing a clean API for
 database operations.
+
+Modules:
+    - ExperimentRepository: Experiment tracking
+    - RunRepository: Run management
+    - ModelRepository: Model registry
+    - QuestionRepository: Question persistence
+    - ResponseRepository: Response storage
+    - ErrorRepository: Error tracking
 """
 
+import json
 import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from src.db.models import Error, Iteration, Model, Response, Run
+from src.db.models import Error, Experiment, Model, Question, Response, Run
 from src.db.schema import DatabaseManager
+
+
+class ExperimentRepository:
+    """Repository for Experiment entity CRUD operations.
+
+    Experiments store frozen configurations for reproducible research.
+    """
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize the ExperimentRepository.
+
+        Args:
+            db_manager: DatabaseManager instance for database connections.
+        """
+        self.db_manager = db_manager
+
+    def create(self, experiment: Experiment) -> Experiment:
+        """Create a new experiment record.
+
+        Args:
+            experiment: Experiment object to create.
+
+        Returns:
+            The created Experiment object with database-generated experiment_id.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO experiments (
+                    experiment_id, name, description, config_json, config_hash,
+                    system_prompt, user_prompt_template
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    experiment.experiment_id,
+                    experiment.name,
+                    experiment.description,
+                    experiment.config_json,
+                    experiment.config_hash,
+                    experiment.system_prompt,
+                    experiment.user_prompt_template,
+                ),
+            )
+            conn.commit()
+            if experiment.experiment_id is None:
+                experiment.experiment_id = cursor.lastrowid  # type: ignore
+            return experiment
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_id(self, experiment_id: str) -> Optional[Experiment]:
+        """Retrieve an experiment by its ID.
+
+        Args:
+            experiment_id: The unique identifier of the experiment.
+
+        Returns:
+            Experiment object if found, None otherwise.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT experiment_id, name, description, config_json, config_hash,
+                       system_prompt, user_prompt_template, created_at
+                FROM experiments WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Experiment(
+                experiment_id=row["experiment_id"],
+                name=row["name"],
+                description=row["description"],
+                config_json=row["config_json"],
+                config_hash=row["config_hash"],
+                system_prompt=row["system_prompt"],
+                user_prompt_template=row["user_prompt_template"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_name(self, name: str) -> Optional[Experiment]:
+        """Retrieve an experiment by its name.
+
+        Args:
+            name: The experiment name.
+
+        Returns:
+            Experiment object if found, None otherwise.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT experiment_id, name, description, config_json, config_hash,
+                       system_prompt, user_prompt_template, created_at
+                FROM experiments WHERE name = ?
+                """,
+                (name,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Experiment(
+                experiment_id=row["experiment_id"],
+                name=row["name"],
+                description=row["description"],
+                config_json=row["config_json"],
+                config_hash=row["config_hash"],
+                system_prompt=row["system_prompt"],
+                user_prompt_template=row["user_prompt_template"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_hash(self, config_hash: str) -> Optional[Experiment]:
+        """Retrieve an experiment by its configuration hash.
+
+        Args:
+            config_hash: The configuration hash.
+
+        Returns:
+            Experiment object if found, None otherwise.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT experiment_id, name, description, config_json, config_hash,
+                       system_prompt, user_prompt_template, created_at
+                FROM experiments WHERE config_hash = ?
+                """,
+                (config_hash,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Experiment(
+                experiment_id=row["experiment_id"],
+                name=row["name"],
+                description=row["description"],
+                config_json=row["config_json"],
+                config_hash=row["config_hash"],
+                system_prompt=row["system_prompt"],
+                user_prompt_template=row["user_prompt_template"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_all(self) -> list[Experiment]:
+        """Retrieve all experiments.
+
+        Returns:
+            List of all Experiment objects.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT experiment_id, name, description, config_json, config_hash,
+                       system_prompt, user_prompt_template, created_at
+                FROM experiments ORDER BY created_at DESC
+                """
+            )
+            experiments = []
+            for row in cursor.fetchall():
+                experiments.append(
+                    Experiment(
+                        experiment_id=row["experiment_id"],
+                        name=row["name"],
+                        description=row["description"],
+                        config_json=row["config_json"],
+                        config_hash=row["config_hash"],
+                        system_prompt=row["system_prompt"],
+                        user_prompt_template=row["user_prompt_template"],
+                        created_at=datetime.fromisoformat(row["created_at"]),
+                    )
+                )
+            return experiments
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def delete(self, experiment_id: str) -> bool:
+        """Delete an experiment record.
+
+        Args:
+            experiment_id: The unique identifier of the experiment.
+
+        Returns:
+            True if deleted successfully, False if not found.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM experiments WHERE experiment_id = ?", (experiment_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
 
 
 class RunRepository:
     """Repository for Run entity CRUD operations.
 
-    This class provides methods to create, read, update, and delete
-    benchmark run records in the database.
-
-    Attributes:
-        db_manager: DatabaseManager instance for database connections.
-
-    Example:
-        >>> repo = RunRepository(db_manager)
-        >>> run = Run(run_id="run-001", created_at=datetime.now())
-        >>> created = repo.create(run)
-        >>> retrieved = repo.get_by_id("run-001")
+    Runs track individual benchmark executions.
     """
 
     def __init__(self, db_manager: DatabaseManager) -> None:
-        """Initialize the RunRepository.
-
-        Args:
-            db_manager: DatabaseManager instance for database connections.
-        """
+        """Initialize the RunRepository."""
         self.db_manager = db_manager
 
     def create(self, run: Run) -> Run:
@@ -44,23 +262,22 @@ class RunRepository:
             run: Run object to create.
 
         Returns:
-            The created Run object with any database-generated values.
-
-        Raises:
-            sqlite3.Error: If there's an error inserting the record.
+            The created Run object.
         """
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO runs (run_id, created_at, config, status)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO runs (run_id, experiment_id, seed, is_dev, started_at, status)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.run_id,
-                    run.created_at.isoformat(),
-                    run.config,
+                    run.experiment_id,
+                    run.seed,
+                    1 if run.is_dev else 0,
+                    run.started_at.isoformat(),
                     run.status,
                 ),
             )
@@ -70,24 +287,19 @@ class RunRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def get_by_id(self, run_id: str) -> Optional[Run]:
-        """Retrieve a run by its ID.
-
-        Args:
-            run_id: The unique identifier of the run.
-
-        Returns:
-            Run object if found, None otherwise.
-        """
+        """Retrieve a run by its ID."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT run_id, created_at, config, status FROM runs WHERE run_id = ?",
+                """
+                SELECT run_id, experiment_id, seed, is_dev, started_at, finished_at, status
+                FROM runs WHERE run_id = ?
+                """,
                 (run_id,),
             )
             row = cursor.fetchone()
@@ -95,62 +307,94 @@ class RunRepository:
                 return None
             return Run(
                 run_id=row["run_id"],
-                created_at=datetime.fromisoformat(row["created_at"]),
-                config=row["config"],
+                experiment_id=row["experiment_id"],
+                seed=row["seed"],
+                is_dev=bool(row["is_dev"]),
+                started_at=datetime.fromisoformat(row["started_at"]),
+                finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
                 status=row["status"],
             )
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
-    def get_all(self) -> list[Run]:
-        """Retrieve all runs.
-
-        Returns:
-            List of all Run objects in the database.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT run_id, created_at, config, status FROM runs ORDER BY created_at DESC")
-            runs = []
-            for row in cursor.fetchall():
-                runs.append(
-                    Run(
-                        run_id=row["run_id"],
-                        created_at=datetime.fromisoformat(row["created_at"]),
-                        config=row["config"],
-                        status=row["status"],
-                    )
-                )
-            return runs
-        finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def update(self, run: Run) -> Optional[Run]:
-        """Update an existing run record.
-
-        Args:
-            run: Run object with updated values.
-
-        Returns:
-            The updated Run object if successful, None if run not found.
-        """
+    def get_by_experiment(self, experiment_id: str) -> list[Run]:
+        """Retrieve all runs for an experiment."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                UPDATE runs
-                SET created_at = ?, config = ?, status = ?
+                SELECT run_id, experiment_id, seed, is_dev, started_at, finished_at, status
+                FROM runs WHERE experiment_id = ? ORDER BY started_at DESC
+                """,
+                (experiment_id,),
+            )
+            runs = []
+            for row in cursor.fetchall():
+                runs.append(
+                    Run(
+                        run_id=row["run_id"],
+                        experiment_id=row["experiment_id"],
+                        seed=row["seed"],
+                        is_dev=bool(row["is_dev"]),
+                        started_at=datetime.fromisoformat(row["started_at"]),
+                        finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
+                        status=row["status"],
+                    )
+                )
+            return runs
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_all(self) -> list[Run]:
+        """Retrieve all runs."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT run_id, experiment_id, seed, is_dev, started_at, finished_at, status
+                FROM runs ORDER BY started_at DESC
+                """
+            )
+            runs = []
+            for row in cursor.fetchall():
+                runs.append(
+                    Run(
+                        run_id=row["run_id"],
+                        experiment_id=row["experiment_id"],
+                        seed=row["seed"],
+                        is_dev=bool(row["is_dev"]),
+                        started_at=datetime.fromisoformat(row["started_at"]),
+                        finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
+                        status=row["status"],
+                    )
+                )
+            return runs
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def update(self, run: Run) -> Optional[Run]:
+        """Update an existing run record."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE runs SET
+                    experiment_id = ?, seed = ?, is_dev = ?,
+                    started_at = ?, finished_at = ?, status = ?
                 WHERE run_id = ?
                 """,
                 (
-                    run.created_at.isoformat(),
-                    run.config,
+                    run.experiment_id,
+                    run.seed,
+                    1 if run.is_dev else 0,
+                    run.started_at.isoformat(),
+                    run.finished_at.isoformat() if run.finished_at else None,
                     run.status,
                     run.run_id,
                 ),
@@ -163,19 +407,11 @@ class RunRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def delete(self, run_id: str) -> bool:
-        """Delete a run record.
-
-        Args:
-            run_id: The unique identifier of the run to delete.
-
-        Returns:
-            True if deleted successfully, False if run not found.
-        """
+        """Delete a run record."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
@@ -186,7 +422,6 @@ class RunRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
@@ -194,101 +429,55 @@ class RunRepository:
 class ModelRepository:
     """Repository for Model entity CRUD operations.
 
-    This class provides methods to create, read, update, and delete
-    model records in the database.
-
-    Example:
-        >>> repo = ModelRepository(db_manager)
-        >>> model = repo.create("gpt-4", "GPT-4", "OpenAI")
-        >>> retrieved = repo.get_by_id("gpt-4")
+    Models registry stores information about LLMs being benchmarked.
     """
 
     def __init__(self, db_manager: DatabaseManager) -> None:
-        """Initialize the ModelRepository.
-
-        Args:
-            db_manager: DatabaseManager instance for database connections.
-        """
+        """Initialize the ModelRepository."""
         self.db_manager = db_manager
 
-    def create(
-        self,
-        model_id: str,
-        model_name: str,
-        provider: str,
-        metadata: Optional[dict] = None,
-        context_length: Optional[int] = None,
-        max_completion_tokens: Optional[int] = None,
-    ) -> Model:
+    def create(self, model: Model) -> Model:
         """Create a new model record.
 
         Args:
-            model_id: Unique identifier for the model.
-            model_name: Human-readable name of the model.
-            provider: Name of the model provider.
-            metadata: Optional dict with model metadata (n_params, size, etc.).
-            context_length: Optional context window size in tokens.
-            max_completion_tokens: Optional max completion tokens.
+            model: Model object to create.
 
         Returns:
             The created Model object.
-
-        Raises:
-            sqlite3.IntegrityError: If a model with the same ID already exists.
         """
-        import json
-
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO models (model_id, model_name, provider, metadata, context_length, max_completion_tokens)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO models (model_id, provider, model_name, supports_multimodal, metadata_json)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
-                    model_id,
-                    model_name,
-                    provider,
-                    json.dumps(metadata or {}),
-                    context_length,
-                    max_completion_tokens,
+                    model.model_id,
+                    model.provider,
+                    model.model_name,
+                    1 if model.supports_multimodal else 0,
+                    model.metadata_json,
                 ),
             )
             conn.commit()
-            return Model(
-                model_id=model_id,
-                model_name=model_name,
-                provider=provider,
-                metadata=json.dumps(metadata or {}),
-                context_length=context_length,
-                max_completion_tokens=max_completion_tokens,
-            )
+            return model
         except sqlite3.Error:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def get_by_id(self, model_id: str) -> Optional[Model]:
-        """Retrieve a model by its ID.
-
-        Args:
-            model_id: The unique identifier of the model.
-
-        Returns:
-            Model object if found, None otherwise.
-        """
-        import json
-
+        """Retrieve a model by its ID."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT model_id, model_name, provider, metadata, context_length, max_completion_tokens
+                SELECT model_id, provider, model_name, supports_multimodal, metadata_json, created_at
                 FROM models WHERE model_id = ?
                 """,
                 (model_id,),
@@ -298,31 +487,24 @@ class ModelRepository:
                 return None
             return Model(
                 model_id=row["model_id"],
-                model_name=row["model_name"],
                 provider=row["provider"],
-                metadata=row["metadata"] or "{}",
-                context_length=row["context_length"],
-                max_completion_tokens=row["max_completion_tokens"],
+                model_name=row["model_name"],
+                supports_multimodal=bool(row["supports_multimodal"]),
+                metadata_json=row["metadata_json"],
+                created_at=datetime.fromisoformat(row["created_at"]),
             )
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def get_all(self) -> list[Model]:
-        """Retrieve all models.
-
-        Returns:
-            List of all Model objects in the database.
-        """
-        import json
-
+        """Retrieve all models."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT model_id, model_name, provider, metadata, context_length, max_completion_tokens
+                SELECT model_id, provider, model_name, supports_multimodal, metadata_json, created_at
                 FROM models ORDER BY model_name
                 """
             )
@@ -331,89 +513,20 @@ class ModelRepository:
                 models.append(
                     Model(
                         model_id=row["model_id"],
-                        model_name=row["model_name"],
                         provider=row["provider"],
-                        metadata=row["metadata"] or "{}",
-                        context_length=row["context_length"],
-                        max_completion_tokens=row["max_completion_tokens"],
+                        model_name=row["model_name"],
+                        supports_multimodal=bool(row["supports_multimodal"]),
+                        metadata_json=row["metadata_json"],
+                        created_at=datetime.fromisoformat(row["created_at"]),
                     )
                 )
             return models
         finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def update(
-        self,
-        model_id: str,
-        model_name: str,
-        provider: str,
-        metadata: Optional[dict] = None,
-        context_length: Optional[int] = None,
-        max_completion_tokens: Optional[int] = None,
-    ) -> Optional[Model]:
-        """Update an existing model record.
-
-        Args:
-            model_id: The unique identifier of the model.
-            model_name: Updated human-readable name.
-            provider: Updated provider name.
-            metadata: Updated metadata dict.
-            context_length: Updated context window size.
-            max_completion_tokens: Updated max completion tokens.
-
-        Returns:
-            The updated Model object if successful, None if model not found.
-        """
-        import json
-
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE models
-                SET model_name = ?, provider = ?, metadata = ?, context_length = ?, max_completion_tokens = ?
-                WHERE model_id = ?
-                """,
-                (
-                    model_name,
-                    provider,
-                    json.dumps(metadata or {}),
-                    context_length,
-                    max_completion_tokens,
-                    model_id,
-                ),
-            )
-            conn.commit()
-            if cursor.rowcount == 0:
-                return None
-            return Model(
-                model_id=model_id,
-                model_name=model_name,
-                provider=provider,
-                metadata=json.dumps(metadata or {}),
-                context_length=context_length,
-                max_completion_tokens=max_completion_tokens,
-            )
-        except sqlite3.Error:
-            conn.rollback()
-            raise
-        finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def delete(self, model_id: str) -> bool:
-        """Delete a model record.
-
-        Args:
-            model_id: The unique identifier of the model to delete.
-
-        Returns:
-            True if deleted successfully, False if model not found.
-        """
+        """Delete a model record."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
@@ -424,7 +537,147 @@ class ModelRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+
+class QuestionRepository:
+    """Repository for Question entity CRUD operations.
+
+    Questions are loaded from external files and persisted for reproducibility.
+    """
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize the QuestionRepository."""
+        self.db_manager = db_manager
+
+    def create(self, question: Question) -> Question:
+        """Create a new question record."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO questions (question_id, stem, options_json, correct_answer, has_image, image_path, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    question.question_id,
+                    question.stem,
+                    question.options_json,
+                    question.correct_answer,
+                    1 if question.has_image else 0,
+                    question.image_path,
+                    question.status,
+                ),
+            )
+            conn.commit()
+            return question
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_id(self, question_id: str) -> Optional[Question]:
+        """Retrieve a question by its ID."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT question_id, stem, options_json, correct_answer, has_image, image_path, status
+                FROM questions WHERE question_id = ?
+                """,
+                (question_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Question(
+                question_id=row["question_id"],
+                stem=row["stem"],
+                options_json=row["options_json"],
+                correct_answer=row["correct_answer"],
+                has_image=bool(row["has_image"]),
+                image_path=row["image_path"],
+                status=row["status"],
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_all(self) -> list[Question]:
+        """Retrieve all questions."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT question_id, stem, options_json, correct_answer, has_image, image_path, status
+                FROM questions ORDER BY question_id
+                """
+            )
+            questions = []
+            for row in cursor.fetchall():
+                questions.append(
+                    Question(
+                        question_id=row["question_id"],
+                        stem=row["stem"],
+                        options_json=row["options_json"],
+                        correct_answer=row["correct_answer"],
+                        has_image=bool(row["has_image"]),
+                        image_path=row["image_path"],
+                        status=row["status"],
+                    )
+                )
+            return questions
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_active(self) -> list[Question]:
+        """Retrieve all active questions."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT question_id, stem, options_json, correct_answer, has_image, image_path, status
+                FROM questions WHERE status = 'active' ORDER BY question_id
+                """
+            )
+            questions = []
+            for row in cursor.fetchall():
+                questions.append(
+                    Question(
+                        question_id=row["question_id"],
+                        stem=row["stem"],
+                        options_json=row["options_json"],
+                        correct_answer=row["correct_answer"],
+                        has_image=bool(row["has_image"]),
+                        image_path=row["image_path"],
+                        status=row["status"],
+                    )
+                )
+            return questions
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def delete(self, question_id: str) -> bool:
+        """Delete a question record."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM questions WHERE question_id = ?", (question_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
             if self.db_manager.should_close_connection():
                 conn.close()
 
@@ -432,62 +685,38 @@ class ModelRepository:
 class ResponseRepository:
     """Repository for Response entity CRUD operations.
 
-    This class provides methods to create, read, update, and delete
-    response records in the database.
-
-    Example:
-        >>> repo = ResponseRepository(db_manager)
-        >>> response = Response(iteration_id=1, question_id="Q001", ...)
-        >>> created = repo.create(response)
+    Responses store model answers to questions with all metrics.
     """
 
     def __init__(self, db_manager: DatabaseManager) -> None:
-        """Initialize the ResponseRepository.
-
-        Args:
-            db_manager: DatabaseManager instance for database connections.
-        """
+        """Initialize the ResponseRepository."""
         self.db_manager = db_manager
 
     def create(self, response: Response) -> Response:
-        """Create a new response record.
-
-        Args:
-            response: Response object to create.
-
-        Returns:
-            The created Response object with database-generated response_id.
-        """
+        """Create a new response record."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO responses (
-                    iteration_id, question_id, model_id, run_id,
-                    question_text, options_json, options_randomized,
-                    selected_answer, correct_answer, is_correct,
-                    response_text, input_tokens, output_tokens,
-                    latency_ms, status, reasoning_details, reasoning_tokens
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    run_id, question_id, model_id, iteration,
+                    selected_answer, response_text, is_correct,
+                    status, latency_ms, input_tokens, output_tokens, reasoning_tokens
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    response.iteration_id,
+                    response.run_id,
                     response.question_id,
                     response.model_id,
-                    response.run_id,
-                    response.question_text,
-                    response.options_json,
-                    response.options_randomized,
+                    response.iteration,
                     response.selected_answer,
-                    response.correct_answer,
-                    response.is_correct,
                     response.response_text,
+                    response.is_correct,
+                    response.status,
+                    response.latency_ms,
                     response.input_tokens,
                     response.output_tokens,
-                    response.latency_ms,
-                    response.status,
-                    response.reasoning_details,
                     response.reasoning_tokens,
                 ),
             )
@@ -498,29 +727,19 @@ class ResponseRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def get_by_id(self, response_id: int) -> Optional[Response]:
-        """Retrieve a response by its ID.
-
-        Args:
-            response_id: The unique identifier of the response.
-
-        Returns:
-            Response object if found, None otherwise.
-        """
+        """Retrieve a response by its ID."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, iteration_id, question_id, model_id, run_id,
-                       question_text, options_json, options_randomized,
-                       selected_answer, correct_answer, is_correct,
-                       response_text, input_tokens, output_tokens,
-                       latency_ms, timestamp, status, reasoning_details, reasoning_tokens
+                SELECT response_id, run_id, question_id, model_id, iteration,
+                       selected_answer, response_text, is_correct,
+                       status, latency_ms, input_tokens, output_tokens, reasoning_tokens, timestamp
                 FROM responses WHERE response_id = ?
                 """,
                 (response_id,),
@@ -530,104 +749,35 @@ class ResponseRepository:
                 return None
             return Response(
                 response_id=row["response_id"],
-                iteration_id=row["iteration_id"],
+                run_id=row["run_id"],
                 question_id=row["question_id"],
                 model_id=row["model_id"],
-                run_id=row["run_id"],
-                question_text=row["question_text"],
-                options_json=row["options_json"],
-                options_randomized=bool(row["options_randomized"]),
+                iteration=row["iteration"],
                 selected_answer=row["selected_answer"],
-                correct_answer=row["correct_answer"],
-                is_correct=row["is_correct"],
                 response_text=row["response_text"],
+                is_correct=row["is_correct"],
+                status=row["status"],
+                latency_ms=row["latency_ms"],
                 input_tokens=row["input_tokens"],
                 output_tokens=row["output_tokens"],
-                latency_ms=row["latency_ms"],
-                timestamp=datetime.fromisoformat(row["timestamp"]),
-                status=row["status"],
-                reasoning_details=row["reasoning_details"],
                 reasoning_tokens=row["reasoning_tokens"],
+                timestamp=datetime.fromisoformat(row["timestamp"]),
             )
         finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def get_by_iteration(self, iteration_id: int) -> list[Response]:
-        """Retrieve all responses for an iteration.
-
-        Args:
-            iteration_id: The iteration ID to filter by.
-
-        Returns:
-            List of Response objects for the specified iteration.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT response_id, iteration_id, question_id, model_id, run_id,
-                       question_text, options_json, options_randomized,
-                       selected_answer, correct_answer, is_correct,
-                       response_text, input_tokens, output_tokens,
-                       latency_ms, timestamp, status, reasoning_details, reasoning_tokens
-                FROM responses WHERE iteration_id = ? ORDER BY question_id
-                """,
-                (iteration_id,),
-            )
-            responses = []
-            for row in cursor.fetchall():
-                responses.append(
-                    Response(
-                        response_id=row["response_id"],
-                        iteration_id=row["iteration_id"],
-                        question_id=row["question_id"],
-                        model_id=row["model_id"],
-                        run_id=row["run_id"],
-                        question_text=row["question_text"],
-                        options_json=row["options_json"],
-                        options_randomized=bool(row["options_randomized"]),
-                        selected_answer=row["selected_answer"],
-                        correct_answer=row["correct_answer"],
-                        is_correct=row["is_correct"],
-                        response_text=row["response_text"],
-                        input_tokens=row["input_tokens"],
-                        output_tokens=row["output_tokens"],
-                        latency_ms=row["latency_ms"],
-                        timestamp=datetime.fromisoformat(row["timestamp"]),
-                        status=row["status"],
-                        reasoning_details=row["reasoning_details"],
-                        reasoning_tokens=row["reasoning_tokens"],
-                    )
-                )
-            return responses
-        finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def get_by_run(self, run_id: str) -> list[Response]:
-        """Retrieve all responses for a run.
-
-        Args:
-            run_id: The run ID to filter by.
-
-        Returns:
-            List of Response objects for the specified run.
-        """
+        """Retrieve all responses for a run."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, iteration_id, question_id, model_id, run_id,
-                       question_text, options_json, options_randomized,
-                       selected_answer, correct_answer, is_correct,
-                       response_text, input_tokens, output_tokens,
-                       latency_ms, timestamp, status, reasoning_details, reasoning_tokens
-                FROM responses WHERE run_id = ? ORDER BY iteration_id, question_id
+                SELECT response_id, run_id, question_id, model_id, iteration,
+                       selected_answer, response_text, is_correct,
+                       status, latency_ms, input_tokens, output_tokens, reasoning_tokens, timestamp
+                FROM responses WHERE run_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id,),
             )
@@ -636,41 +786,106 @@ class ResponseRepository:
                 responses.append(
                     Response(
                         response_id=row["response_id"],
-                        iteration_id=row["iteration_id"],
+                        run_id=row["run_id"],
                         question_id=row["question_id"],
                         model_id=row["model_id"],
-                        run_id=row["run_id"],
-                        question_text=row["question_text"],
-                        options_json=row["options_json"],
-                        options_randomized=bool(row["options_randomized"]),
+                        iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
-                        correct_answer=row["correct_answer"],
-                        is_correct=row["is_correct"],
                         response_text=row["response_text"],
+                        is_correct=row["is_correct"],
+                        status=row["status"],
+                        latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
                         output_tokens=row["output_tokens"],
-                        latency_ms=row["latency_ms"],
-                        timestamp=datetime.fromisoformat(row["timestamp"]),
-                        status=row["status"],
-                        reasoning_details=row["reasoning_details"],
                         reasoning_tokens=row["reasoning_tokens"],
+                        timestamp=datetime.fromisoformat(row["timestamp"]),
                     )
                 )
             return responses
         finally:
-            # Don't close for in-memory databases
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_model(self, model_id: str) -> list[Response]:
+        """Retrieve all responses for a model."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT response_id, run_id, question_id, model_id, iteration,
+                       selected_answer, response_text, is_correct,
+                       status, latency_ms, input_tokens, output_tokens, reasoning_tokens, timestamp
+                FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
+                """,
+                (model_id,),
+            )
+            responses = []
+            for row in cursor.fetchall():
+                responses.append(
+                    Response(
+                        response_id=row["response_id"],
+                        run_id=row["run_id"],
+                        question_id=row["question_id"],
+                        model_id=row["model_id"],
+                        iteration=row["iteration"],
+                        selected_answer=row["selected_answer"],
+                        response_text=row["response_text"],
+                        is_correct=row["is_correct"],
+                        status=row["status"],
+                        latency_ms=row["latency_ms"],
+                        input_tokens=row["input_tokens"],
+                        output_tokens=row["output_tokens"],
+                        reasoning_tokens=row["reasoning_tokens"],
+                        timestamp=datetime.fromisoformat(row["timestamp"]),
+                    )
+                )
+            return responses
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_run_and_model(self, run_id: str, model_id: str) -> list[Response]:
+        """Retrieve all responses for a run and model combination."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT response_id, run_id, question_id, model_id, iteration,
+                       selected_answer, response_text, is_correct,
+                       status, latency_ms, input_tokens, output_tokens, reasoning_tokens, timestamp
+                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
+                """,
+                (run_id, model_id),
+            )
+            responses = []
+            for row in cursor.fetchall():
+                responses.append(
+                    Response(
+                        response_id=row["response_id"],
+                        run_id=row["run_id"],
+                        question_id=row["question_id"],
+                        model_id=row["model_id"],
+                        iteration=row["iteration"],
+                        selected_answer=row["selected_answer"],
+                        response_text=row["response_text"],
+                        is_correct=row["is_correct"],
+                        status=row["status"],
+                        latency_ms=row["latency_ms"],
+                        input_tokens=row["input_tokens"],
+                        output_tokens=row["output_tokens"],
+                        reasoning_tokens=row["reasoning_tokens"],
+                        timestamp=datetime.fromisoformat(row["timestamp"]),
+                    )
+                )
+            return responses
+        finally:
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def update(self, response: Response) -> Optional[Response]:
-        """Update an existing response record.
-
-        Args:
-            response: Response object with updated values.
-
-        Returns:
-            The updated Response object if successful, None if not found.
-        """
+        """Update an existing response record."""
         if response.response_id is None:
             return None
 
@@ -680,30 +895,23 @@ class ResponseRepository:
             cursor.execute(
                 """
                 UPDATE responses SET
-                    iteration_id = ?, question_id = ?, model_id = ?, run_id = ?,
-                    question_text = ?, options_json = ?, options_randomized = ?,
-                    selected_answer = ?, correct_answer = ?, is_correct = ?,
-                    response_text = ?, input_tokens = ?, output_tokens = ?,
-                    latency_ms = ?, status = ?, reasoning_details = ?, reasoning_tokens = ?
+                    run_id = ?, question_id = ?, model_id = ?, iteration = ?,
+                    selected_answer = ?, response_text = ?, is_correct = ?,
+                    status = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, reasoning_tokens = ?
                 WHERE response_id = ?
                 """,
                 (
-                    response.iteration_id,
+                    response.run_id,
                     response.question_id,
                     response.model_id,
-                    response.run_id,
-                    response.question_text,
-                    response.options_json,
-                    response.options_randomized,
+                    response.iteration,
                     response.selected_answer,
-                    response.correct_answer,
-                    response.is_correct,
                     response.response_text,
+                    response.is_correct,
+                    response.status,
+                    response.latency_ms,
                     response.input_tokens,
                     response.output_tokens,
-                    response.latency_ms,
-                    response.status,
-                    response.reasoning_details,
                     response.reasoning_tokens,
                     response.response_id,
                 ),
@@ -716,19 +924,11 @@ class ResponseRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def delete(self, response_id: int) -> bool:
-        """Delete a response record.
-
-        Args:
-            response_id: The unique identifier of the response to delete.
-
-        Returns:
-            True if deleted successfully, False if not found.
-        """
+        """Delete a response record."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
@@ -739,7 +939,6 @@ class ResponseRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
@@ -747,41 +946,31 @@ class ResponseRepository:
 class ErrorRepository:
     """Repository for Error entity CRUD operations.
 
-    This class provides methods to create, read, update, and delete
-    error records in the database.
-
-    Example:
-        >>> repo = ErrorRepository(db_manager)
-        >>> error = Error(response_id=1, error_type="APIError", error_message="...")
-        >>> created = repo.create(error)
+    Errors track failures during benchmark execution.
     """
 
     def __init__(self, db_manager: DatabaseManager) -> None:
-        """Initialize the ErrorRepository.
-
-        Args:
-            db_manager: DatabaseManager instance for database connections.
-        """
+        """Initialize the ErrorRepository."""
         self.db_manager = db_manager
 
     def create(self, error: Error) -> Error:
-        """Create a new error record.
-
-        Args:
-            error: Error object to create.
-
-        Returns:
-            The created Error object with database-generated error_id.
-        """
+        """Create a new error record."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO errors (response_id, error_type, error_message, stack_trace)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO errors (run_id, question_id, model_id, error_type, error_message, stack_trace)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (error.response_id, error.error_type, error.error_message, error.stack_trace),
+                (
+                    error.run_id,
+                    error.question_id,
+                    error.model_id,
+                    error.error_type,
+                    error.error_message,
+                    error.stack_trace,
+                ),
             )
             conn.commit()
             error.error_id = cursor.lastrowid
@@ -790,25 +979,17 @@ class ErrorRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def get_by_id(self, error_id: int) -> Optional[Error]:
-        """Retrieve an error by its ID.
-
-        Args:
-            error_id: The unique identifier of the error.
-
-        Returns:
-            Error object if found, None otherwise.
-        """
+        """Retrieve an error by its ID."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT error_id, response_id, error_type, error_message, stack_trace, timestamp
+                SELECT error_id, run_id, question_id, model_id, error_type, error_message, stack_trace, timestamp
                 FROM errors WHERE error_id = ?
                 """,
                 (error_id,),
@@ -818,42 +999,38 @@ class ErrorRepository:
                 return None
             return Error(
                 error_id=row["error_id"],
-                response_id=row["response_id"],
+                run_id=row["run_id"],
+                question_id=row["question_id"],
+                model_id=row["model_id"],
                 error_type=row["error_type"],
                 error_message=row["error_message"],
                 stack_trace=row["stack_trace"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
             )
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
-    def get_by_response(self, response_id: int) -> list[Error]:
-        """Retrieve all errors for a response.
-
-        Args:
-            response_id: The response ID to filter by.
-
-        Returns:
-            List of Error objects for the specified response.
-        """
+    def get_by_run(self, run_id: str) -> list[Error]:
+        """Retrieve all errors for a run."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT error_id, response_id, error_type, error_message, stack_trace, timestamp
-                FROM errors WHERE response_id = ? ORDER BY timestamp
+                SELECT error_id, run_id, question_id, model_id, error_type, error_message, stack_trace, timestamp
+                FROM errors WHERE run_id = ? ORDER BY timestamp
                 """,
-                (response_id,),
+                (run_id,),
             )
             errors = []
             for row in cursor.fetchall():
                 errors.append(
                     Error(
                         error_id=row["error_id"],
-                        response_id=row["response_id"],
+                        run_id=row["run_id"],
+                        question_id=row["question_id"],
+                        model_id=row["model_id"],
                         error_type=row["error_type"],
                         error_message=row["error_message"],
                         stack_trace=row["stack_trace"],
@@ -862,19 +1039,11 @@ class ErrorRepository:
                 )
             return errors
         finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()
 
     def delete(self, error_id: int) -> bool:
-        """Delete an error record.
-
-        Args:
-            error_id: The unique identifier of the error to delete.
-
-        Returns:
-            True if deleted successfully, False if not found.
-        """
+        """Delete an error record."""
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
@@ -885,245 +1054,5 @@ class ErrorRepository:
             conn.rollback()
             raise
         finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-
-class IterationRepository:
-    """Repository for Iteration entity CRUD operations.
-
-    This class provides methods to create, read, update, and delete
-    iteration records in the database.
-
-    Example:
-        >>> repo = IterationRepository(db_manager)
-        >>> iteration = Iteration(run_id="run-001", model_id="gpt-4", iteration_number=1)
-        >>> created = repo.create(iteration)
-    """
-
-    def __init__(self, db_manager: DatabaseManager) -> None:
-        """Initialize the IterationRepository.
-
-        Args:
-            db_manager: DatabaseManager instance for database connections.
-        """
-        self.db_manager = db_manager
-
-    def create(self, iteration: Iteration) -> Iteration:
-        """Create a new iteration record.
-
-        Args:
-            iteration: Iteration object to create.
-
-        Returns:
-            The created Iteration object with database-generated iteration_id.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO iterations (run_id, model_id, iteration_number, started_at, status)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    iteration.run_id,
-                    iteration.model_id,
-                    iteration.iteration_number,
-                    iteration.started_at.isoformat(),
-                    iteration.status,
-                ),
-            )
-            conn.commit()
-            iteration.iteration_id = cursor.lastrowid
-            return iteration
-        except sqlite3.Error:
-            conn.rollback()
-            raise
-        finally:
-            # Don't close connection for in-memory databases
-            if str(self.db_manager.database_path) != ":memory:":
-                conn.close()
-
-    def get_by_id(self, iteration_id: int) -> Optional[Iteration]:
-        """Retrieve an iteration by its ID.
-
-        Args:
-            iteration_id: The unique identifier of the iteration.
-
-        Returns:
-            Iteration object if found, None otherwise.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT iteration_id, run_id, model_id, iteration_number,
-                       started_at, completed_at, status
-                FROM iterations WHERE iteration_id = ?
-                """,
-                (iteration_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return Iteration(
-                iteration_id=row["iteration_id"],
-                run_id=row["run_id"],
-                model_id=row["model_id"],
-                iteration_number=row["iteration_number"],
-                started_at=datetime.fromisoformat(row["started_at"]),
-                completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
-                status=row["status"],
-            )
-        finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def get_by_run(self, run_id: str) -> list[Iteration]:
-        """Retrieve all iterations for a run.
-
-        Args:
-            run_id: The run ID to filter by.
-
-        Returns:
-            List of Iteration objects for the specified run.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT iteration_id, run_id, model_id, iteration_number,
-                       started_at, completed_at, status
-                FROM iterations WHERE run_id = ? ORDER BY iteration_number
-                """,
-                (run_id,),
-            )
-            iterations = []
-            for row in cursor.fetchall():
-                iterations.append(
-                    Iteration(
-                        iteration_id=row["iteration_id"],
-                        run_id=row["run_id"],
-                        model_id=row["model_id"],
-                        iteration_number=row["iteration_number"],
-                        started_at=datetime.fromisoformat(row["started_at"]),
-                        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
-                        status=row["status"],
-                    )
-                )
-            return iterations
-        finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def get_by_model(self, model_id: str) -> list[Iteration]:
-        """Retrieve all iterations for a model.
-
-        Args:
-            model_id: The model ID to filter by.
-
-        Returns:
-            List of Iteration objects for the specified model.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT iteration_id, run_id, model_id, iteration_number,
-                       started_at, completed_at, status
-                FROM iterations WHERE model_id = ? ORDER BY run_id, iteration_number
-                """,
-                (model_id,),
-            )
-            iterations = []
-            for row in cursor.fetchall():
-                iterations.append(
-                    Iteration(
-                        iteration_id=row["iteration_id"],
-                        run_id=row["run_id"],
-                        model_id=row["model_id"],
-                        iteration_number=row["iteration_number"],
-                        started_at=datetime.fromisoformat(row["started_at"]),
-                        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
-                        status=row["status"],
-                    )
-                )
-            return iterations
-        finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def update(self, iteration: Iteration) -> Optional[Iteration]:
-        """Update an existing iteration record.
-
-        Args:
-            iteration: Iteration object with updated values.
-
-        Returns:
-            The updated Iteration object if successful, None if not found.
-        """
-        if iteration.iteration_id is None:
-            return None
-
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE iterations SET
-                    run_id = ?, model_id = ?, iteration_number = ?,
-                    started_at = ?, completed_at = ?, status = ?
-                WHERE iteration_id = ?
-                """,
-                (
-                    iteration.run_id,
-                    iteration.model_id,
-                    iteration.iteration_number,
-                    iteration.started_at.isoformat(),
-                    iteration.completed_at.isoformat() if iteration.completed_at else None,
-                    iteration.status,
-                    iteration.iteration_id,
-                ),
-            )
-            conn.commit()
-            if cursor.rowcount == 0:
-                return None
-            return iteration
-        except sqlite3.Error:
-            conn.rollback()
-            raise
-        finally:
-            # Don't close for in-memory databases
-            if self.db_manager.should_close_connection():
-                conn.close()
-
-    def delete(self, iteration_id: int) -> bool:
-        """Delete an iteration record.
-
-        Args:
-            iteration_id: The unique identifier of the iteration to delete.
-
-        Returns:
-            True if deleted successfully, False if not found.
-        """
-        conn = self.db_manager.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM iterations WHERE iteration_id = ?", (iteration_id,))
-            conn.commit()
-            return cursor.rowcount > 0
-        except sqlite3.Error:
-            conn.rollback()
-            raise
-        finally:
-            # Don't close for in-memory databases
             if self.db_manager.should_close_connection():
                 conn.close()

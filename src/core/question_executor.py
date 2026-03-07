@@ -41,12 +41,12 @@ class QuestionExecutor:
         randomizer: AnswerRandomizer instance for answer shuffling.
         run_id: ID of the current benchmark run.
         model_id: ID of the model being tested.
-        iteration_id: ID of the current iteration.
+        iteration_number: Iteration number (1-based).
 
     Example:
         >>> executor = QuestionExecutor(
         ...     db_manager, api_client, randomizer,
-        ...     run_id="run-123", model_id="gpt-4", iteration_id=1
+        ...     run_id="run-123", model_id="gpt-4", iteration_number=1
         ... )
         >>> result = await executor.execute_question(question)
     """
@@ -58,7 +58,7 @@ class QuestionExecutor:
         randomizer: AnswerRandomizer,
         run_id: str,
         model_id: str,
-        iteration_id: int,
+        iteration_number: int,
         model_kwargs: Optional[dict[str, Any]] = None,
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
@@ -73,7 +73,7 @@ class QuestionExecutor:
             randomizer: AnswerRandomizer instance for answer shuffling.
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
-            iteration_id: ID of the current iteration.
+            iteration_number: Iteration number (1-based).
             model_kwargs: Optional dict with model generation parameters
                 (max_tokens, temperature, top_p, top_k, repeat_penalty).
                 If None, uses model defaults.
@@ -85,7 +85,7 @@ class QuestionExecutor:
         Example:
             >>> executor = QuestionExecutor(
             ...     db_manager, api_client, randomizer,
-            ...     run_id="run-123", model_id="gpt-4", iteration_id=1,
+            ...     run_id="run-123", model_id="gpt-4", iteration_number=1,
             ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0},
             ...     use_structured_outputs=True,
             ...     reasoning_config={"effort": "high"},
@@ -97,7 +97,7 @@ class QuestionExecutor:
         self._randomizer = randomizer
         self._run_id = run_id
         self._model_id = model_id
-        self._iteration_id = iteration_id
+        self._iteration_number = iteration_number
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
@@ -621,24 +621,19 @@ Options:
         import json
 
         return Response(
-            iteration_id=self._iteration_id,
+            run_id=self._run_id,
             question_id=question.question_id,
             model_id=self._model_id,
-            run_id=self._run_id,
-            question_text=question.question_text,
-            options_json=json.dumps(question.options),
-            options_randomized=self._randomizer.is_randomized(question),
+            iteration=self._iteration_number,
             selected_answer=parsed["selected_answer"],
-            correct_answer=question.correct_answer,
-            is_correct=parsed["is_correct"],
             response_text=parsed["response_text"],
+            is_correct=parsed["is_correct"],
+            status="success",
+            latency_ms=latency_ms,
             input_tokens=parsed["input_tokens"],
             output_tokens=parsed["output_tokens"],
-            latency_ms=latency_ms,
-            timestamp=datetime.now(),
-            status="success",
-            reasoning_details=reasoning_details,
             reasoning_tokens=reasoning_tokens,
+            timestamp=datetime.now(),
         )
 
     def _handle_http_error(
@@ -808,35 +803,32 @@ Options:
         """
         # First create a response record for the error
         response = Response(
-            iteration_id=self._iteration_id,
+            run_id=self._run_id,
             question_id=question.question_id,
             model_id=self._model_id,
-            run_id=self._run_id,
-            question_text=question.question_text,
-            options_json="{}",
-            options_randomized=False,
+            iteration=self._iteration_number,
             selected_answer=None,
-            correct_answer=question.correct_answer,
-            is_correct=None,
             response_text="",
+            is_correct=None,
+            status="error",
+            latency_ms=latency_ms,
             input_tokens=0,
             output_tokens=0,
-            latency_ms=latency_ms,
             timestamp=datetime.now(),
-            status="error",
         )
         self._response_repository.create(response)
 
         # Then create the error record
-        if response.response_id:
-            error = Error(
-                response_id=response.response_id,
-                error_type=error_type,
-                error_message=error_message,
-                stack_trace=stack_trace,
-                timestamp=datetime.now(),
-            )
-            self._error_repository.create(error)
+        error = Error(
+            run_id=self._run_id,
+            question_id=question.question_id,
+            model_id=self._model_id,
+            error_type=error_type,
+            error_message=error_message,
+            stack_trace=stack_trace,
+            timestamp=datetime.now(),
+        )
+        self._error_repository.create(error)
 
     def _get_stack_trace(self) -> str:
         """Get the current stack trace as a string.

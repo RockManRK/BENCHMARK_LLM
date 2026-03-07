@@ -13,11 +13,12 @@ Example:
     ...     run_repo.create(run)
 """
 
-from src.db.models import Error, Iteration, Model, OperationalLog, Question, Response, Run
+from src.db.models import Error, Experiment, Model, Question, Response, Run
 from src.db.repository import (
     ErrorRepository,
-    IterationRepository,
+    ExperimentRepository,
     ModelRepository,
+    QuestionRepository,
     ResponseRepository,
     RunRepository,
 )
@@ -33,12 +34,12 @@ __all__ = [
     "Question",
     "Response",
     "Error",
-    "Iteration",
-    "OperationalLog",
+    "Experiment",
     # Repositories
     "RunRepository",
     "ModelRepository",
+    "QuestionRepository",
     "ResponseRepository",
     "ErrorRepository",
-    "IterationRepository",
+    "ExperimentRepository",
 ]

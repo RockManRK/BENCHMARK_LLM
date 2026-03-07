@@ -2,6 +2,7 @@
 
 This module provides functionality to manage benchmark run lifecycle,
 including run initialization, configuration storage, and status tracking.
+Supports three execution modes: test, dev, and experiment.
 """
 
 import json
@@ -11,9 +12,10 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from src.db.models import Model, Run
-from src.db.repository import RunRepository
+from src.db.models import Experiment, Model, Run
+from src.db.repository import ExperimentRepository, ModelRepository, RunRepository
 from src.db.schema import DatabaseManager
+from src.utils.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +30,10 @@ class RunManager:
     Attributes:
         db_manager: DatabaseManager instance for database operations.
         current_run: Currently active run, if any.
+        current_experiment: Currently active experiment, if any.
 
     Example:
-        >>> run_manager = RunManager(db_manager)
+        >>> run_manager = RunManager(db_manager, settings)
         >>> run = run_manager.initialize_run({
         ...     "models": ["gpt-4", "claude-3"],
         ...     "iterations": 3
@@ -39,19 +42,24 @@ class RunManager:
         run-<timestamp>
     """
 
-    def __init__(self, db_manager: DatabaseManager) -> None:
+    def __init__(self, db_manager: DatabaseManager, settings: Optional[Settings] = None) -> None:
         """Initialize the RunManager.
 
         Args:
             db_manager: DatabaseManager instance for database connections.
+            settings: Optional settings for experiment mode configuration.
 
         Example:
             >>> db_manager = DatabaseManager(Path("./data/benchmark.db"))
-            >>> run_manager = RunManager(db_manager)
+            >>> run_manager = RunManager(db_manager, settings)
         """
         self.db_manager = db_manager
+        self.settings = settings
         self._run_repository = RunRepository(db_manager)
+        self._experiment_repository = ExperimentRepository(db_manager)
+        self._model_repository = ModelRepository(db_manager)
         self.current_run: Optional[Run] = None
+        self.current_experiment: Optional[Experiment] = None
         logger.info("RunManager initialized")
 
     def initialize_run(self, config: dict[str, Any]) -> Run:
@@ -59,6 +67,9 @@ class RunManager:
 
         Creates a new run with a unique run_id, stores the configuration,
         and sets the initial status to 'running'.
+
+        In experiment mode, creates or retrieves an experiment with frozen
+        configuration.
 
         Args:
             config: Run configuration dictionary containing models,
@@ -84,44 +95,123 @@ class RunManager:
         unique_id = uuid.uuid4().hex[:8]
         run_id = f"run-{timestamp}-{unique_id}"
 
+        # Determine execution mode and experiment tracking
+        experiment_id = None
+        is_dev = True
+
+        if self.settings and self.settings.is_experiment_mode:
+            # Experiment mode: create or retrieve experiment
+            experiment = self._get_or_create_experiment(config)
+            experiment_id = experiment.experiment_id
+            is_dev = False
+            logger.info(f"Using experiment: {experiment.name} (hash={experiment.config_hash})")
+        elif self.settings and self.settings.is_test_mode:
+            # Test mode: no persistence
+            is_dev = False
+            logger.debug("Test mode: run will not be persisted")
+        else:
+            # Dev mode: persist without experiment
+            is_dev = True
+            logger.debug("Dev mode: persisting run without experiment")
+
         # Create run object
         run = Run(
             run_id=run_id,
-            created_at=datetime.now(),
-            config=json.dumps(config),
+            experiment_id=experiment_id,
+            seed=config.get("seed"),
+            is_dev=is_dev,
+            started_at=datetime.now(),
             status="running",
         )
 
-        # Save to database
-        self._run_repository.create(run)
+        # Save to database (skip for test mode)
+        if self.settings is None or not self.settings.is_test_mode:
+            self._run_repository.create(run)
 
-        # Register models in database (required for foreign key constraints)
-        from src.db.repository import ModelRepository
-        model_repo = ModelRepository(self.db_manager)
-        models = config.get("models", [])
-        for model_id in models:
-            # Extract provider from model_id (e.g., "openai/gpt-4" -> "openai")
-            if "/" in model_id:
-                provider = model_id.split("/")[0]
-                model_name = model_id.split("/")[1]
-            else:
-                provider = "unknown"
-                model_name = model_id
-            
-            try:
-                model_repo.create(model_id, model_name, provider)
-                logger.debug(f"Registered model: {model_id}")
-            except sqlite3.Error:
-                # Model might already exist, ignore error
-                pass
+            # Register models in database (required for foreign key constraints)
+            models = config.get("models", [])
+            for model_id in models:
+                self._register_model(model_id)
 
         # Set as current run
         self.current_run = run
 
         logger.info(f"Initialized run {run_id} with config: {config}")
-        logger.debug(f"Run configuration JSON: {run.config}")
+        logger.debug(f"Run configuration: experiment_id={experiment_id}, is_dev={is_dev}")
 
         return run
+
+    def _get_or_create_experiment(self, config: dict[str, Any]) -> Experiment:
+        """Get existing experiment or create new one with frozen config.
+
+        Args:
+            config: Run configuration dictionary.
+
+        Returns:
+            Existing or newly created Experiment object.
+        """
+        if not self.settings or not self.settings.experiment_name:
+            raise ValueError("Experiment name required for experiment mode")
+
+        # Check if experiment already exists by name
+        existing = self._experiment_repository.get_by_name(self.settings.experiment_name)
+        if existing:
+            logger.info(f"Found existing experiment: {existing.name}")
+            self.current_experiment = existing
+            return existing
+
+        # Create new experiment with frozen configuration
+        config_json = json.dumps(self.settings.get_config_dict(), sort_keys=True, default=str)
+        config_hash = self.settings.get_config_hash()
+
+        experiment = Experiment(
+            name=self.settings.experiment_name,
+            config_json=config_json,
+            config_hash=config_hash,
+            system_prompt=self.settings.system_prompt,
+            user_prompt_template=self.settings.user_prompt_template,
+            description=f"Experiment created on {datetime.now().isoformat()}",
+        )
+
+        created = self._experiment_repository.create(experiment)
+        logger.info(f"Created new experiment: {created.name} (hash={config_hash})")
+        self.current_experiment = created
+        return created
+
+    def _register_model(self, model_id: str) -> None:
+        """Register a model in the database if it doesn't exist.
+
+        Args:
+            model_id: Model identifier (e.g., "openai/gpt-4").
+        """
+        # Check if model already exists
+        existing = self._model_repository.get_by_id(model_id)
+        if existing:
+            logger.debug(f"Model already registered: {model_id}")
+            return
+
+        # Extract provider from model_id
+        if "/" in model_id:
+            parts = model_id.split("/", 1)
+            provider = parts[0]
+            model_name = parts[1] if len(parts) > 1 else model_id
+        else:
+            provider = "unknown"
+            model_name = model_id
+
+        # Create model record
+        model = Model(
+            model_id=model_id,
+            provider=provider,
+            model_name=model_name,
+        )
+
+        try:
+            self._model_repository.create(model)
+            logger.debug(f"Registered model: {model_id}")
+        except sqlite3.IntegrityError:
+            # Model might have been registered concurrently, ignore
+            logger.debug(f"Model registration conflict (ignored): {model_id}")
 
     def update_run_status(self, run_id: str, status: str) -> Optional[Run]:
         """Update the status of a run.

@@ -19,7 +19,7 @@ from src.core.randomizer import AnswerRandomizer
 from src.core.run_manager import RunManager
 from src.db.schema import DatabaseManager
 from src.utils.config import get_settings
-from src.utils.logging_config import LoggingConfig, setup_logging
+from src.utils.logging_config import LoggingConfig, setup_logging, log_initialization_summary
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +80,41 @@ class BenchmarkRunner:
         if self.args.reasoning_effort:
             self.settings.reasoning_effort = self.args.reasoning_effort
             logger.info(f"Set reasoning_effort from CLI: {self.args.reasoning_effort}")
-        
+
         if self.args.reasoning_tokens:
             self.settings.reasoning_max_tokens = self.args.reasoning_tokens
             logger.info(f"Set reasoning_max_tokens from CLI: {self.args.reasoning_tokens}")
-        
+
         if self.args.reasoning_exclude:
             self.settings.reasoning_exclude = self.args.reasoning_exclude
             logger.info(f"Set reasoning_exclude from CLI: {self.args.reasoning_exclude}")
+
+    def _apply_execution_mode(self) -> None:
+        """Apply execution mode from CLI to settings.
+
+        This method configures settings based on the execution mode:
+        - TEST: in-memory DB, no persistence
+        - DEV: default DB, full persistence
+        - EXPERIMENT: default DB, frozen configuration
+        """
+        # Set execution mode from CLI
+        if hasattr(self.args, 'execution_mode'):
+            from src.utils.config import ExecutionMode
+            self.settings.execution_mode = ExecutionMode(self.args.execution_mode)
+        
+        # Set experiment name if provided
+        if hasattr(self.args, 'experiment_name') and self.args.experiment_name:
+            self.settings.experiment_name = self.args.experiment_name
+        
+        # Apply mode-specific presets
+        if self.settings.is_test_mode:
+            # Test mode: in-memory database
+            self.settings.database_path = Path(":memory:")
+            logger.info("TEST MODE: Using in-memory database, no persistence")
+        elif self.settings.is_experiment_mode:
+            logger.info(f"EXPERIMENT MODE: Configuration frozen (hash={self.settings.get_config_hash()})")
+        else:
+            logger.info("DEV MODE: Full persistence enabled")
 
     def run(self) -> int:
         """Execute the benchmark.
@@ -102,12 +129,18 @@ class BenchmarkRunner:
             >>> exit_code = runner.run()
         """
         try:
+            # Apply execution mode presets
+            self._apply_execution_mode()
+
             # Validate configuration
             if not self._validate_config():
                 return 1
 
             # Initialize database
             self._init_database()
+
+            # Log initialization summary
+            self._log_initialization()
 
             # Handle dry run
             if self.args.dry_run:
@@ -164,31 +197,58 @@ class BenchmarkRunner:
             print("Error: Iterations must be at least 1", file=sys.stderr)
             return False
 
-        # Log test mode
-        if self.args.test_mode:
-            print("⚠️  TEST MODE: Results will not be saved to the main database")
+        # Validate experiment mode requirements
+        if self.settings.is_experiment_mode and not self.settings.experiment_name:
+            print(
+                "Error: Experiment name is required for experiment mode. "
+                "Use --experiment <name> to specify the experiment.",
+                file=sys.stderr,
+            )
+            return False
+
+        # Log mode-specific messages
+        if self.settings.is_test_mode:
+            print("⚠️  TEST MODE: Results will not be persisted")
             logger.info("Running in test mode with in-memory database")
+        elif self.settings.is_experiment_mode:
+            print(f"🧪 EXPERIMENT MODE: {self.settings.experiment_name}")
+            logger.info(f"Running in experiment mode: {self.settings.experiment_name}")
 
         logger.info("Configuration validated")
         return True
 
     def _init_database(self) -> None:
-        """Initialize the database connection and schema."""
-        if self.args.test_mode:
-            # Use in-memory database for testing
-            from pathlib import Path
-            self.settings.database_path = Path(":memory:")
-            logger.info("Using in-memory database for test mode")
+        """Initialize the database connection and schema.
 
+        Database path is already set by _apply_execution_mode() based on mode.
+        """
         # Ensure data directory exists (skip for in-memory)
         if str(self.settings.database_path) != ":memory:":
             self.settings.database_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db_manager = DatabaseManager(self.settings.database_path)
         self.db_manager.initialize()
-        self.run_manager = RunManager(self.db_manager)
+        self.run_manager = RunManager(self.db_manager, self.settings)
 
         logger.info(f"Database initialized at {self.settings.database_path}")
+
+    def _log_initialization(self) -> None:
+        """Log the initialization summary with all execution context."""
+        # Get question IDs (will be loaded later, but we can log the filter)
+        question_ids = self.args.questions if self.args.questions else ["All questions"]
+        
+        log_initialization_summary(
+            logger=logger,
+            execution_mode=self.settings.execution_mode.value,
+            experiment_name=self.settings.experiment_name,
+            persist_data=self.settings.should_persist_data,
+            config_frozen=self.settings.is_config_frozen,
+            config_hash=self.settings.get_config_hash() if self.settings.is_config_frozen else None,
+            seed=self.args.seed,
+            models=self.args.models,
+            questions=question_ids,  # type: ignore
+            system_prompt=self.settings.system_prompt,
+        )
 
     def _execute_benchmark(self) -> dict[str, Any]:
         """Execute the benchmark test.
