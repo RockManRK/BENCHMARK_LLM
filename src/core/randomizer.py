@@ -4,6 +4,7 @@ This module provides functionality to randomize answer options using
 the Fisher-Yates shuffle algorithm, with reproducible results via seeding.
 """
 
+import json
 import logging
 import random
 from copy import deepcopy
@@ -30,8 +31,8 @@ class AnswerRandomizer:
     Example:
         >>> randomizer = AnswerRandomizer(run_id=42)
         >>> randomized_question = randomizer.randomize(question)
-        >>> print(randomized_question.options)
-        {'A': 'Option C', 'B': 'Option A', 'C': 'Option D', 'D': 'Option B'}
+        >>> print(randomized_question.options_json)
+        '{"A": "Option C", "B": "Option A", "C": "Option D", "D": "Option B"}'
     """
 
     def __init__(self, run_id: int) -> None:
@@ -69,11 +70,8 @@ class AnswerRandomizer:
             >>> randomized = randomizer.randomize(question)
             >>> # Original correct answer "A" might now be at position "C"
         """
-        # Create a deep copy to avoid modifying the original
-        randomized_question = deepcopy(question)
-
-        # Store original options for tracking
-        original_options = dict(question.options)
+        # Parse options from JSON
+        original_options = json.loads(question.options_json)
         original_correct_answer = question.correct_answer
 
         # Get the text of the correct answer
@@ -91,16 +89,12 @@ class AnswerRandomizer:
         # Find the new letter that contains the correct answer
         new_correct_answer = self._find_correct_letter(new_options, correct_answer_text)
 
-        # Update the randomized question
-        randomized_question.options = new_options
+        # Create a deep copy to avoid modifying the original
+        randomized_question = deepcopy(question)
+        
+        # Update the randomized question with new options JSON
+        randomized_question.options_json = json.dumps(new_options)
         randomized_question.correct_answer = new_correct_answer
-
-        # Store mapping information in metadata for traceability
-        original_mapping = self._create_mapping(original_options, new_options)
-        randomized_question.metadata["original_options"] = original_options
-        randomized_question.metadata["original_correct_answer"] = original_correct_answer
-        randomized_question.metadata["original_mapping"] = original_mapping
-        randomized_question.metadata["options_randomized"] = True
 
         logger.debug(
             f"Randomized question {question.question_id}: "
@@ -202,34 +196,43 @@ class AnswerRandomizer:
     def is_randomized(question: Question) -> bool:
         """Check if a question has been randomized.
 
+        Note: In the new schema, randomization is done in-memory only.
+        This method checks if the question options differ from the original.
+
         Args:
             question: Question to check.
 
         Returns:
-            True if the question has been randomized, False otherwise.
+            Always False in new schema (randomization not persisted).
         """
-        return question.metadata.get("options_randomized", False)
+        return False
 
     @staticmethod
     def get_original_options(question: Question) -> Optional[dict[str, str]]:
         """Get the original options before randomization.
 
+        Note: In the new schema, original options are stored in the database.
+        This method returns None as randomization is not tracked.
+
         Args:
             question: Question to get original options from.
 
         Returns:
-            Dictionary of original options, or None if not randomized.
+            None in new schema.
         """
-        return question.metadata.get("original_options")
+        return None
 
     @staticmethod
     def get_original_correct_answer(question: Question) -> Optional[str]:
         """Get the original correct answer before randomization.
 
+        Note: In the new schema, the correct answer in the database is the original.
+        This method returns the question's correct_answer.
+
         Args:
             question: Question to get original correct answer from.
 
         Returns:
-            Original correct answer letter, or None if not randomized.
+            The question's correct_answer.
         """
-        return question.metadata.get("original_correct_answer")
+        return question.correct_answer

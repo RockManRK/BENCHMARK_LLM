@@ -124,14 +124,17 @@ class RunManager:
             status="running",
         )
 
-        # Save to database (skip for test mode)
-        if self.settings is None or not self.settings.is_test_mode:
-            self._run_repository.create(run)
+        # Save to database (in test mode this goes to :memory:)
+        logger.info(f"Creating run in database: {run_id}")
+        self._run_repository.create(run)
+        logger.info(f"Run created successfully")
 
-            # Register models in database (required for foreign key constraints)
-            models = config.get("models", [])
-            for model_id in models:
-                self._register_model(model_id)
+        # Register models in database (required for foreign key constraints)
+        models = config.get("models", [])
+        logger.info(f"Registering {len(models)} models: {models}")
+        for model_id in models:
+            self._register_model(model_id)
+            logger.info(f"Model {model_id} registered")
 
         # Set as current run
         self.current_run = run
@@ -157,6 +160,22 @@ class RunManager:
         existing = self._experiment_repository.get_by_name(self.settings.experiment_name)
         if existing:
             logger.info(f"Found existing experiment: {existing.name}")
+            current_hash = self.settings.get_config_hash()
+            if current_hash != existing.config_hash:
+                logger.warning(
+                    f"Configuration mismatch for experiment '{existing.name}'. "
+                    f"Current settings (hash={current_hash}) will be IGNORADA/DESCARTADA "
+                    f"in favor of the frozen configuration (hash={existing.config_hash})."
+                )
+                # Overwrite current mutable settings with the frozen configuration
+                try:
+                    frozen_config = json.loads(existing.config_json)
+                    for key, value in frozen_config.items():
+                        if hasattr(self.settings, key):
+                            setattr(self.settings, key, value)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse frozen config for '{existing.name}'")
+                    
             self.current_experiment = existing
             return existing
 

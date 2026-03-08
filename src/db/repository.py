@@ -14,7 +14,10 @@ Modules:
 """
 
 import json
+import logging
 import sqlite3
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional
 
@@ -47,6 +50,10 @@ class ExperimentRepository:
         """
         conn = self.db_manager.get_connection()
         try:
+            import uuid
+            if experiment.experiment_id is None:
+                experiment.experiment_id = f"exp-{uuid.uuid4().hex[:8]}"
+                
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -66,8 +73,7 @@ class ExperimentRepository:
                 ),
             )
             conn.commit()
-            if experiment.experiment_id is None:
-                experiment.experiment_id = cursor.lastrowid  # type: ignore
+            conn.commit()
             return experiment
         except sqlite3.Error:
             conn.rollback()
@@ -697,6 +703,7 @@ class ResponseRepository:
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
+            logger.info(f"Saving response: run_id={response.run_id}, question_id={response.question_id}, model_id={response.model_id}")
             cursor.execute(
                 """
                 INSERT INTO responses (
@@ -722,8 +729,16 @@ class ResponseRepository:
             )
             conn.commit()
             response.response_id = cursor.lastrowid
+            logger.info(f"Response saved with ID {response.response_id}")
             return response
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            logger.error(f"Failed to save response: {e}")
+            logger.error(f"Response data: run_id={response.run_id}, question_id={response.question_id}, model_id={response.model_id}")
+            # Check which FK is failing
+            run_exists = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (response.run_id,)).fetchone() is not None
+            question_exists = conn.execute("SELECT 1 FROM questions WHERE question_id = ?", (response.question_id,)).fetchone() is not None
+            model_exists = conn.execute("SELECT 1 FROM models WHERE model_id = ?", (response.model_id,)).fetchone() is not None
+            logger.error(f"FK check: run_exists={run_exists}, question_exists={question_exists}, model_exists={model_exists}")
             conn.rollback()
             raise
         finally:

@@ -6,8 +6,10 @@ calculation, and output formatting.
 """
 
 import asyncio
+import json
 import logging
 import random
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -72,8 +74,9 @@ class BenchmarkRunner:
         logger.info("BenchmarkRunner initialized")
         logger.debug(f"Arguments: {self.args}")
         
-        # Apply CLI reasoning args to settings
+        # Apply CLI args to settings
         self._apply_cli_reasoning_args()
+        self._apply_cli_generation_args()
 
     def _apply_cli_reasoning_args(self) -> None:
         """Apply CLI reasoning arguments to settings."""
@@ -88,6 +91,28 @@ class BenchmarkRunner:
         if self.args.reasoning_exclude:
             self.settings.reasoning_exclude = self.args.reasoning_exclude
             logger.info(f"Set reasoning_exclude from CLI: {self.args.reasoning_exclude}")
+
+    def _apply_cli_generation_args(self) -> None:
+        """Apply CLI generation arguments to settings."""
+        if getattr(self.args, "temperature", None) is not None:
+            self.settings.model_temperature = self.args.temperature
+            logger.info(f"Set model_temperature from CLI: {self.args.temperature}")
+            
+        if getattr(self.args, "max_tokens", None) is not None:
+            self.settings.model_max_tokens = self.args.max_tokens
+            logger.info(f"Set model_max_tokens from CLI: {self.args.max_tokens}")
+            
+        if getattr(self.args, "top_p", None) is not None:
+            self.settings.model_top_p = self.args.top_p
+            logger.info(f"Set model_top_p from CLI: {self.args.top_p}")
+            
+        if getattr(self.args, "top_k", None) is not None:
+            self.settings.model_top_k = self.args.top_k
+            logger.info(f"Set model_top_k from CLI: {self.args.top_k}")
+            
+        if getattr(self.args, "repeat_penalty", None) is not None:
+            self.settings.model_repeat_penalty = self.args.repeat_penalty
+            logger.info(f"Set model_repeat_penalty from CLI: {self.args.repeat_penalty}")
 
     def _apply_execution_mode(self) -> None:
         """Apply execution mode from CLI to settings.
@@ -268,11 +293,35 @@ class BenchmarkRunner:
         # Step 2: Filter questions if --questions argument provided
         if self.args.questions:
             from src.core.filter import QuestionFilter
-            
+
             filter_obj = QuestionFilter(questions)
             filter_obj.by_ids(self.args.questions)
             questions = filter_obj.get_results()
             logger.info(f"Filtered to {len(questions)} questions")
+            
+            # Validate that at least one question matched
+            if not questions:
+                logger.error(f"No questions found matching filter: {self.args.questions}")
+                print(f"Error: No questions found matching filter: {self.args.questions}", file=sys.stderr)
+                return {}
+
+        # Persist questions to database (in test mode this goes to :memory:)
+        # Note: loader.load() returns Question objects from db.models, not QuestionData
+        from src.db.repository import QuestionRepository
+        from src.db.models import Question as DbQuestion
+        
+        question_repo = QuestionRepository(self.db_manager)
+        logger.info(f"Persisting {len(questions)} questions to database")
+        
+        for q in questions:
+            # q is already a Question db model, just save it
+            try:
+                question_repo.create(q)
+            except sqlite3.IntegrityError:
+                # Question might already exist
+                logger.debug(f"Question {q.question_id} already in database")
+        
+        logger.info("Questions persisted successfully")
 
         # Step 3: Initialize run
         config = {
@@ -316,7 +365,7 @@ class BenchmarkRunner:
                 model_info = asyncio.run(fetch_model_info())
                 actual_model_id = model_info.get("id", model_id)
                 logger.info(f"Model {model_id} resolved to {actual_model_id}")
-                
+
                 # Log model metadata if available
                 meta = model_info.get("meta", {})
                 if meta:
@@ -328,33 +377,11 @@ class BenchmarkRunner:
                 logger.warning(f"Could not fetch model info for {model_id}: {e}")
                 logger.info(f"Using provided model name: {model_id}")
 
-            # Save model to database with metadata
-            if self.run_manager:
-                try:
-                    from src.db.repository import ModelRepository
-                    
-                    model_repo = ModelRepository(self.db_manager)
-                    
-                    # Extract metadata fields
-                    meta = model_info.get("meta", {})
-                    context_length = model_info.get("context_length")
-                    max_completion_tokens = model_info.get("max_completion_tokens")
-                    
-                    # Determine provider from owned_by or use 'unknown'
-                    owned_by = model_info.get("owned_by", "unknown")
-                    
-                    # Create or update model record
-                    model_repo.create(
-                        model_id=actual_model_id,
-                        model_name=model_info.get("id", model_id),
-                        provider=owned_by,
-                        metadata=meta if meta else {},
-                        context_length=context_length,
-                        max_completion_tokens=max_completion_tokens,
-                    )
-                    logger.info(f"Model {actual_model_id} saved to database")
-                except Exception as e:
-                    logger.warning(f"Could not save model to database: {e}")
+            # Model was already registered by RunManager.initialize_run() using the initial name.
+            # If the actual model ID from API is different, we must register it to satisfy foreign keys.
+            if self.run_manager and getattr(self.run_manager, '_register_model', None) and actual_model_id != model_id:
+                self.run_manager._register_model(actual_model_id)
+                logger.debug(f"Registered actual model: {actual_model_id}")
 
             for iteration_num in range(1, self.args.iterations + 1):
                 logger.info(f"  Starting iteration {iteration_num} for {model_id}")
@@ -446,6 +473,11 @@ class BenchmarkRunner:
             "run_id": run.run_id if run else None,
         }
 
+        if self.run_manager and run:
+            has_errors = any(r.get("errors", 0) > 0 for r in all_results)
+            final_status = "failed" if has_errors else "completed"
+            self.run_manager.update_run_status(run.run_id, final_status)
+
         logger.info("Benchmark execution completed")
         return results
 
@@ -472,13 +504,24 @@ class BenchmarkRunner:
                 "latency_ms": r.latency_ms,
                 "input_tokens": r.input_tokens,
                 "output_tokens": r.output_tokens,
-                "status": "success",
+                "status": r.status,
             }
             for r in responses
         ]
         
-        # Errors are not tracked separately in test mode
-        errors_data = []
+        # Get errors for this run
+        from src.db.repository import ErrorRepository
+        error_repo = ErrorRepository(self.db_manager)
+        errors = error_repo.get_by_run(run_id) if run_id else []
+        
+        errors_data = [
+            {
+                "model_id": e.model_id,
+                "error_type": e.error_type,
+                "error_message": e.error_message
+            }
+            for e in errors
+        ]
 
         # Calculate statistics
         calculator = StatisticsCalculator(responses_data, errors_data)
@@ -491,25 +534,25 @@ class BenchmarkRunner:
             return
 
         # Create formatter based on output format
-        formatter = create_formatter(self.args.output_format)
+        formatter = create_formatter(self.args.output)
 
         # Display based on format
-        if self.args.output_format == "console":
+        if self.args.output == "console":
             if isinstance(formatter, ConsoleFormatter):
                 formatter.display_table(all_stats)
                 formatter.display_summary(all_stats)
         else:
             # Export to file or stdout
             if self.args.output_file:
-                formatter.export_to_file(all_stats, str(self.args.output_file), self.args.output_format)
+                formatter.export_to_file(all_stats, str(self.args.output_file), self.args.output)
                 print(f"Results exported to {self.args.output_file}")
             else:
                 # Output to stdout
-                if self.args.output_format == "json":
+                if self.args.output == "json":
                     print(formatter.to_json(all_stats))
-                elif self.args.output_format == "csv":
+                elif self.args.output == "csv":
                     print(formatter.to_csv(all_stats), end="")
-                elif self.args.output_format == "markdown":
+                elif self.args.output == "markdown":
                     print(formatter.to_markdown(all_stats))
 
     def _cleanup(self) -> None:

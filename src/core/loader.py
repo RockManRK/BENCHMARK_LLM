@@ -218,24 +218,14 @@ class QuestionLoader:
             if schema.meta.has_image and schema.assets:
                 image_path = schema.assets[0]
 
-            metadata = {
-                "has_image": schema.meta.has_image,
-                "has_table": schema.meta.has_table,
-                "status": schema.meta.status,
-                "notes": schema.meta.notes,
-                "original_options": dict(schema.options),
-                "original_correct_answer": schema.answer_key,
-            }
-
             question = Question(
                 question_id=schema.id,
-                question_text=schema.stem,
-                options=dict(schema.options),
+                stem=schema.stem,
+                options_json=json.dumps(dict(schema.options)),
                 correct_answer=schema.answer_key,
                 has_image=schema.meta.has_image,
                 image_path=image_path,
-                has_table=schema.meta.has_table,
-                metadata=metadata,
+                status="active",
             )
             questions.append(question)
 

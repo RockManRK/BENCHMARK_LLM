@@ -170,6 +170,33 @@ Examples:
             help="Use a different seed for each iteration (for consistency testing)",
         )
 
+        # Model generation parameters
+        parser.add_argument(
+            "--temperature",
+            type=float,
+            help="Temperature for model generation",
+        )
+        parser.add_argument(
+            "--max-tokens",
+            type=int,
+            help="Maximum tokens for model generation",
+        )
+        parser.add_argument(
+            "--top-p",
+            type=float,
+            help="Top-p sampling parameter",
+        )
+        parser.add_argument(
+            "--top-k",
+            type=int,
+            help="Top-k sampling parameter",
+        )
+        parser.add_argument(
+            "--repeat-penalty",
+            type=float,
+            help="Repeat penalty parameter",
+        )
+
         # Reasoning parameters (OpenRouter standard)
         parser.add_argument(
             "--reasoning-effort",
@@ -247,8 +274,15 @@ Examples:
         """
         # Determine execution mode
         if args.test_mode:
-            # --test-mode overrides --mode for backward compatibility
+            # --test-mode has highest precedence
             execution_mode = "test"
+            if args.experiment:
+                print("Warning: --test-mode has precedence. --experiment will be ignored.", file=sys.stderr)
+        elif args.experiment:
+            # --experiment forces experiment mode
+            execution_mode = "experiment"
+            if args.mode and args.mode != "experiment":
+                print(f"Warning: --experiment forces EXPERIMENT MODE. Ignoring --mode {args.mode}", file=sys.stderr)
         elif args.mode:
             execution_mode = args.mode
         else:

@@ -107,7 +107,7 @@ class QuestionExecutor:
         self._error_repository = ErrorRepository(db_manager)
         logger.debug(
             f"QuestionExecutor initialized for run={run_id}, "
-            f"model={model_id}, iteration={iteration_id}, "
+            f"model={model_id}, iteration={self._iteration_number}, "
             f"use_structured_outputs={self._use_structured_outputs}, "
             f"enable_vision={self._enable_vision}, "
             f"model_kwargs={self._model_kwargs}, "
@@ -214,7 +214,8 @@ class QuestionExecutor:
             # Extract reasoning details
             reasoning_details, reasoning_tokens = self._extract_reasoning_details(api_response)
 
-            # Step 4: Store response in database
+            # Step 4: Store response in database (in test mode this goes to :memory:)
+            logger.debug(f"Creating response: run_id={self._run_id}, question_id={randomized_question.question_id}, model_id={self._model_id}")
             response = self._create_response_object(
                 question=randomized_question,
                 parsed=parsed,
@@ -223,7 +224,9 @@ class QuestionExecutor:
                 reasoning_details=reasoning_details,
                 reasoning_tokens=reasoning_tokens,
             )
+            logger.debug(f"Response object created, saving to DB")
             self._response_repository.create(response)
+            logger.info(f"Response saved successfully")
 
             # Populate result
             result.update(
@@ -278,23 +281,28 @@ class QuestionExecutor:
             B. Option B
             ...
         """
-        # Format options as a string
-        options_text = "\n".join(
-            f"{letter}. {text}" for letter, text in question.options.items()
-        )
+        # Parse options from JSON
+        import json
+        options = json.loads(question.options_json)
+        options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
 
         # Build the prompt
         # Base instruction for text-only questions
         default_instruction = "Select the correct answer by providing only the letter (A, B, C, or D)."
-        
+
         # Get custom prompt from settings or use default
         if question.has_image and self._enable_vision:
             default_with_image = "First, describe what you see in the image in detail. Then, " + default_instruction.lower()
             instruction = self._settings.prompt_with_image or default_with_image
         else:
             instruction = default_instruction
-        
-        prompt = f"""Question: {question.question_text}
+
+        # Parse options from JSON
+        import json
+        options = json.loads(question.options_json)
+        options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
+
+        prompt = f"""Question: {question.stem}
 
 Options:
 {options_text}
@@ -802,33 +810,35 @@ Options:
             stack_trace: Optional stack trace.
         """
         # First create a response record for the error
-        response = Response(
-            run_id=self._run_id,
-            question_id=question.question_id,
-            model_id=self._model_id,
-            iteration=self._iteration_number,
-            selected_answer=None,
-            response_text="",
-            is_correct=None,
-            status="error",
-            latency_ms=latency_ms,
-            input_tokens=0,
-            output_tokens=0,
-            timestamp=datetime.now(),
-        )
-        self._response_repository.create(response)
+        # Store response and error in database (skip in test mode)
+        if self._settings is None or not self._settings.is_test_mode:
+            response = Response(
+                run_id=self._run_id,
+                question_id=question.question_id,
+                model_id=self._model_id,
+                iteration=self._iteration_number,
+                selected_answer=None,
+                response_text="",
+                is_correct=None,
+                status="error",
+                latency_ms=latency_ms,
+                input_tokens=0,
+                output_tokens=0,
+                timestamp=datetime.now(),
+            )
+            self._response_repository.create(response)
 
-        # Then create the error record
-        error = Error(
-            run_id=self._run_id,
-            question_id=question.question_id,
-            model_id=self._model_id,
-            error_type=error_type,
-            error_message=error_message,
-            stack_trace=stack_trace,
-            timestamp=datetime.now(),
-        )
-        self._error_repository.create(error)
+            # Then create the error record
+            error = Error(
+                run_id=self._run_id,
+                question_id=question.question_id,
+                model_id=self._model_id,
+                error_type=error_type,
+                error_message=error_message,
+                stack_trace=stack_trace,
+                timestamp=datetime.now(),
+            )
+            self._error_repository.create(error)
 
     def _get_stack_trace(self) -> str:
         """Get the current stack trace as a string.

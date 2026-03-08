@@ -28,7 +28,7 @@ _logger: Optional[logging.Logger] = None
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT = 5
-DEFAULT_LOGGER_NAME = "benchmark_llm"
+DEFAULT_LOGGER_NAME = ""
 
 # Structured log format
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -398,7 +398,7 @@ def log_initialization_summary(
     logger.info("=" * 60)
     logger.info("Benchmark LLM - Initialization")
     logger.info("=" * 60)
-    logger.info(f"Execution mode      : {execution_mode.upper()}")
+    logger.info(f"Execution mode      : {execution_mode.upper()} MODE")
     logger.info(f"Experiment          : {experiment_name or 'None'}")
     logger.info(f"Persist data        : {'YES' if persist_data else 'NO'}")
     
