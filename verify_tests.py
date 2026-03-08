@@ -49,10 +49,10 @@ runs4 = check_db("SELECT * FROM runs ORDER BY started_at DESC LIMIT 1")
 print(f"- Run is_dev: {runs4[0]['is_dev']}, exp_id: {runs4[0]['experiment_id']}")
 
 out5 = run_cmd(r".\.venv\Scripts\python.exe bcllm.py --experiment estudo_teste --models Qwen --questions Q002 --temperature 0.9")
-print("- Ignored Warning triggered on temp diff ->", "IGNORADA/DESCARTADA" in out5)
+print("- Ignored Warning triggered on temp diff ->", "Frozen experiment configuration detected" in out5)
 
 out6 = run_cmd(r".\.venv\Scripts\python.exe bcllm.py --experiment estudo_teste --models Qwen --max-tokens 2048 --questions Q002")
-print("- Ignored Warning triggered on tokens diff ->", "IGNORADA/DESCARTADA" in out6)
+print("- Ignored Warning triggered on tokens diff ->", "Frozen experiment configuration detected" in out6)
 
 print("\n" + "="*40 + "\n 4. FLAGS PRECEDENCE \n" + "="*40)
 out7 = run_cmd(r".\.venv\Scripts\python.exe bcllm.py --mode dev --experiment estudo_teste --models Qwen --questions Q002")

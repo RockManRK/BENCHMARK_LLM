@@ -28,7 +28,7 @@ _logger: Optional[logging.Logger] = None
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT = 5
-DEFAULT_LOGGER_NAME = ""
+DEFAULT_LOGGER_NAME = "benchmark_llm"
 
 # Structured log format
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -400,7 +400,13 @@ def log_initialization_summary(
     logger.info("=" * 60)
     logger.info(f"Execution mode      : {execution_mode.upper()} MODE")
     logger.info(f"Experiment          : {experiment_name or 'None'}")
-    logger.info(f"Persist data        : {'YES' if persist_data else 'NO'}")
+    
+    # Show explicit persistence details
+    if execution_mode.lower() == "test":
+        logger.info("Persist data        : YES (SQLite in-memory)")
+        logger.info("Disk persistence    : NO (data lost after execution)")
+    else:
+        logger.info(f"Persist data        : {'YES' if persist_data else 'NO'}")
     
     if config_frozen:
         logger.info(f"Configuration       : FROZEN (config_hash={config_hash})")

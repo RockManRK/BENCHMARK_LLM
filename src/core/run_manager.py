@@ -162,11 +162,30 @@ class RunManager:
             logger.info(f"Found existing experiment: {existing.name}")
             current_hash = self.settings.get_config_hash()
             if current_hash != existing.config_hash:
+                # Capture CLI parameters that will be ignored
+                cli_params_set = []
+                generation_params = self.settings.get_generation_params()
+                for cli_name, (setting_name, value) in generation_params.items():
+                    if value is not None:
+                        cli_params_set.append(cli_name)
+                
+                # Log explicit warning with list of ignored parameters
+                logger.warning("Frozen experiment configuration detected.")
+                if cli_params_set:
+                    logger.warning("The following CLI parameters were ignored:")
+                    for param in cli_params_set:
+                        logger.warning(f"  - {param}")
+                    logger.warning("Using frozen configuration instead.")
+                else:
+                    logger.warning("No CLI generation parameters were provided.")
+                    logger.warning("Using frozen configuration instead.")
+                
                 logger.warning(
-                    f"Configuration mismatch for experiment '{existing.name}'. "
-                    f"Current settings (hash={current_hash}) will be IGNORADA/DESCARTADA "
+                    f"Configuration mismatch for experiment '{existing.name}': "
+                    f"Current settings (hash={current_hash}) will be ignored "
                     f"in favor of the frozen configuration (hash={existing.config_hash})."
                 )
+                
                 # Overwrite current mutable settings with the frozen configuration
                 try:
                     frozen_config = json.loads(existing.config_json)
@@ -175,7 +194,7 @@ class RunManager:
                             setattr(self.settings, key, value)
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse frozen config for '{existing.name}'")
-                    
+
             self.current_experiment = existing
             return existing
 

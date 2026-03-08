@@ -422,6 +422,26 @@ class Settings(BaseSettings):
             "questionnaire_path": str(self.questionnaire_path),
         }
 
+    def get_generation_params(self) -> dict[str, tuple[str, any]]:
+        """Get current generation parameter values with their source names.
+
+        Returns:
+            Dictionary mapping CLI parameter names to (setting_name, current_value) tuples.
+
+        Example:
+            >>> settings = Settings()
+            >>> params = settings.get_generation_params()
+            >>> print(params)
+            {'temperature': ('model_temperature', 0.7), 'max_tokens': ('model_max_tokens', 2048)}
+        """
+        return {
+            "temperature": ("model_temperature", self.model_temperature),
+            "max_tokens": ("model_max_tokens", self.model_max_tokens),
+            "top_p": ("model_top_p", self.model_top_p),
+            "top_k": ("model_top_k", self.model_top_k),
+            "repeat_penalty": ("model_repeat_penalty", self.model_repeat_penalty),
+        }
+
     def __init__(self, **kwargs) -> None:
         """Initialize settings and log configuration status.
 
