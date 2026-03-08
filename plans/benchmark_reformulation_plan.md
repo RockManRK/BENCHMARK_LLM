@@ -113,32 +113,140 @@ column_name TEXT,
 description TEXT
 ```
 
-### 3. Implementação dos Modos de Execução
+### 3. Script de Schema SQL
 
-#### 3.1. Test Mode
+```sql
+-- Schema para o novo sistema de benchmark LLM
+-- Tabelas: experiments, runs, models, questions, responses, errors, schema_metadata
+
+-- Tabela: experiments
+-- Armazena informações sobre experimentos com configuração congelada
+CREATE TABLE experiments (
+    experiment_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    config_json TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    system_prompt TEXT,
+    user_prompt_template TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela: runs
+-- Armazena informações sobre execuções de benchmark
+CREATE TABLE runs (
+    run_id TEXT PRIMARY KEY,
+    experiment_id TEXT,
+    seed INTEGER,
+    is_dev BOOLEAN NOT NULL DEFAULT 0,
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    status TEXT,
+    FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id)
+);
+
+-- Tabela: models
+-- Armazena informações sobre modelos LLM
+CREATE TABLE models (
+    model_id TEXT PRIMARY KEY,
+    provider TEXT,
+    model_name TEXT,
+    supports_multimodal BOOLEAN,
+    metadata_json TEXT
+);
+
+-- Tabela: questions
+-- Armazena as perguntas do dataset
+CREATE TABLE questions (
+    question_id TEXT PRIMARY KEY,
+    stem TEXT NOT NULL,
+    options_json TEXT NOT NULL,
+    correct_answer TEXT,
+    has_image BOOLEAN,
+    image_path TEXT,
+    status TEXT
+);
+
+-- Tabela: responses
+-- Armazena as respostas dos modelos às perguntas
+CREATE TABLE responses (
+    response_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    selected_answer TEXT,
+    response_text TEXT,
+    is_correct BOOLEAN,
+    status TEXT,
+    latency_ms INTEGER,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    answer_tokens INTEGER,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES runs(run_id),
+    FOREIGN KEY (question_id) REFERENCES questions(question_id),
+    FOREIGN KEY (model_id) REFERENCES models(model_id)
+);
+
+-- Tabela: errors
+-- Armazena informações sobre erros ocorridos durante execuções
+CREATE TABLE errors (
+    error_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT,
+    question_id TEXT,
+    model_id TEXT,
+    error_type TEXT,
+    error_message TEXT,
+    stack_trace TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela: schema_metadata
+-- Documentação viva do schema do banco de dados
+CREATE TABLE schema_metadata (
+    table_name TEXT,
+    column_name TEXT,
+    description TEXT
+);
+
+-- Índices para otimizar consultas comuns
+CREATE INDEX idx_runs_experiment_id ON runs(experiment_id);
+CREATE INDEX idx_runs_is_dev ON runs(is_dev);
+CREATE INDEX idx_responses_run_id ON responses(run_id);
+CREATE INDEX idx_responses_question_id ON responses(question_id);
+CREATE INDEX idx_responses_model_id ON responses(model_id);
+CREATE INDEX idx_responses_iteration ON responses(iteration);
+CREATE INDEX idx_errors_run_id ON errors(run_id);
+```
+
+### 4. Implementação dos Modos de Execução
+
+#### 4.1. Test Mode
 - Ativado com flag `--test-mode`
 - Não salva dados no banco
 - Não cria run nem experiment
 - Configuração vem de CLI/.env
 - Usado apenas para validação rápida
 
-#### 3.2. Dev Mode
+#### 4.2. Dev Mode
 - Ativado quando nenhum `--experiment` é informado
 - Salva runs no banco
 - `experiment_id = NULL`
 - `is_dev = true`
 - Configuração é mutável e não congelada
 
-#### 3.3. Experiment Mode
+#### 4.3. Experiment Mode
 - Ativado com flag `--experiment <nome>`
 - Configuração congelada e auditável
 - Criar experiment apenas quando explicitamente solicitado
 - Salvar snapshot completo da configuração (JSON + hash)
 - Reutilizar configuração congelada em execuções futuras
 
-### 4. Sistema de Logging Aprimorado
+### 5. Sistema de Logging Aprimorado
 
-#### 4.1. Log de Inicialização Padrão
+#### 5.1. Log de Inicialização Padrão
 O log deve conter informações claras sobre:
 - Modo de execução
 - Nome do experimento (se aplicável)
@@ -159,35 +267,35 @@ Exemplo:
 [INFO] Questions           : Q001-Q010
 ```
 
-### 5. Atualizações Necessárias
+### 6. Atualizações Necessárias
 
-#### 5.1. Atualizar modelos de dados
+#### 6.1. Atualizar modelos de dados
 - Criar novas classes de modelo para refletir a nova estrutura
 - Remover ou adaptar modelos antigos
 
-#### 5.2. Atualizar repositórios de dados
+#### 6.2. Atualizar repositórios de dados
 - Implementar novos repositórios para as novas tabelas
 - Adaptar métodos existentes para a nova estrutura
 
-#### 5.3. Atualizar gerenciamento de execução
+#### 6.3. Atualizar gerenciamento de execução
 - Modificar o RunManager para lidar com experimentos
 - Implementar lógica de criação e recuperação de experimentos
 
-#### 5.4. Atualizar carregamento de perguntas
+#### 6.4. Atualizar carregamento de perguntas
 - Modificar o QuestionLoader para armazenar perguntas no banco
 - Manter compatibilidade com o formato JSON existente
 
-#### 5.5. Atualizar CLI
+#### 6.5. Atualizar CLI
 - Adicionar parâmetro `--experiment` para ativar o modo de experimento
 - Atualizar a lógica de parsing de argumentos
 
-### 6. Documentação
+### 7. Documentação
 
-#### 6.1. Documentar o novo schema
+#### 7.1. Documentar o novo schema
 - Criar arquivo schema.sql com o novo schema
 - Criar documentação explicando cada tabela e coluna
 
-#### 6.2. Atualizar manuais
+#### 7.2. Atualizar manuais
 - Atualizar MANUAL.md com as novas funcionalidades
 - Explicar os diferentes modos de execução
 
