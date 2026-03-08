@@ -222,7 +222,7 @@ class TestTokenUsageExtraction:
     ) -> None:
         """Test extracting complete token usage information."""
         result = parser.parse(successful_response)
-        
+
         assert result.input_tokens == 50
         assert result.output_tokens == 10
         assert result.total_tokens == 60
@@ -239,7 +239,7 @@ class TestTokenUsageExtraction:
             }
         }
         result = parser.parse(response)
-        
+
         assert result.input_tokens == 30
         assert result.output_tokens == 0
         assert result.total_tokens == 30
@@ -253,10 +253,94 @@ class TestTokenUsageExtraction:
             "choices": [{"message": {"content": "A"}, "finish_reason": "stop"}],
         }
         result = parser.parse(response)
-        
+
         assert result.input_tokens == 0
         assert result.output_tokens == 0
         assert result.total_tokens == 0
+
+    def test_extract_cost(
+        self, parser: ResponseParser
+    ) -> None:
+        """Test extracting cost from usage."""
+        response = {
+            "id": "test-cost",
+            "choices": [{"message": {"content": "A"}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 30,
+                "completion_tokens": 10,
+                "total_tokens": 40,
+                "cost": 0.0012
+            }
+        }
+        result = parser.parse(response)
+
+        assert result.cost == 0.0012
+
+    def test_extract_cost_zero(
+        self, parser: ResponseParser
+    ) -> None:
+        """Test extracting zero cost."""
+        response = {
+            "id": "test-cost-zero",
+            "choices": [{"message": {"content": "A"}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 30,
+                "completion_tokens": 10,
+                "total_tokens": 40,
+                "cost": 0
+            }
+        }
+        result = parser.parse(response)
+
+        assert result.cost == 0
+
+    def test_missing_cost(
+        self, parser: ResponseParser
+    ) -> None:
+        """Test handling missing cost information."""
+        response = {
+            "id": "test-no-cost",
+            "choices": [{"message": {"content": "A"}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 30,
+                "completion_tokens": 10,
+                "total_tokens": 40,
+            }
+        }
+        result = parser.parse(response)
+
+        assert result.cost is None
+
+    def test_extract_full_openrouter_response(
+        self, parser: ResponseParser
+    ) -> None:
+        """Test extracting complete OpenRouter response with all usage fields."""
+        response = {
+            "id": "gen-123456",
+            "model": "openai/gpt-4",
+            "choices": [{
+                "message": {"content": "The answer is A", "role": "assistant"},
+                "finish_reason": "stop",
+                "native_finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 194,
+                "completion_tokens": 2,
+                "total_tokens": 196,
+                "prompt_tokens_details": {"cached_tokens": 0},
+                "completion_tokens_details": {"reasoning_tokens": 0},
+                "cost": 0.00095,
+                "is_byok": False
+            }
+        }
+        result = parser.parse(response)
+
+        assert result.response_id == "gen-123456"
+        assert result.input_tokens == 194
+        assert result.output_tokens == 2
+        assert result.total_tokens == 196
+        assert result.cost == 0.00095
+        assert result.selected_answer == "A"
 
 
 class TestErrorHandling:

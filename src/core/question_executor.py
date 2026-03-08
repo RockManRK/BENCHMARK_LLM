@@ -421,6 +421,8 @@ Options:
         usage = api_response.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+        cost = usage.get("cost")
 
         # Capture actual model from response
         actual_model = api_response.get("model", self._model_id)
@@ -434,6 +436,8 @@ Options:
             "response_text": content,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost": cost,
             "actual_model": actual_model,
         }
 
@@ -493,6 +497,8 @@ Options:
         usage = api_response.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+        cost = usage.get("cost")
 
         # Capture actual model from response for verification
         actual_model = api_response.get("model", self._model_id)
@@ -514,6 +520,8 @@ Options:
             "response_text": response_text,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost": cost,
             "actual_model": actual_model,
         }
 
@@ -592,15 +600,18 @@ Options:
                 logger.debug(f"Extracted reasoning_details: {len(details)} items")
 
         # Extract reasoning tokens from usage
+        # OpenRouter standard: usage.completion_tokens_details.reasoning_tokens
+        # Some providers may use: usage.reasoning_tokens (flat)
         usage = api_response.get("usage", {})
-
-        # Some APIs provide reasoning_tokens separately
-        if "reasoning_tokens" in usage:
+        reasoning_tokens = None
+        
+        # Try nested format first (OpenRouter standard)
+        completion_tokens_details = usage.get("completion_tokens_details", {})
+        if completion_tokens_details and "reasoning_tokens" in completion_tokens_details:
+            reasoning_tokens = completion_tokens_details["reasoning_tokens"]
+        # Fallback to flat format (some providers)
+        elif "reasoning_tokens" in usage:
             reasoning_tokens = usage["reasoning_tokens"]
-        elif "completion_tokens" in usage:
-            # If no separate reasoning_tokens, completion_tokens may include them
-            # We'll track this in metadata
-            pass
 
         return reasoning_details, reasoning_tokens
 
@@ -640,6 +651,8 @@ Options:
             latency_ms=latency_ms,
             input_tokens=parsed["input_tokens"],
             output_tokens=parsed["output_tokens"],
+            total_tokens=parsed.get("total_tokens"),
+            cost=parsed.get("cost"),
             reasoning_tokens=reasoning_tokens,
             timestamp=datetime.now(),
         )
@@ -824,6 +837,8 @@ Options:
                 latency_ms=latency_ms,
                 input_tokens=0,
                 output_tokens=0,
+                total_tokens=None,
+                cost=None,
                 timestamp=datetime.now(),
             )
             self._response_repository.create(response)

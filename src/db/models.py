@@ -168,7 +168,9 @@ class Response:
         latency_ms: Response time in milliseconds.
         input_tokens: Number of tokens in the request.
         output_tokens: Number of tokens in the response.
+        total_tokens: Total tokens used (input + output).
         reasoning_tokens: Number of reasoning tokens used.
+        cost: Cost in credits for this response (from usage.cost).
         timestamp: When the response was received.
         response_id: Auto-incrementing unique identifier (assigned by DB).
 
@@ -201,7 +203,9 @@ class Response:
     latency_ms: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    total_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
+    cost: Optional[float] = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 

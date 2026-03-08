@@ -36,6 +36,7 @@ class ParsedResponse:
         input_tokens: Number of tokens in the prompt.
         output_tokens: Number of tokens in the completion.
         total_tokens: Total tokens used (input + output).
+        cost: Cost in credits for this response (from usage.cost).
         latency_ms: Request latency in milliseconds.
         status: Response status (success, error, etc.).
         model: Model identifier that generated the response.
@@ -57,6 +58,7 @@ class ParsedResponse:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    cost: Optional[float] = None
     latency_ms: int = 0
     status: str = "success"
     model: str = ""
@@ -137,6 +139,7 @@ class ResponseParser:
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
         total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+        cost = usage.get("cost")
 
         # Calculate latency
         latency_ms = 0
@@ -156,6 +159,7 @@ class ResponseParser:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
+            cost=cost,
             latency_ms=latency_ms,
             status=status,
             model=model,
