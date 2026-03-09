@@ -35,6 +35,39 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+class FlushingRotatingFileHandler(RotatingFileHandler):
+    """A RotatingFileHandler that flushes after each write.
+
+    This ensures log messages are written to disk immediately,
+    preventing loss of logs in case of crashes or power failures.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a record, then flush the stream.
+
+        Args:
+            record: The log record to emit.
+        """
+        super().emit(record)
+        self.flush()
+
+
+class FlushingStreamHandler(logging.StreamHandler):
+    """A StreamHandler that flushes after each write.
+
+    This ensures log messages are written immediately.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a record, then flush the stream.
+
+        Args:
+            record: The log record to emit.
+        """
+        super().emit(record)
+        self.flush()
+
+
 class LoggingConfig:
     """Configuration class for logging setup.
 
@@ -189,12 +222,13 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
     # Ensure log directory exists
     config.log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Create rotating file handler
-    file_handler = RotatingFileHandler(
+    # Create rotating file handler with automatic flushing after each write
+    file_handler = FlushingRotatingFileHandler(
         config.log_file_path,
         maxBytes=config.max_bytes,
         backupCount=config.backup_count,
         encoding="utf-8",
+        delay=False,  # Open file immediately
     )
     file_handler.setLevel(getattr(logging, config.log_level))
 
@@ -205,8 +239,8 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
     # Add handler to logger
     logger.addHandler(file_handler)
 
-    # Also add console handler for visibility
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Also add console handler for visibility with automatic flushing
+    console_handler = FlushingStreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, config.log_level))
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
@@ -462,3 +496,26 @@ def log_configuration_startup(
         config_parts.append(f"{key}={value}")
 
     logger.info(" | ".join(config_parts))
+    # Force flush to ensure log is written immediately
+    flush_all_handlers(logger)
+
+
+def flush_all_handlers(logger: logging.Logger) -> None:
+    """Force flush all handlers attached to a logger.
+
+    This ensures that log messages are written to disk immediately,
+    which is critical for debugging and monitoring long-running processes.
+
+    Args:
+        logger: Logger instance to flush.
+
+    Example:
+        >>> logger = get_logger()
+        >>> logger.info("Important message")
+        >>> flush_all_handlers(logger)  # Ensure message is written
+    """
+    for handler in logger.handlers:
+        if hasattr(handler, 'flush') and callable(handler.flush):
+            handler.flush()
+        elif hasattr(handler, 'stream') and hasattr(handler.stream, 'flush'):
+            handler.stream.flush()

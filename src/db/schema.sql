@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS responses (
     total_tokens INTEGER,
     reasoning_tokens INTEGER,
     cost REAL,
+    raw_response_json TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,

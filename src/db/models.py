@@ -218,6 +218,7 @@ class Response:
         total_tokens: Total tokens used (input + output).
         reasoning_tokens: Number of reasoning tokens used.
         cost: Cost in credits for this response (from usage.cost).
+        raw_response_json: Complete raw API response as JSON string for debugging.
         timestamp: When the response was received.
         response_id: Auto-incrementing unique identifier (assigned by DB).
 
@@ -255,6 +256,7 @@ class Response:
     total_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
     cost: Optional[float] = None
+    raw_response_json: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:

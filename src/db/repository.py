@@ -938,8 +938,8 @@ class ResponseRepository:
                 INSERT INTO responses (
                     run_id, snapshot_id, question_id, model_id, iteration,
                     selected_answer, response_text, is_correct,
-                    status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
@@ -957,6 +957,7 @@ class ResponseRepository:
                     response.total_tokens,
                     response.reasoning_tokens,
                     response.cost,
+                    response.raw_response_json,
                 ),
             )
             conn.commit()
@@ -993,7 +994,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE response_id = ?
                 """,
                 (response_id,),
@@ -1018,6 +1019,7 @@ class ResponseRepository:
                 total_tokens=row["total_tokens"],
                 reasoning_tokens=row["reasoning_tokens"],
                 cost=row["cost"],
+                raw_response_json=row["raw_response_json"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
             )
         finally:
@@ -1033,7 +1035,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE run_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id,),
@@ -1058,6 +1060,7 @@ class ResponseRepository:
                         total_tokens=row["total_tokens"],
                         reasoning_tokens=row["reasoning_tokens"],
                         cost=row["cost"],
+                        raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                     )
                 )
@@ -1075,7 +1078,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
                 """,
                 (model_id,),
@@ -1100,6 +1103,7 @@ class ResponseRepository:
                         total_tokens=row["total_tokens"],
                         reasoning_tokens=row["reasoning_tokens"],
                         cost=row["cost"],
+                        raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                     )
                 )
@@ -1117,7 +1121,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id, model_id),
@@ -1142,6 +1146,7 @@ class ResponseRepository:
                         total_tokens=row["total_tokens"],
                         reasoning_tokens=row["reasoning_tokens"],
                         cost=row["cost"],
+                        raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                     )
                 )
@@ -1159,7 +1164,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
                 """,
                 (model_id,),
@@ -1183,6 +1188,7 @@ class ResponseRepository:
                         total_tokens=row["total_tokens"],
                         reasoning_tokens=row["reasoning_tokens"],
                         cost=row["cost"],
+                        raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                     )
                 )
@@ -1200,7 +1206,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
                 """,
                 (run_id, model_id),
@@ -1224,6 +1230,7 @@ class ResponseRepository:
                         total_tokens=row["total_tokens"],
                         reasoning_tokens=row["reasoning_tokens"],
                         cost=row["cost"],
+                        raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                     )
                 )
@@ -1245,7 +1252,7 @@ class ResponseRepository:
                 UPDATE responses SET
                     run_id = ?, snapshot_id = ?, question_id = ?, model_id = ?, iteration = ?,
                     selected_answer = ?, response_text = ?, is_correct = ?,
-                    status = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?, reasoning_tokens = ?, cost = ?
+                    status = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?, reasoning_tokens = ?, cost = ?, raw_response_json = ?
                 WHERE response_id = ?
                 """,
                 (
@@ -1264,6 +1271,7 @@ class ResponseRepository:
                     response.total_tokens,
                     response.reasoning_tokens,
                     response.cost,
+                    response.raw_response_json,
                     response.response_id,
                 ),
             )

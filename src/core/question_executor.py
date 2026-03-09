@@ -365,6 +365,7 @@ Options:
             "model": self._model_id,
             "messages": [request_content],
             "response_format": ANSWER_SCHEMA,
+            "stream": False,  # Disable streaming to ensure complete response
         }
         # Add optional parameters only if configured
         if "max_tokens" in self._model_kwargs:
@@ -377,7 +378,7 @@ Options:
             api_kwargs["top_k"] = self._model_kwargs["top_k"]
         if "repeat_penalty" in self._model_kwargs:
             api_kwargs["repeat_penalty"] = self._model_kwargs["repeat_penalty"]
-        
+
         # Add reasoning config if provided
         if self._reasoning_config:
             api_kwargs["reasoning"] = self._reasoning_config
@@ -399,6 +400,7 @@ Options:
         api_kwargs = {
             "model": self._model_id,
             "messages": [request_content],
+            "stream": False,  # Disable streaming to ensure complete response
         }
         # Add optional parameters only if configured
         if "max_tokens" in self._model_kwargs:
@@ -411,7 +413,7 @@ Options:
             api_kwargs["top_k"] = self._model_kwargs["top_k"]
         if "repeat_penalty" in self._model_kwargs:
             api_kwargs["repeat_penalty"] = self._model_kwargs["repeat_penalty"]
-        
+
         # Add reasoning config if provided
         if self._reasoning_config:
             api_kwargs["reasoning"] = self._reasoning_config
@@ -694,6 +696,7 @@ Options:
             total_tokens=parsed.get("total_tokens"),
             cost=parsed.get("cost"),
             reasoning_tokens=reasoning_tokens,
+            raw_response_json=json.dumps(api_response),
             timestamp=datetime.now(),
         )
 
