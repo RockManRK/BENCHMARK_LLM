@@ -120,6 +120,10 @@ class Question:
     Questions are loaded from external files (JSON/CSV) and persisted
     in the database for reproducibility and audit trails.
 
+    This is the CANONICAL CATALOG - questions can be updated here without
+    affecting existing experiment results. Experiments use question_snapshots
+    to ensure immutability.
+
     Attributes:
         question_id: Unique identifier for the question.
         stem: The question text/statement.
@@ -150,15 +154,53 @@ class Question:
 
 
 @dataclass
+class QuestionSnapshot:
+    """Represents an immutable snapshot of a question used in an experiment.
+
+    Each snapshot captures the complete question JSON at the moment it was
+    first used in an experiment, ensuring reproducibility even if the
+    canonical question is later modified.
+
+    Snapshots are created only once per (experiment_id, question_id) pair.
+    Subsequent executions reuse the existing snapshot.
+
+    Attributes:
+        question_id: ID of the question this snapshot is for.
+        question_json: Complete JSON representation of the question.
+        experiment_id: ID of the experiment this snapshot belongs to (NULL for dev mode).
+        snapshot_id: Auto-incrementing unique identifier (assigned by DB).
+        created_at: Timestamp when the snapshot was created.
+
+    Example:
+        >>> snapshot = QuestionSnapshot(
+        ...     question_id="Q001",
+        ...     question_json='{"id": "Q001", "stem": "What is 2+2?", "options": {...}}',
+        ...     experiment_id="exp-001"
+        ... )
+        >>> print(snapshot.question_id)
+        Q001
+    """
+
+    question_id: str
+    question_json: str
+    experiment_id: Optional[str] = None
+    snapshot_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+@dataclass
 class Response:
     """Represents a model's response to a question.
 
     This is the core data structure for storing benchmark results,
     capturing all metrics and outcomes from a single question attempt.
 
+    Responses reference question_snapshots (not questions directly) to
+    ensure immutability and reproducibility of experiment results.
+
     Attributes:
         run_id: ID of the run this response belongs to.
-        question_id: ID of the question being answered.
+        snapshot_id: ID of the question snapshot being answered.
         model_id: ID of the model that generated the response.
         iteration: Iteration number (1-based) within the run.
         selected_answer: The answer letter selected by the model.
@@ -177,7 +219,7 @@ class Response:
     Example:
         >>> response = Response(
         ...     run_id="run-001",
-        ...     question_id="Q001",
+        ...     snapshot_id=1,
         ...     model_id="gpt-4",
         ...     iteration=1,
         ...     selected_answer="B",
@@ -192,7 +234,7 @@ class Response:
     """
 
     run_id: str
-    question_id: str
+    snapshot_id: int
     model_id: str
     iteration: int = 1
     response_id: Optional[int] = None

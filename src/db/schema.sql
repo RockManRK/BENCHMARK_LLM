@@ -79,6 +79,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_unique ON models(provider, model_na
 -- Purpose: Store questionnaire questions for reproducibility.
 --          Questions are loaded from external files (JSON/CSV) and persisted
 --          here to ensure audit trails and version independence.
+--          This is the CANONICAL CATALOG - questions can be updated here
+--          without affecting existing experiment results.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS questions (
     question_id TEXT PRIMARY KEY,
@@ -97,15 +99,44 @@ CREATE INDEX IF NOT EXISTS idx_questions_status ON questions(status);
 CREATE INDEX IF NOT EXISTS idx_questions_has_image ON questions(has_image);
 
 -- ============================================================================
+-- TABLE: question_snapshots
+-- Purpose: Store IMMUTABLE snapshots of questions used in each experiment.
+--          Each snapshot captures the complete question JSON at the moment
+--          it was first used in an experiment, ensuring reproducibility.
+--          Snapshots are created only once per (experiment_id, question_id) pair.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS question_snapshots (
+    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    experiment_id TEXT,
+    question_id TEXT NOT NULL,
+    question_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id) ON DELETE SET NULL,
+    FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT
+);
+
+-- Index for fast lookups by experiment
+CREATE INDEX IF NOT EXISTS idx_question_snapshots_experiment ON question_snapshots(experiment_id);
+
+-- Index for fast lookups by question
+CREATE INDEX IF NOT EXISTS idx_question_snapshots_question ON question_snapshots(question_id);
+
+-- Unique index to prevent duplicate snapshots for same (experiment, question)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_question_snapshots_unique 
+ON question_snapshots(experiment_id, question_id);
+
+-- ============================================================================
 -- TABLE: responses
 -- Purpose: Store individual model responses to questions.
 --          This is the core data table for benchmark analysis.
 --          Each row represents one model's answer to one question in one iteration.
+--          Responses reference question_snapshots (not questions directly) to
+--          ensure immutability and reproducibility of experiment results.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS responses (
     response_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
-    question_id TEXT NOT NULL,
+    snapshot_id INTEGER NOT NULL,
     model_id TEXT NOT NULL,
     iteration INTEGER NOT NULL DEFAULT 1,
     selected_answer TEXT,
@@ -120,15 +151,15 @@ CREATE TABLE IF NOT EXISTS responses (
     cost REAL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
-    FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT,
+    FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,
     FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE RESTRICT
 );
 
 -- Index for fast lookups by run
 CREATE INDEX IF NOT EXISTS idx_responses_run ON responses(run_id);
 
--- Index for fast lookups by question
-CREATE INDEX IF NOT EXISTS idx_responses_question ON responses(question_id);
+-- Index for fast lookups by snapshot
+CREATE INDEX IF NOT EXISTS idx_responses_snapshot ON responses(snapshot_id);
 
 -- Index for fast lookups by model
 CREATE INDEX IF NOT EXISTS idx_responses_model ON responses(model_id);

@@ -22,20 +22,34 @@ The database is designed to support three execution modes:
        │                      │
        │ 1:N                  │ 1:N
        ▼                      ▼
-┌──────────────┐       ┌──────────────┐
-│     runs     │──────▶│   responses  │◀──────┐
-├──────────────┤       ├──────────────┤       │
-│    run_id    │       │  response_id │       │
-│ experiment_id│       │   run_id     │       │
-│    is_dev    │       │  question_id │───────┘
-│     seed     │       │   model_id   │
-└──────────────┘       └──────────────┘
-                              ▲
-                              │
-                       ┌──────────────┐
-                       │   questions  │
-                       ├──────────────┤
-                       │  question_id │
+┌──────────────┐       ┌───────────────────┐
+│     runs     │       │question_snapshots │◀─────┐
+├──────────────┤       ├───────────────────┤      │
+│    run_id    │       │   snapshot_id     │      │
+│ experiment_id│       │   experiment_id   │      │
+│    is_dev    │       │   question_id     │      │
+│     seed     │       │   question_json   │      │
+└──────┬───────┘       └───────────────────┘      │
+       │                      │                    │
+       │ 1:N                  │ 1:N                │ 1:N
+       ▼                      ▼                    │
+┌──────────────────────────────────────────────────┘
+│              responses                           │
+├──────────────────────────────────────────────────┤
+│           response_id                            │
+│           run_id                                 │
+│           snapshot_id ───────────────────────────┘
+│           model_id ──────────────────────────────┐
+│           iteration                              │
+│           selected_answer                        │
+│           ...                                    │
+└──────────────────────────────────────────────────┤
+                              ▲                    │
+                              │                    │
+                       ┌──────────────┐            │
+                       │   questions  │            │
+                       ├──────────────┤            │
+                       │  question_id │────────────┘
                        │     stem     │
                        │  options_json│
                        └──────────────┘
@@ -44,7 +58,7 @@ The database is designed to support three execution modes:
 │    errors    │
 ├──────────────┤
 │   error_id   │
-│    run_id    │
+│  run_id      │
 │  question_id │
 │   model_id   │
 └──────────────┘
@@ -161,7 +175,52 @@ Stores questionnaire questions for reproducibility.
 **Usage:**
 - Questions loaded from external files (JSON/CSV)
 - Persisted for audit trails and reproducibility
-- Referenced by responses via `question_id`
+- This is the CANONICAL CATALOG - questions can be updated here without affecting existing experiment results
+- Referenced by question_snapshots, NOT directly by responses
+
+---
+
+### `question_snapshots` (NEW)
+
+Stores **immutable snapshots** of questions used in each experiment.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `snapshot_id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
+| `experiment_id` | TEXT | FK → experiments | Associated experiment (NULL for dev mode) |
+| `question_id` | TEXT | NOT NULL, FK → questions | Reference to canonical question |
+| `question_json` | TEXT | NOT NULL | Complete JSON representation of the question |
+| `created_at` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
+
+**Indexes:**
+- `idx_question_snapshots_experiment` - Fast lookup by experiment
+- `idx_question_snapshots_question` - Fast lookup by question
+- `idx_question_snapshots_unique` - Unique constraint on (experiment_id, question_id)
+
+**Usage:**
+- Created automatically when a question is first used in an experiment
+- **Immutable** - never updated after creation
+- Ensures reproducibility: experiment results reference the exact question version used
+- Responses reference snapshots, not the canonical questions table
+- Allows questions to be corrected/updated without affecting old experiments
+
+**Snapshot Creation Logic:**
+1. When executing a question, check if snapshot exists for (experiment_id, question_id)
+2. If exists: reuse existing snapshot_id
+3. If not exists: create new snapshot with complete question JSON
+4. Snapshot includes: id, stem, options, answer_key, has_image, image_path
+
+**Example JSON stored in question_json:**
+```json
+{
+  "id": "Q001",
+  "stem": "Qual é a capital da França?",
+  "options": {"A": "Paris", "B": "Londres", "C": "Berlim", "D": "Madrid"},
+  "answer_key": "A",
+  "has_image": false,
+  "image_path": null
+}
+```
 
 ---
 
@@ -173,7 +232,7 @@ Core table storing model responses to questions.
 |--------|------|-------------|-------------|
 | `response_id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
 | `run_id` | TEXT | NOT NULL, FK → runs | Parent run |
-| `question_id` | TEXT | NOT NULL, FK → questions | Question answered |
+| `snapshot_id` | TEXT | NOT NULL, FK → question_snapshots | Question snapshot answered |
 | `model_id` | TEXT | NOT NULL, FK → models | Model that responded |
 | `iteration` | INTEGER | NOT NULL, DEFAULT 1 | Iteration number (1-based) |
 | `selected_answer` | TEXT | | Answer letter selected by model |
@@ -268,6 +327,26 @@ Questions are loaded from external files but persisted because:
 3. **Version Independence**: Database works even if source files change
 4. **Analysis**: SQL queries can analyze question patterns
 
+### Why Use Question Snapshots?
+
+**Problem:** Questions may receive corrections over time (grammar, alternative wording, etc.), but experiment results must remain valid and reproducible.
+
+**Solution:** The `question_snapshots` table stores immutable copies of questions at the moment they are first used in an experiment.
+
+**Benefits:**
+1. **Reproducibility**: Experiment results always reference the exact question version used
+2. **Comparability**: Models compared within an experiment answer identical questions
+3. **Independence**: External JSON changes don't affect old experiment results
+4. **Audit Trail**: Complete record of what was asked, when, and in what version
+5. **Flexibility**: Canonical questions can be corrected without breaking historical data
+
+**How It Works:**
+- When a question is executed in an experiment, a snapshot is created (if it doesn't exist)
+- The snapshot contains the complete question JSON (id, stem, options, answer_key, etc.)
+- All responses reference the snapshot, not the canonical question
+- Snapshots are never modified after creation
+- Multiple experiments can have different snapshots of the same question
+
 ### Why Separate `errors` Table?
 
 Errors are separate from responses because:
@@ -330,23 +409,45 @@ FROM experiments
 WHERE config_hash = ?;
 ```
 
+### Get Responses with Question Details (via Snapshot)
+```sql
+SELECT r.response_id, r.selected_answer, r.is_correct,
+       qs.question_json,
+       json_extract(qs.question_json, '$.stem') as question_stem,
+       json_extract(qs.question_json, '$.answer_key') as correct_answer
+FROM responses r
+JOIN question_snapshots qs ON r.snapshot_id = qs.snapshot_id
+WHERE r.run_id = ?
+ORDER BY r.iteration, qs.question_id;
+```
+
+### Get All Snapshots for an Experiment
+```sql
+SELECT snapshot_id, question_id, question_json, created_at
+FROM question_snapshots
+WHERE experiment_id = ?
+ORDER BY question_id;
+```
+
+### Compare Question Versions Across Experiments
+```sql
+SELECT qs.experiment_id, qs.question_id, qs.created_at,
+       json_extract(qs.question_json, '$.stem') as stem
+FROM question_snapshots qs
+WHERE qs.question_id = ?
+ORDER BY qs.created_at;
+```
+
 ---
 
 ## Migration Notes
 
-This schema (v2.0) is a complete redesign. Key changes from v1.x:
+This schema (v2.1) introduces question snapshots for reproducibility. Key changes from v2.0:
 
 | Change | Reason |
 |--------|--------|
-| Added `experiments` table | Experiment tracking with frozen config |
-| Added `questions` table | Question persistence for reproducibility |
-| Removed `iterations` table | Iteration as field in `responses` |
-| Removed `operational_logs` table | Logs written to files only |
-| Changed `runs.config` to `runs.experiment_id` | Normalized experiment reference |
-| Added `runs.is_dev` flag | Explicit dev mode tracking |
-| Renamed `models.metadata` to `models.metadata_json` | Naming consistency |
-| Removed `models.context_length`, `max_completion_tokens` | Moved to metadata_json |
-| Changed `responses.iteration_id` to `responses.iteration` | Direct field, no join |
-| Removed `responses.question_text`, `options_json` | Reference questions table |
+| Added `question_snapshots` table | Immutable question copies for reproducibility |
+| Changed `responses.question_id` to `responses.snapshot_id` | Responses now reference snapshots, not canonical questions |
+| Added indexes on `question_snapshots` | Performance for snapshot lookups |
 
 **Note**: No migration path is provided. Databases should be recreated from scratch.

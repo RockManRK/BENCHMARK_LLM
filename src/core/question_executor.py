@@ -17,8 +17,8 @@ import httpx
 
 from src.api.client import MessageBuilder, OpenRouterClient
 from src.core.randomizer import AnswerRandomizer
-from src.db.models import Error, Question, Response
-from src.db.repository import ErrorRepository, ResponseRepository
+from src.db.models import Error, Question, QuestionSnapshot, Response
+from src.db.repository import ErrorRepository, QuestionSnapshotRepository, ResponseRepository
 from src.db.schema import DatabaseManager
 from src.utils.answer_schema import ANSWER_SCHEMA
 
@@ -64,6 +64,7 @@ class QuestionExecutor:
         reasoning_config: Optional[dict[str, Any]] = None,
         enable_vision: bool = False,
         settings: Optional[Any] = None,
+        snapshot_repository: Optional[QuestionSnapshotRepository] = None,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -81,6 +82,7 @@ class QuestionExecutor:
                 for model responses. Falls back to traditional method if not supported.
             reasoning_config: Optional reasoning configuration (OpenRouter standard).
             enable_vision: Whether to send images with questions (default: False).
+            snapshot_repository: Optional QuestionSnapshotRepository for creating snapshots.
 
         Example:
             >>> executor = QuestionExecutor(
@@ -103,6 +105,7 @@ class QuestionExecutor:
         self._reasoning_config = reasoning_config
         self._enable_vision = enable_vision
         self._settings = settings
+        self._snapshot_repository = snapshot_repository
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
         logger.debug(
@@ -157,6 +160,29 @@ class QuestionExecutor:
 
         try:
             logger.debug(f"Executing question {question.question_id}")
+
+            # Step 0: Create snapshot if repository is available
+            # This ensures we have an immutable copy of the question for this experiment
+            snapshot_id: Optional[int] = None
+            if self._snapshot_repository is not None:
+                # Build complete question JSON for snapshot
+                question_json = json.dumps({
+                    "id": question.question_id,
+                    "stem": question.stem,
+                    "options": json.loads(question.options_json),
+                    "answer_key": question.correct_answer,
+                    "has_image": question.has_image,
+                    "image_path": question.image_path,
+                })
+                # Get experiment_id from run (we'll need to pass it or retrieve it)
+                # For now, use None for dev mode - snapshots will still be created
+                experiment_id = None  # TODO: Get from run_manager or iteration_executor
+                snapshot_id = self._snapshot_repository.create_if_not_exists(
+                    experiment_id=experiment_id,
+                    question_id=question.question_id,
+                    question_json=question_json,
+                )
+                logger.debug(f"Snapshot ID {snapshot_id} for question {question.question_id}")
 
             # Step 1: Apply answer randomization
             randomized_question = self._randomizer.randomize(question)
@@ -215,12 +241,13 @@ class QuestionExecutor:
             reasoning_details, reasoning_tokens = self._extract_reasoning_details(api_response)
 
             # Step 4: Store response in database (in test mode this goes to :memory:)
-            logger.debug(f"Creating response: run_id={self._run_id}, question_id={randomized_question.question_id}, model_id={self._model_id}")
+            logger.debug(f"Creating response: run_id={self._run_id}, snapshot_id={snapshot_id}, model_id={self._model_id}")
             response = self._create_response_object(
                 question=randomized_question,
                 parsed=parsed,
                 api_response=api_response,
                 latency_ms=total_latency_ms,
+                snapshot_id=snapshot_id,
                 reasoning_details=reasoning_details,
                 reasoning_tokens=reasoning_tokens,
             )
@@ -617,6 +644,7 @@ Options:
         parsed: dict[str, Any],
         api_response: dict[str, Any],
         latency_ms: int,
+        snapshot_id: Optional[int] = None,
         reasoning_details: Optional[str] = None,
         reasoning_tokens: Optional[int] = None,
     ) -> Response:
@@ -627,6 +655,7 @@ Options:
             parsed: Parsed response data.
             api_response: Raw API response.
             latency_ms: Total latency in milliseconds.
+            snapshot_id: ID of the question snapshot (required).
             reasoning_details: Optional JSON string with reasoning details.
             reasoning_tokens: Optional number of reasoning tokens used.
 
@@ -635,9 +664,13 @@ Options:
         """
         import json
 
+        if snapshot_id is None:
+            logger.error("snapshot_id is required but was not provided")
+            raise ValueError("snapshot_id is required for creating a response")
+
         return Response(
             run_id=self._run_id,
-            question_id=question.question_id,
+            snapshot_id=snapshot_id,
             model_id=self._model_id,
             iteration=self._iteration_number,
             selected_answer=parsed["selected_answer"],

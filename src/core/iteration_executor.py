@@ -222,6 +222,9 @@ class IterationExecutor:
             Dictionary containing execution results.
         """
         # Create question executor
+        from src.db.repository import QuestionSnapshotRepository
+        
+        snapshot_repository = QuestionSnapshotRepository(self.db_manager)
         question_executor = QuestionExecutor(
             db_manager=self.db_manager,
             api_client=self._api_client,
@@ -234,6 +237,7 @@ class IterationExecutor:
             reasoning_config=self._reasoning_config,
             enable_vision=self.settings.enable_vision if hasattr(self, 'settings') else False,
             settings=self.settings if hasattr(self, 'settings') else None,
+            snapshot_repository=snapshot_repository,
         )
 
         # Execute question and await result

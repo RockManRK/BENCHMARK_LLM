@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional
 
-from src.db.models import Error, Experiment, Model, Question, Response, Run
+from src.db.models import Error, Experiment, Model, Question, QuestionSnapshot, Response, Run
 from src.db.schema import DatabaseManager
 
 
@@ -688,10 +688,181 @@ class QuestionRepository:
                 conn.close()
 
 
+class QuestionSnapshotRepository:
+    """Repository for QuestionSnapshot entity CRUD operations.
+
+    QuestionSnapshots store immutable copies of questions used in experiments.
+    Each snapshot captures the complete question JSON at the moment it was
+    first used, ensuring reproducibility even if the canonical question changes.
+
+    Snapshots are created only once per (experiment_id, question_id) pair.
+    """
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize the QuestionSnapshotRepository."""
+        self.db_manager = db_manager
+
+    def create_if_not_exists(
+        self, experiment_id: str | None, question_id: str, question_json: str
+    ) -> int:
+        """Create a snapshot if it doesn't exist, return snapshot_id.
+
+        This is the primary method for ensuring snapshot immutability.
+        If a snapshot already exists for the given (experiment_id, question_id)
+        pair, returns the existing snapshot_id without creating a duplicate.
+
+        Args:
+            experiment_id: ID of the experiment (NULL for dev mode).
+            question_id: ID of the question to snapshot.
+            question_json: Complete JSON representation of the question.
+
+        Returns:
+            The snapshot_id (either newly created or existing).
+
+        Example:
+            >>> repo = QuestionSnapshotRepository(db_manager)
+            >>> snapshot_id = repo.create_if_not_exists(
+            ...     experiment_id="exp-001",
+            ...     question_id="Q001",
+            ...     question_json='{"id": "Q001", "stem": "What is 2+2?"}'
+            ... )
+            >>> print(snapshot_id)
+            1
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # For experiment mode, check if snapshot already exists
+            if experiment_id is not None:
+                existing = cursor.execute(
+                    """
+                    SELECT snapshot_id FROM question_snapshots
+                    WHERE experiment_id = ? AND question_id = ?
+                    """,
+                    (experiment_id, question_id),
+                ).fetchone()
+
+                if existing is not None:
+                    logger.debug(
+                        f"Snapshot already exists for experiment={experiment_id}, question={question_id}"
+                    )
+                    return existing["snapshot_id"]
+
+            # Create new snapshot
+            cursor.execute(
+                """
+                INSERT INTO question_snapshots (experiment_id, question_id, question_json)
+                VALUES (?, ?, ?)
+                """,
+                (experiment_id, question_id, question_json),
+            )
+            conn.commit()
+            snapshot_id = cursor.lastrowid
+            logger.info(
+                f"Created snapshot {snapshot_id} for experiment={experiment_id}, question={question_id}"
+            )
+            return snapshot_id
+
+        except sqlite3.Error as e:
+            logger.error(f"Failed to create snapshot: {e}")
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_id(self, snapshot_id: int) -> Optional[QuestionSnapshot]:
+        """Retrieve a snapshot by its ID."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT snapshot_id, experiment_id, question_id, question_json, created_at
+                FROM question_snapshots WHERE snapshot_id = ?
+                """,
+                (snapshot_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return QuestionSnapshot(
+                snapshot_id=row["snapshot_id"],
+                experiment_id=row["experiment_id"],
+                question_id=row["question_id"],
+                question_json=row["question_json"],
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_experiment(self, experiment_id: str) -> list[QuestionSnapshot]:
+        """Retrieve all snapshots for an experiment."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT snapshot_id, experiment_id, question_id, question_json, created_at
+                FROM question_snapshots WHERE experiment_id = ?
+                ORDER BY question_id
+                """,
+                (experiment_id,),
+            )
+            snapshots = []
+            for row in cursor.fetchall():
+                snapshots.append(
+                    QuestionSnapshot(
+                        snapshot_id=row["snapshot_id"],
+                        experiment_id=row["experiment_id"],
+                        question_id=row["question_id"],
+                        question_json=row["question_json"],
+                        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                    )
+                )
+            return snapshots
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_question(self, question_id: str) -> list[QuestionSnapshot]:
+        """Retrieve all snapshots for a question (across experiments)."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT snapshot_id, experiment_id, question_id, question_json, created_at
+                FROM question_snapshots WHERE question_id = ?
+                ORDER BY experiment_id, created_at
+                """,
+                (question_id,),
+            )
+            snapshots = []
+            for row in cursor.fetchall():
+                snapshots.append(
+                    QuestionSnapshot(
+                        snapshot_id=row["snapshot_id"],
+                        experiment_id=row["experiment_id"],
+                        question_id=row["question_id"],
+                        question_json=row["question_json"],
+                        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                    )
+                )
+            return snapshots
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+
 class ResponseRepository:
     """Repository for Response entity CRUD operations.
 
     Responses store model answers to questions with all metrics.
+    Responses reference question_snapshots (not questions directly) to
+    ensure immutability and reproducibility of experiment results.
     """
 
     def __init__(self, db_manager: DatabaseManager) -> None:
@@ -703,18 +874,18 @@ class ResponseRepository:
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
-            logger.info(f"Saving response: run_id={response.run_id}, question_id={response.question_id}, model_id={response.model_id}")
+            logger.info(f"Saving response: run_id={response.run_id}, snapshot_id={response.snapshot_id}, model_id={response.model_id}")
             cursor.execute(
                 """
                 INSERT INTO responses (
-                    run_id, question_id, model_id, iteration,
+                    run_id, snapshot_id, model_id, iteration,
                     selected_answer, response_text, is_correct,
                     status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
-                    response.question_id,
+                    response.snapshot_id,
                     response.model_id,
                     response.iteration,
                     response.selected_answer,
@@ -735,12 +906,12 @@ class ResponseRepository:
             return response
         except sqlite3.Error as e:
             logger.error(f"Failed to save response: {e}")
-            logger.error(f"Response data: run_id={response.run_id}, question_id={response.question_id}, model_id={response.model_id}")
+            logger.error(f"Response data: run_id={response.run_id}, snapshot_id={response.snapshot_id}, model_id={response.model_id}")
             # Check which FK is failing
             run_exists = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (response.run_id,)).fetchone() is not None
-            question_exists = conn.execute("SELECT 1 FROM questions WHERE question_id = ?", (response.question_id,)).fetchone() is not None
+            snapshot_exists = conn.execute("SELECT 1 FROM question_snapshots WHERE snapshot_id = ?", (response.snapshot_id,)).fetchone() is not None
             model_exists = conn.execute("SELECT 1 FROM models WHERE model_id = ?", (response.model_id,)).fetchone() is not None
-            logger.error(f"FK check: run_exists={run_exists}, question_exists={question_exists}, model_exists={model_exists}")
+            logger.error(f"FK check: run_exists={run_exists}, snapshot_exists={snapshot_exists}, model_exists={model_exists}")
             conn.rollback()
             raise
         finally:
@@ -754,7 +925,7 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, question_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
                 FROM responses WHERE response_id = ?
@@ -767,7 +938,7 @@ class ResponseRepository:
             return Response(
                 response_id=row["response_id"],
                 run_id=row["run_id"],
-                question_id=row["question_id"],
+                snapshot_id=row["snapshot_id"],
                 model_id=row["model_id"],
                 iteration=row["iteration"],
                 selected_answer=row["selected_answer"],
@@ -793,10 +964,10 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, question_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
-                FROM responses WHERE run_id = ? ORDER BY iteration, question_id
+                FROM responses WHERE run_id = ? ORDER BY iteration, snapshot_id
                 """,
                 (run_id,),
             )
@@ -806,7 +977,7 @@ class ResponseRepository:
                     Response(
                         response_id=row["response_id"],
                         run_id=row["run_id"],
-                        question_id=row["question_id"],
+                        snapshot_id=row["snapshot_id"],
                         model_id=row["model_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
@@ -834,10 +1005,10 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, question_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
-                FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
+                FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
                 """,
                 (model_id,),
             )
@@ -847,7 +1018,7 @@ class ResponseRepository:
                     Response(
                         response_id=row["response_id"],
                         run_id=row["run_id"],
-                        question_id=row["question_id"],
+                        snapshot_id=row["snapshot_id"],
                         model_id=row["model_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
@@ -875,10 +1046,10 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, question_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
-                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
+                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
                 """,
                 (run_id, model_id),
             )
@@ -888,7 +1059,89 @@ class ResponseRepository:
                     Response(
                         response_id=row["response_id"],
                         run_id=row["run_id"],
-                        question_id=row["question_id"],
+                        snapshot_id=row["snapshot_id"],
+                        model_id=row["model_id"],
+                        iteration=row["iteration"],
+                        selected_answer=row["selected_answer"],
+                        response_text=row["response_text"],
+                        is_correct=row["is_correct"],
+                        status=row["status"],
+                        latency_ms=row["latency_ms"],
+                        input_tokens=row["input_tokens"],
+                        output_tokens=row["output_tokens"],
+                        total_tokens=row["total_tokens"],
+                        reasoning_tokens=row["reasoning_tokens"],
+                        cost=row["cost"],
+                        timestamp=datetime.fromisoformat(row["timestamp"]),
+                    )
+                )
+            return responses
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_model(self, model_id: str) -> list[Response]:
+        """Retrieve all responses for a model."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                       selected_answer, response_text, is_correct,
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
+                """,
+                (model_id,),
+            )
+            responses = []
+            for row in cursor.fetchall():
+                responses.append(
+                    Response(
+                        response_id=row["response_id"],
+                        run_id=row["run_id"],
+                        snapshot_id=row["snapshot_id"],
+                        model_id=row["model_id"],
+                        iteration=row["iteration"],
+                        selected_answer=row["selected_answer"],
+                        response_text=row["response_text"],
+                        is_correct=row["is_correct"],
+                        status=row["status"],
+                        latency_ms=row["latency_ms"],
+                        input_tokens=row["input_tokens"],
+                        output_tokens=row["output_tokens"],
+                        total_tokens=row["total_tokens"],
+                        reasoning_tokens=row["reasoning_tokens"],
+                        cost=row["cost"],
+                        timestamp=datetime.fromisoformat(row["timestamp"]),
+                    )
+                )
+            return responses
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_run_and_model(self, run_id: str, model_id: str) -> list[Response]:
+        """Retrieve all responses for a run and model combination."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                       selected_answer, response_text, is_correct,
+                       status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
+                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
+                """,
+                (run_id, model_id),
+            )
+            responses = []
+            for row in cursor.fetchall():
+                responses.append(
+                    Response(
+                        response_id=row["response_id"],
+                        run_id=row["run_id"],
+                        snapshot_id=row["snapshot_id"],
                         model_id=row["model_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
@@ -920,14 +1173,14 @@ class ResponseRepository:
             cursor.execute(
                 """
                 UPDATE responses SET
-                    run_id = ?, question_id = ?, model_id = ?, iteration = ?,
+                    run_id = ?, snapshot_id = ?, model_id = ?, iteration = ?,
                     selected_answer = ?, response_text = ?, is_correct = ?,
                     status = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?, reasoning_tokens = ?, cost = ?
                 WHERE response_id = ?
                 """,
                 (
                     response.run_id,
-                    response.question_id,
+                    response.snapshot_id,
                     response.model_id,
                     response.iteration,
                     response.selected_answer,
