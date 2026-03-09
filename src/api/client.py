@@ -125,7 +125,7 @@ class OpenRouterClient:
     """
 
     DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-    DEFAULT_TIMEOUT = 30.0  # seconds
+    DEFAULT_TIMEOUT = 180.0  # 3 minutes (models can generate thousands of tokens)
 
     def __init__(
         self,
@@ -185,6 +185,7 @@ class OpenRouterClient:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         reasoning: Optional[dict[str, Any]] = None,
+        response_format: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Send a chat completion request to OpenRouter API.
@@ -195,6 +196,7 @@ class OpenRouterClient:
             max_tokens: Maximum tokens to generate in the response.
             temperature: Sampling temperature (0.0 for deterministic).
             reasoning: Reasoning configuration (OpenRouter standard).
+            response_format: Response format configuration for structured outputs.
             **kwargs: Additional parameters to pass to the API.
 
         Returns:
@@ -223,7 +225,11 @@ class OpenRouterClient:
             payload["max_tokens"] = max_tokens
         if temperature is not None:
             payload["temperature"] = temperature
-        
+
+        # Add response format if provided (for structured outputs)
+        if response_format is not None:
+            payload["response_format"] = response_format
+
         # Add reasoning configuration if provided
         if reasoning is not None:
             payload["reasoning"] = reasoning
@@ -231,6 +237,8 @@ class OpenRouterClient:
         # Add other kwargs
         payload.update(kwargs)
 
+        # Log request details for debugging
+        logger.info(f"Sending API request: model={model}, max_tokens={max_tokens}, temperature={temperature}, structured_output={response_format is not None}")
         logger.debug(f"Sending chat completion request to {self.base_url}/chat/completions")
         logger.debug(f"Model: {model}, Messages: {len(messages)}")
 
@@ -239,14 +247,16 @@ class OpenRouterClient:
                 "/chat/completions",
                 json=payload,
             )
-            
+
             # Handle error responses
             if response.status_code != 200:
                 error_data = response.json() if response.headers.get("content-type") == "application/json" else {}
                 error_message = error_data.get("error", {}).get("message", "Unknown API error")
                 
-                logger.error(f"API error: {response.status_code} - {error_message}")
-                
+                # Log full error response for debugging
+                logger.error(f"API error {response.status_code}: model={model}, message={error_message}")
+                logger.error(f"Error response body: {response.text}")
+
                 if response.status_code == 401:
                     raise httpx.HTTPStatusError("Authentication failed: Invalid API key", request=response.request, response=response)
                 elif response.status_code == 429:
@@ -255,14 +265,23 @@ class OpenRouterClient:
                     raise httpx.HTTPStatusError(f"API error: {error_message}", request=response.request, response=response)
 
             response_data = response.json()
+            
+            # Extract token usage and finish reason for logging
+            usage = response_data.get("usage", {})
+            total_tokens = usage.get("total_tokens", 0)
+            finish_reason = "unknown"
+            if response_data.get("choices"):
+                finish_reason = response_data["choices"][0].get("finish_reason", "unknown")
+            
+            logger.info(f"API response: model={model}, tokens={total_tokens}, finish_reason={finish_reason}, status={response.status_code}")
             logger.debug(f"Received response: id={response_data.get('id')}")
             return response_data
 
         except httpx.TimeoutException:
-            logger.error("Request timed out")
+            logger.error(f"Request timed out after {self._timeout}s: model={model}")
             raise
         except httpx.RequestError as e:
-            logger.error(f"Request error: {e}")
+            logger.error(f"Request error: model={model}, error={e}")
             raise
 
     async def get_model_info(self, model_id: str) -> dict[str, Any]:

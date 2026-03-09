@@ -55,7 +55,7 @@ class QuestionExecutor:
         self,
         db_manager: DatabaseManager,
         api_client: OpenRouterClient,
-        randomizer: AnswerRandomizer,
+        randomizer: Optional[AnswerRandomizer],
         run_id: str,
         model_id: str,
         iteration_number: int,
@@ -72,7 +72,7 @@ class QuestionExecutor:
         Args:
             db_manager: DatabaseManager instance for database connections.
             api_client: OpenRouterClient instance for API calls.
-            randomizer: AnswerRandomizer instance for answer shuffling.
+            randomizer: AnswerRandomizer instance for answer shuffling, or None to disable randomization.
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
             iteration_number: Iteration number (1-based).
@@ -189,13 +189,18 @@ class QuestionExecutor:
                 # Store snapshot_id as instance variable for error handling
                 self._current_snapshot_id = snapshot_id
 
-            # Step 1: Apply answer randomization
-            randomized_question = self._randomizer.randomize(question)
-            logger.debug(
-                f"Randomized question {question.question_id}: "
-                f"correct answer changed from {question.correct_answer} "
-                f"to {randomized_question.correct_answer}"
-            )
+            # Step 1: Apply answer randomization (if enabled)
+            if self._randomizer is not None:
+                randomized_question = self._randomizer.randomize(question)
+                logger.debug(
+                    f"Randomized question {question.question_id}: "
+                    f"correct answer changed from {question.correct_answer} "
+                    f"to {randomized_question.correct_answer}"
+                )
+            else:
+                # No randomization: use original question
+                randomized_question = question
+                logger.debug(f"Using original question {question.question_id} (no randomization)")
 
             # Step 2: Build API request
             request_content = self._build_request_content(randomized_question)
@@ -735,12 +740,20 @@ Options:
             f"{error.response.status_code} - {error_message}"
         )
 
+        # Extract error details from response
+        error_details = ""
+        try:
+            error_details = error.response.text
+        except:
+            error_details = error_message
+
         # Store error in database
         self._store_error(
             question=question,
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
+            error_details=error_details,
         )
 
         return {
@@ -771,11 +784,13 @@ Options:
         logger.error(f"Timeout for question {question.question_id}: {error_message}")
 
         # Store error in database
+        error_details = f"Request timed out after {self._api_client._timeout}s"
         self._store_error(
             question=question,
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
+            error_details=error_details,
         )
 
         return {
@@ -813,6 +828,7 @@ Options:
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
+            error_details=None,  # Request errors don't have response body
         )
 
         return {
@@ -851,6 +867,7 @@ Options:
             error_message=error_message,
             latency_ms=latency_ms,
             stack_trace=self._get_stack_trace(),
+            error_details=None,  # General errors don't have specific details
         )
 
         return {
@@ -868,6 +885,7 @@ Options:
         error_message: str,
         latency_ms: int,
         stack_trace: str = "",
+        error_details: Optional[str] = None,
     ) -> None:
         """Store an error in the database.
 
@@ -877,6 +895,7 @@ Options:
             error_message: Error message.
             latency_ms: Latency when error occurred.
             stack_trace: Optional stack trace.
+            error_details: Optional detailed error information (e.g., full error response body).
         """
         # First create a response record for the error
         # Store response and error in database (skip in test mode)
@@ -887,7 +906,7 @@ Options:
             if not hasattr(self, '_current_snapshot_id') or self._current_snapshot_id is None:
                 logger.warning(f"Cannot store error response: no snapshot_id available for question {question.question_id}")
                 return
-            
+
             response = Response(
                 run_id=self._run_id,
                 snapshot_id=self._current_snapshot_id,
@@ -903,6 +922,7 @@ Options:
                 output_tokens=0,
                 total_tokens=None,
                 cost=None,
+                error_details=error_details,
                 timestamp=datetime.now(),
             )
             self._response_repository.create(response)

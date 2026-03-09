@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS responses (
     is_correct BOOLEAN,
     status TEXT NOT NULL DEFAULT 'pending',
     finish_reason TEXT,
+    error_details TEXT,
     latency_ms INTEGER,
     input_tokens INTEGER,
     output_tokens INTEGER,

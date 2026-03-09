@@ -100,9 +100,9 @@ class Settings(BaseSettings):
     )
 
     # Randomization
-    random_seed: Optional[int] = Field(
+    random_seed: Optional[str | int] = Field(
         default=None,
-        description="Optional seed for reproducible randomization",
+        description="Optional seed for reproducible randomization. Use 'AUTO' for automatic seed generation, empty/None for no randomization, or integer for fixed seed.",
     )
 
     # Structured Outputs Configuration
@@ -211,16 +211,34 @@ class Settings(BaseSettings):
 
     @field_validator("random_seed", mode="before")
     @classmethod
-    def validate_random_seed(cls, value: Optional[str | int]) -> Optional[int]:
-        """Validate that random seed is a valid integer if provided."""
+    def validate_random_seed(cls, value: Optional[str | int]) -> Optional[str | int]:
+        """Validate that random seed is a valid integer or 'AUTO' if provided.
+        
+        Special values:
+        - None or "": No randomization (answers stay in original A,B,C,D order)
+        - "AUTO": Automatic seed generation (hash of run_id for uniqueness)
+        - Integer: Fixed seed for reproducibility
+        
+        Args:
+            value: The seed value to validate.
+            
+        Returns:
+            The validated seed value (None, "AUTO", or int).
+            
+        Raises:
+            ValueError: If the seed is not a valid integer or 'AUTO'.
+        """
         if value is None or value == "":
             return None
         if isinstance(value, str):
+            # Check for special AUTO keyword
+            if value.upper() == "AUTO":
+                return "AUTO"
             try:
                 value = int(value)
             except ValueError:
-                raise ValueError(f"Random seed must be an integer, got '{value}'")
-        if value < 0:
+                raise ValueError(f"Random seed must be an integer or 'AUTO', got '{value}'")
+        if isinstance(value, int) and value < 0:
             raise ValueError("Random seed must be a non-negative integer")
         return value
 

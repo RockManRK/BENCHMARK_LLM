@@ -53,7 +53,7 @@ class IterationExecutor:
         self,
         db_manager: DatabaseManager,
         api_client: OpenRouterClient,
-        randomizer: AnswerRandomizer,
+        randomizer: Optional[AnswerRandomizer],
         run_id: str,
         model_id: str,
         iteration_number: int,
@@ -68,7 +68,7 @@ class IterationExecutor:
         Args:
             db_manager: DatabaseManager instance for database connections.
             api_client: OpenRouterClient instance for API calls.
-            randomizer: AnswerRandomizer instance for answer shuffling.
+            randomizer: AnswerRandomizer instance for answer shuffling, or None to disable randomization.
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
             iteration_number: Sequential iteration number (1-based).
@@ -90,7 +90,7 @@ class IterationExecutor:
         """
         self.db_manager = db_manager
         self._api_client = api_client
-        self._randomizer = randomizer
+        self._randomizer = randomizer  # Can be None (no randomization)
         self.run_id = run_id
         self.model_id = model_id
         self.iteration_number = iteration_number

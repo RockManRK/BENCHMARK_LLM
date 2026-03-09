@@ -430,24 +430,50 @@ class BenchmarkRunner:
             for iteration_num in range(1, self.args.iterations + 1):
                 logger.info(f"  Starting iteration {iteration_num} for {model_id}")
 
-                # Create randomizer with seed (use args.seed for reproducibility, or hash of run_id)
-                if self.args.seed:
-                    base_seed = self.args.seed
-                elif run:
-                    # Hash the run_id to get a reproducible int seed
-                    base_seed = hash(run.run_id) % (2**31)
+                # Create randomizer with seed based on configuration
+                # Three modes:
+                # 1. None/empty: No randomization (answers stay in original A,B,C,D order)
+                # 2. "AUTO": Automatic seed (hash of run_id for uniqueness)
+                # 3. Integer: Fixed seed for reproducibility
+                if self.args.seed is not None:
+                    # CLI --seed takes priority
+                    if isinstance(self.args.seed, int):
+                        base_seed = self.args.seed
+                        logger.info(f"  Using fixed seed {base_seed} from CLI")
+                    else:
+                        base_seed = None  # Don't randomize
+                elif self.settings.random_seed == "AUTO":
+                    # AUTO mode: generate seed from run_id hash
+                    if run:
+                        base_seed = hash(run.run_id) % (2**31)
+                        logger.info(f"  Using AUTO seed {base_seed} (from run_id hash)")
+                    else:
+                        base_seed = 42  # Fallback
+                        logger.info(f"  Using fallback seed {base_seed}")
+                elif self.settings.random_seed is not None:
+                    # Fixed seed from .env
+                    base_seed = self.settings.random_seed
+                    logger.info(f"  Using fixed seed {base_seed} from .env")
                 else:
-                    base_seed = 42
+                    # No seed configured: disable randomization
+                    base_seed = None
+                    logger.info("  Randomization disabled (answers in original A,B,C,D order)")
 
                 # Vary seed per iteration if requested
-                if self.args.vary_seed:
+                if self.args.vary_seed and base_seed is not None:
                     # Use different seed for each iteration
                     randomizer_seed = (base_seed + (iteration_num * 1000)) % (2**31)
                     logger.info(f"  Using seed {randomizer_seed} for iteration {iteration_num} (base: {base_seed})")
-                else:
+                elif base_seed is not None:
                     randomizer_seed = base_seed
+                else:
+                    randomizer_seed = None  # No randomization
 
-                randomizer = AnswerRandomizer(run_id=randomizer_seed)
+                # Create randomizer (pass None to disable randomization)
+                if randomizer_seed is not None:
+                    randomizer = AnswerRandomizer(run_id=randomizer_seed)
+                else:
+                    randomizer = None  # Disable randomization
 
                 # Build model kwargs from settings (only include non-None values)
                 model_kwargs = {}

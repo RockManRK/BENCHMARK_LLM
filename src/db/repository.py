@@ -938,8 +938,8 @@ class ResponseRepository:
                 INSERT INTO responses (
                     run_id, snapshot_id, question_id, model_id, iteration,
                     selected_answer, response_text, is_correct,
-                    status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
@@ -952,6 +952,7 @@ class ResponseRepository:
                     response.is_correct,
                     response.status,
                     response.finish_reason,
+                    response.error_details,
                     response.latency_ms,
                     response.input_tokens,
                     response.output_tokens,
@@ -995,7 +996,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE response_id = ?
                 """,
                 (response_id,),
@@ -1015,6 +1016,7 @@ class ResponseRepository:
                 is_correct=row["is_correct"],
                 status=row["status"],
                 finish_reason=row["finish_reason"],
+                error_details=row["error_details"],
                 latency_ms=row["latency_ms"],
                 input_tokens=row["input_tokens"],
                 output_tokens=row["output_tokens"],
@@ -1037,7 +1039,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE run_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id,),
@@ -1057,6 +1059,7 @@ class ResponseRepository:
                         is_correct=row["is_correct"],
                         status=row["status"],
                         finish_reason=row["finish_reason"],
+                        error_details=row["error_details"],
                         latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
                         output_tokens=row["output_tokens"],
@@ -1081,7 +1084,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
                 """,
                 (model_id,),
@@ -1101,6 +1104,7 @@ class ResponseRepository:
                         is_correct=row["is_correct"],
                         status=row["status"],
                         finish_reason=row["finish_reason"],
+                        error_details=row["error_details"],
                         latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
                         output_tokens=row["output_tokens"],
@@ -1125,7 +1129,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id, model_id),
@@ -1145,6 +1149,7 @@ class ResponseRepository:
                         is_correct=row["is_correct"],
                         status=row["status"],
                         finish_reason=row["finish_reason"],
+                        error_details=row["error_details"],
                         latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
                         output_tokens=row["output_tokens"],
@@ -1169,7 +1174,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
                 """,
                 (model_id,),
@@ -1188,6 +1193,7 @@ class ResponseRepository:
                         is_correct=row["is_correct"],
                         status=row["status"],
                         finish_reason=row["finish_reason"],
+                        error_details=row["error_details"],
                         latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
                         output_tokens=row["output_tokens"],
@@ -1212,7 +1218,7 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
                 """,
                 (run_id, model_id),
@@ -1231,6 +1237,7 @@ class ResponseRepository:
                         is_correct=row["is_correct"],
                         status=row["status"],
                         finish_reason=row["finish_reason"],
+                        error_details=row["error_details"],
                         latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
                         output_tokens=row["output_tokens"],
@@ -1259,7 +1266,7 @@ class ResponseRepository:
                 UPDATE responses SET
                     run_id = ?, snapshot_id = ?, question_id = ?, model_id = ?, iteration = ?,
                     selected_answer = ?, response_text = ?, is_correct = ?,
-                    status = ?, finish_reason = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?, reasoning_tokens = ?, cost = ?, raw_response_json = ?
+                    status = ?, finish_reason = ?, error_details = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?, reasoning_tokens = ?, cost = ?, raw_response_json = ?
                 WHERE response_id = ?
                 """,
                 (
@@ -1273,6 +1280,7 @@ class ResponseRepository:
                     response.is_correct,
                     response.status,
                     response.finish_reason,
+                    response.error_details,
                     response.latency_ms,
                     response.input_tokens,
                     response.output_tokens,
