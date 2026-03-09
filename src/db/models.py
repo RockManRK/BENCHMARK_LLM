@@ -212,6 +212,7 @@ class Response:
         response_text: Full text response from the model.
         is_correct: Whether the selected answer is correct.
         status: Response status (pending, success, error, unsupported).
+        finish_reason: Reason for response termination (e.g., "stop", "length", "eos", "error").
         latency_ms: Response time in milliseconds.
         input_tokens: Number of tokens in the request.
         output_tokens: Number of tokens in the response.
@@ -250,6 +251,7 @@ class Response:
     response_text: str = ""
     is_correct: Optional[bool] = None
     status: str = "pending"
+    finish_reason: Optional[str] = None
     latency_ms: int = 0
     input_tokens: int = 0
     output_tokens: int = 0

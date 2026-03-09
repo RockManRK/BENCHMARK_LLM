@@ -6,12 +6,24 @@ This module provides comprehensive logging configuration with support for:
 - Multiple log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 - Hierarchical logger structure for different components
 
+## Logging Architecture
+
+This module uses Python's standard logging hierarchy:
+
+1. **Root Logger**: Configured by `setup_logging()` with file and console handlers
+2. **Module Loggers**: Created with `logging.getLogger(__name__)` in each module
+3. **Component Loggers**: Created with `get_structured_logger(component)` for helpers
+
+All loggers inherit from the root logger, ensuring consistent output to both
+file and console.
+
 Example:
     >>> from src.utils.logging_config import LoggingConfig, setup_logging
     >>> from pathlib import Path
     >>>
     >>> config = LoggingConfig(log_file_path=Path("./logs/benchmark.log"))
-    >>> logger = setup_logging(config)
+    >>> setup_logging(config)
+    >>> logger = logging.getLogger(__name__)
     >>> logger.info("Application started")
 """
 
@@ -21,14 +33,10 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-# Module-level logger instance
-_logger: Optional[logging.Logger] = None
-
 # Default configuration values
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT = 5
-DEFAULT_LOGGER_NAME = "benchmark_llm"
 
 # Structured log format
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -192,37 +200,39 @@ class LoggingConfig:
         )
 
 
-def setup_logging(config: LoggingConfig) -> logging.Logger:
+def setup_logging(config: LoggingConfig) -> None:
     """Set up logging configuration with rotating file handler.
 
     This function configures the root logger for the benchmark_llm application
     with a rotating file handler and structured formatting. It ensures that
     the log directory exists and creates the necessary handlers.
 
+    All module loggers (created with logging.getLogger(__name__)) will
+    automatically inherit this configuration through Python's logging hierarchy.
+
     Args:
         config: LoggingConfig instance containing logging configuration.
 
-    Returns:
-        Configured logger instance for the benchmark_llm application.
-
     Example:
         >>> config = LoggingConfig(log_file_path=Path("./logs/benchmark.log"))
-        >>> logger = setup_logging(config)
+        >>> setup_logging(config)
+        >>> logger = logging.getLogger(__name__)
         >>> logger.info("Logging initialized")
     """
-    global _logger
+    # Configure the ROOT logger to catch ALL loggers in the application
+    # This ensures loggers like "src.main", "src.core.*", "benchmark_llm", etc.
+    # all write to the same log file
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, config.log_level))
 
-    # Create logger
-    logger = logging.getLogger(DEFAULT_LOGGER_NAME)
-    logger.setLevel(getattr(logging, config.log_level))
-
-    # Clear existing handlers to avoid duplicates
-    logger.handlers.clear()
+    # Clear any existing root handlers to avoid duplicates
+    root_logger.handlers.clear()
 
     # Ensure log directory exists
     config.log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create rotating file handler with automatic flushing after each write
+    # File handler: Logs EVERYTHING (DEBUG level)
     file_handler = FlushingRotatingFileHandler(
         config.log_file_path,
         maxBytes=config.max_bytes,
@@ -236,48 +246,29 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
     formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
     file_handler.setFormatter(formatter)
 
-    # Add handler to logger
-    logger.addHandler(file_handler)
+    # Add handlers to ROOT logger only
+    root_logger.addHandler(file_handler)
 
     # Also add console handler for visibility with automatic flushing
+    # Console handler: Only shows IMPORTANT messages (INFO level minimum)
+    # This prevents debug spam on the console while keeping file logs complete
     console_handler = FlushingStreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, config.log_level))
+    console_handler.setLevel(logging.INFO)  # Only INFO and above on console
     console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
 
-    # Store global reference
-    _logger = logger
-
-    return logger
-
-
-def get_logger() -> logging.Logger:
-    """Get the configured logger instance.
-
-    Returns the global logger instance created by setup_logging.
-    If logging hasn't been set up yet, returns a logger with default
-    configuration.
-
-    Returns:
-        The configured logger instance.
-
-    Example:
-        >>> logger = get_logger()
-        >>> logger.info("Application event")
-    """
-    global _logger
-    if _logger is None:
-        # Return a default logger if setup hasn't been called
-        _logger = logging.getLogger(DEFAULT_LOGGER_NAME)
-    return _logger
+    # Add console handler to ROOT logger
+    root_logger.addHandler(console_handler)
 
 
 def get_structured_logger(component: str) -> logging.Logger:
     """Get a structured logger for a specific component.
 
-    Creates a child logger under the benchmark_llm namespace for
+    Creates a child logger under the root logger namespace for
     a specific component (e.g., 'api', 'database', 'execution').
     This enables hierarchical logging and component-specific filtering.
+
+    All component loggers inherit the handlers and configuration
+    from the root logger set up by setup_logging().
 
     Args:
         component: Name of the component (e.g., 'api', 'db', 'execution').
@@ -286,98 +277,13 @@ def get_structured_logger(component: str) -> logging.Logger:
         A child logger instance for the specified component.
 
     Example:
+        >>> setup_logging(LoggingConfig(log_file_path=Path("./logs/benchmark.log")))
         >>> api_logger = get_structured_logger('api')
         >>> api_logger.info('API request received')
-        # Output: benchmark_llm.api - INFO - API request received
+        # Output includes: benchmark_llm.api - INFO - API request received
     """
-    parent_logger = get_logger()
-    return parent_logger.getChild(component)
-
-
-def log_api_request(
-    logger: logging.Logger,
-    endpoint: str,
-    model: str,
-    timestamp: Optional[str] = None,
-) -> None:
-    """Log an API request with structured format.
-
-    Args:
-        logger: Logger instance to use.
-        endpoint: API endpoint being called.
-        model: Model being used for the request.
-        timestamp: Optional timestamp string. If None, uses current time.
-
-    Example:
-        >>> logger = get_structured_logger('api')
-        >>> log_api_request(logger, '/v1/chat/completions', 'gpt-4')
-    """
-    from datetime import datetime
-
-    if timestamp is None:
-        timestamp = datetime.now().isoformat()
-
-    logger.info(
-        f"API_REQUEST | endpoint={endpoint} | model={model} | timestamp={timestamp}"
-    )
-
-
-def log_api_response(
-    logger: logging.Logger,
-    status: str,
-    input_tokens: int,
-    output_tokens: int,
-    latency_ms: int,
-) -> None:
-    """Log an API response with structured format.
-
-    Args:
-        logger: Logger instance to use.
-        status: Response status (success, error, etc.).
-        input_tokens: Number of input tokens used.
-        output_tokens: Number of output tokens generated.
-        latency_ms: Response latency in milliseconds.
-
-    Example:
-        >>> logger = get_structured_logger('api')
-        >>> log_api_response(logger, 'success', 50, 20, 1200)
-    """
-    logger.info(
-        f"API_RESPONSE | status={status} | "
-        f"input_tokens={input_tokens} | output_tokens={output_tokens} | "
-        f"latency_ms={latency_ms}"
-    )
-
-
-def log_execution_progress(
-    logger: logging.Logger,
-    run_id: str,
-    model: str,
-    iteration: int,
-    question: str,
-    total: int,
-    current: int,
-) -> None:
-    """Log execution progress with structured format.
-
-    Args:
-        logger: Logger instance to use.
-        run_id: Unique identifier for the run.
-        model: Model being tested.
-        iteration: Current iteration number.
-        question: Current question ID.
-        total: Total number of questions.
-        current: Current question number.
-
-    Example:
-        >>> logger = get_structured_logger('execution')
-        >>> log_execution_progress(logger, 'run-001', 'gpt-4', 1, 'Q001', 100, 1)
-    """
-    logger.info(
-        f"PROGRESS | run_id={run_id} | model={model} | "
-        f"iteration={iteration} | question={question} | "
-        f"current={current}/{total}"
-    )
+    root_logger = logging.getLogger()
+    return root_logger.getChild(component)
 
 
 def log_initialization_summary(
@@ -416,7 +322,8 @@ def log_initialization_summary(
         system_prompt: System prompt used (for experiment mode).
 
     Example:
-        >>> logger = get_logger()
+        >>> from src.utils.logging_config import get_structured_logger
+        >>> logger = get_structured_logger('startup')
         >>> log_initialization_summary(
         ...     logger,
         ...     execution_mode="experiment",
@@ -461,45 +368,6 @@ def log_initialization_summary(
     logger.info("=" * 60)
 
 
-def log_configuration_startup(
-    logger: logging.Logger,
-    database_path: str,
-    log_level: str,
-    default_iterations: int,
-    **kwargs,
-) -> None:
-    """Log configuration at startup with structured format.
-
-    Args:
-        logger: Logger instance to use.
-        database_path: Path to the database file.
-        log_level: Configured log level.
-        default_iterations: Default number of iterations.
-        **kwargs: Additional configuration key-value pairs to log.
-
-    Example:
-        >>> logger = get_structured_logger('startup')
-        >>> log_configuration_startup(
-        ...     logger,
-        ...     database_path='./data/benchmark.db',
-        ...     log_level='INFO',
-        ...     default_iterations=1
-        ... )
-    """
-    config_parts = [
-        f"CONFIG | database_path={database_path}",
-        f"log_level={log_level}",
-        f"default_iterations={default_iterations}",
-    ]
-
-    for key, value in kwargs.items():
-        config_parts.append(f"{key}={value}")
-
-    logger.info(" | ".join(config_parts))
-    # Force flush to ensure log is written immediately
-    flush_all_handlers(logger)
-
-
 def flush_all_handlers(logger: logging.Logger) -> None:
     """Force flush all handlers attached to a logger.
 
@@ -510,7 +378,7 @@ def flush_all_handlers(logger: logging.Logger) -> None:
         logger: Logger instance to flush.
 
     Example:
-        >>> logger = get_logger()
+        >>> logger = logging.getLogger(__name__)
         >>> logger.info("Important message")
         >>> flush_all_handlers(logger)  # Ensure message is written
     """

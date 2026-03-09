@@ -457,6 +457,12 @@ Options:
         # Capture actual model from response
         actual_model = api_response.get("model", self._model_id)
 
+        # Extract finish_reason from API response
+        finish_reason = None
+        choices = api_response.get("choices", [])
+        if choices:
+            finish_reason = choices[0].get("finish_reason")
+
         # Determine if answer is correct
         is_correct = selected_answer == question.correct_answer
 
@@ -469,6 +475,7 @@ Options:
             "total_tokens": total_tokens,
             "cost": cost,
             "actual_model": actual_model,
+            "finish_reason": finish_reason,
         }
 
     def _is_unsupported_error(self, error: Exception) -> bool:
@@ -508,14 +515,18 @@ Options:
             - input_tokens: Input token count
             - output_tokens: Output token count
             - actual_model: The actual model ID from the response
+            - finish_reason: The reason for response termination
         """
         # Extract response text
         choices = api_response.get("choices", [])
         response_text = ""
+        finish_reason = None
+        
         if choices:
             message = choices[0].get("message", {})
             response_text = message.get("content", "")
-            
+            finish_reason = choices[0].get("finish_reason")
+
             # LOG FULL API RESPONSE FOR DEBUGGING
             logger.debug(f"FULL API RESPONSE: choices={choices}")
             logger.debug(f"Message content: {response_text[:500] if response_text else 'EMPTY'}...")
@@ -558,6 +569,7 @@ Options:
             "total_tokens": total_tokens,
             "cost": cost,
             "actual_model": actual_model,
+            "finish_reason": finish_reason,
         }
 
     def _extract_answer_letter(self, response_text: str) -> Optional[str]:
@@ -690,6 +702,7 @@ Options:
             response_text=parsed["response_text"],
             is_correct=parsed["is_correct"],
             status="success",
+            finish_reason=parsed.get("finish_reason"),
             latency_ms=latency_ms,
             input_tokens=parsed["input_tokens"],
             output_tokens=parsed["output_tokens"],
