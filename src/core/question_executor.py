@@ -59,6 +59,7 @@ class QuestionExecutor:
         run_id: str,
         model_id: str,
         iteration_number: int,
+        experiment_id: str,
         model_kwargs: Optional[dict[str, Any]] = None,
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
@@ -75,6 +76,7 @@ class QuestionExecutor:
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
             iteration_number: Iteration number (1-based).
+            experiment_id: ID of the experiment (ALWAYS required, never None).
             model_kwargs: Optional dict with model generation parameters
                 (max_tokens, temperature, top_p, top_k, repeat_penalty).
                 If None, uses model defaults.
@@ -88,6 +90,7 @@ class QuestionExecutor:
             >>> executor = QuestionExecutor(
             ...     db_manager, api_client, randomizer,
             ...     run_id="run-123", model_id="gpt-4", iteration_number=1,
+            ...     experiment_id="exp-001",
             ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0},
             ...     use_structured_outputs=True,
             ...     reasoning_config={"effort": "high"},
@@ -100,6 +103,7 @@ class QuestionExecutor:
         self._run_id = run_id
         self._model_id = model_id
         self._iteration_number = iteration_number
+        self._experiment_id = experiment_id
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
@@ -174,15 +178,16 @@ class QuestionExecutor:
                     "has_image": question.has_image,
                     "image_path": question.image_path,
                 })
-                # Get experiment_id from run (we'll need to pass it or retrieve it)
-                # For now, use None for dev mode - snapshots will still be created
-                experiment_id = None  # TODO: Get from run_manager or iteration_executor
+                # Use the experiment_id passed to QuestionExecutor
                 snapshot_id = self._snapshot_repository.create_if_not_exists(
-                    experiment_id=experiment_id,
+                    experiment_id=self._experiment_id,
                     question_id=question.question_id,
                     question_json=question_json,
                 )
-                logger.debug(f"Snapshot ID {snapshot_id} for question {question.question_id}")
+                logger.debug(f"Snapshot ID {snapshot_id} for question {question.question_id} in experiment {self._experiment_id}")
+                
+                # Store snapshot_id as instance variable for error handling
+                self._current_snapshot_id = snapshot_id
 
             # Step 1: Apply answer randomization
             randomized_question = self._randomizer.randomize(question)
@@ -508,12 +513,17 @@ Options:
         if choices:
             message = choices[0].get("message", {})
             response_text = message.get("content", "")
+            
+            # LOG FULL API RESPONSE FOR DEBUGGING
+            logger.debug(f"FULL API RESPONSE: choices={choices}")
+            logger.debug(f"Message content: {response_text[:500] if response_text else 'EMPTY'}...")
 
             # Handle reasoning models (e.g., Qwen with llama.cpp)
             # If content is empty but reasoning_content exists, use reasoning_content
             if not response_text or not response_text.strip():
                 reasoning_content = message.get("reasoning_content", "")
                 if reasoning_content:
+                    logger.debug(f"Using reasoning_content: {reasoning_content[:200]}...")
                     response_text = reasoning_content
 
         # Extract token usage
@@ -671,6 +681,7 @@ Options:
         return Response(
             run_id=self._run_id,
             snapshot_id=snapshot_id,
+            question_id=question.question_id,
             model_id=self._model_id,
             iteration=self._iteration_number,
             selected_answer=parsed["selected_answer"],
@@ -854,8 +865,16 @@ Options:
         # First create a response record for the error
         # Store response and error in database (skip in test mode)
         if self._settings is None or not self._settings.is_test_mode:
+            # For errors, we still need a snapshot_id - create one if not already created
+            # This should have been created earlier in execute_question
+            # If not available, we can't create a response - log and skip
+            if not hasattr(self, '_current_snapshot_id') or self._current_snapshot_id is None:
+                logger.warning(f"Cannot store error response: no snapshot_id available for question {question.question_id}")
+                return
+            
             response = Response(
                 run_id=self._run_id,
+                snapshot_id=self._current_snapshot_id,
                 question_id=question.question_id,
                 model_id=self._model_id,
                 iteration=self._iteration_number,

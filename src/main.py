@@ -491,6 +491,7 @@ class BenchmarkRunner:
                     run_id=run.run_id if run else "",
                     model_id=actual_model_id,  # Use actual model ID from API
                     iteration_number=iteration_num,
+                    experiment_id=run.experiment_id if run else "",
                     model_kwargs=model_kwargs,
                     use_structured_outputs=self.settings.use_structured_outputs,
                     reasoning_config=reasoning_config,

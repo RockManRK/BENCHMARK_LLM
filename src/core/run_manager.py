@@ -96,7 +96,8 @@ class RunManager:
         run_id = f"run-{timestamp}-{unique_id}"
 
         # Determine execution mode and experiment tracking
-        experiment_id = None
+        # IMPORTANT: Every run MUST have an experiment_id (no NULL allowed)
+        experiment_id: str | None = None
         is_dev = True
 
         if self.settings and self.settings.is_experiment_mode:
@@ -106,13 +107,16 @@ class RunManager:
             is_dev = False
             logger.info(f"Using experiment: {experiment.name} (hash={experiment.config_hash})")
         elif self.settings and self.settings.is_test_mode:
-            # Test mode: no persistence
+            # Test mode: no persistence (in-memory database)
             is_dev = False
             logger.debug("Test mode: run will not be persisted")
         else:
-            # Dev mode: persist without experiment
+            # Dev mode: create shadow experiment for this run
+            # This ensures every snapshot has a valid experiment_id
+            experiment = self._create_shadow_experiment(run_id, config)
+            experiment_id = experiment.experiment_id
             is_dev = True
-            logger.debug("Dev mode: persisting run without experiment")
+            logger.info(f"Created shadow experiment for dev mode: {experiment.name}")
 
         # Create run object
         run = Run(
@@ -213,6 +217,54 @@ class RunManager:
 
         created = self._experiment_repository.create(experiment)
         logger.info(f"Created new experiment: {created.name} (hash={config_hash})")
+        self.current_experiment = created
+        return created
+
+    def _create_shadow_experiment(self, run_id: str, config: dict[str, Any]) -> Experiment:
+        """Create a shadow experiment for dev mode runs.
+
+        In dev mode, we still need a valid experiment_id for question snapshots.
+        This method creates a temporary "shadow" experiment that is uniquely
+        associated with this specific run.
+
+        Shadow experiments:
+        - Are named automatically: "shadow-{run_id}"
+        - Have frozen configuration like normal experiments
+        - Ensure snapshots are isolated per run
+        - Are marked with is_dev=True for identification
+
+        Args:
+            run_id: ID of the run this shadow experiment is for.
+            config: Run configuration dictionary.
+
+        Returns:
+            Created Experiment object.
+        """
+        # Generate unique shadow experiment name
+        shadow_name = f"shadow-{run_id}"
+
+        # Check if shadow experiment already exists (shouldn't happen, but be safe)
+        existing = self._experiment_repository.get_by_name(shadow_name)
+        if existing:
+            logger.warning(f"Shadow experiment already exists: {shadow_name}, reusing")
+            self.current_experiment = existing
+            return existing
+
+        # Create shadow experiment with frozen configuration
+        config_json = json.dumps(self.settings.get_config_dict() if self.settings else config, sort_keys=True, default=str)
+        config_hash = self.settings.get_config_hash() if self.settings else str(hash(config_json))[:16]
+
+        experiment = Experiment(
+            name=shadow_name,
+            config_json=config_json,
+            config_hash=config_hash,
+            system_prompt=self.settings.system_prompt if self.settings else None,
+            user_prompt_template=self.settings.user_prompt_template if self.settings else None,
+            description=f"Shadow experiment for dev mode run {run_id}, created on {datetime.now().isoformat()}",
+        )
+
+        created = self._experiment_repository.create(experiment)
+        logger.info(f"Created shadow experiment: {created.name} (hash={config_hash})")
         self.current_experiment = created
         return created
 
@@ -323,6 +375,31 @@ class RunManager:
             ...     print(f"Current run: {run.run_id}")
         """
         return self.current_run
+
+    def get_current_experiment_id(self) -> Optional[str]:
+        """Get the experiment_id for the current run.
+
+        This method is used to retrieve the experiment_id that should be
+        used when creating question snapshots. Every run has an experiment_id
+        (even dev mode runs with shadow experiments).
+
+        Returns:
+            The experiment_id string if available, None otherwise.
+
+        Example:
+            >>> experiment_id = run_manager.get_current_experiment_id()
+            >>> if experiment_id:
+            ...     snapshot_id = snapshot_repo.create_if_not_exists(
+            ...         experiment_id=experiment_id,
+            ...         question_id="Q001",
+            ...         question_json=question_json
+            ...     )
+        """
+        if self.current_run and self.current_run.experiment_id:
+            return self.current_run.experiment_id
+        if self.current_experiment and self.current_experiment.experiment_id:
+            return self.current_experiment.experiment_id
+        return None
 
     def get_run_config(self, run_id: str) -> Optional[dict[str, Any]]:
         """Get the configuration for a run.

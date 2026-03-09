@@ -703,7 +703,7 @@ class QuestionSnapshotRepository:
         self.db_manager = db_manager
 
     def create_if_not_exists(
-        self, experiment_id: str | None, question_id: str, question_json: str
+        self, experiment_id: str, question_id: str, question_json: str
     ) -> int:
         """Create a snapshot if it doesn't exist, return snapshot_id.
 
@@ -711,13 +711,19 @@ class QuestionSnapshotRepository:
         If a snapshot already exists for the given (experiment_id, question_id)
         pair, returns the existing snapshot_id without creating a duplicate.
 
+        IMPORTANT: experiment_id is ALWAYS required. There is NO support for
+        experiment_id = NULL. Every snapshot must belong to a valid experiment.
+
         Args:
-            experiment_id: ID of the experiment (NULL for dev mode).
+            experiment_id: ID of the experiment (ALWAYS required, never None).
             question_id: ID of the question to snapshot.
             question_json: Complete JSON representation of the question.
 
         Returns:
             The snapshot_id (either newly created or existing).
+
+        Raises:
+            ValueError: If experiment_id is None or empty.
 
         Example:
             >>> repo = QuestionSnapshotRepository(db_manager)
@@ -729,25 +735,27 @@ class QuestionSnapshotRepository:
             >>> print(snapshot_id)
             1
         """
+        if not experiment_id:
+            raise ValueError("experiment_id is required and cannot be None or empty")
+
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
 
-            # For experiment mode, check if snapshot already exists
-            if experiment_id is not None:
-                existing = cursor.execute(
-                    """
-                    SELECT snapshot_id FROM question_snapshots
-                    WHERE experiment_id = ? AND question_id = ?
-                    """,
-                    (experiment_id, question_id),
-                ).fetchone()
+            # Check if snapshot already exists for this (experiment_id, question_id)
+            existing = cursor.execute(
+                """
+                SELECT snapshot_id FROM question_snapshots
+                WHERE experiment_id = ? AND question_id = ?
+                """,
+                (experiment_id, question_id),
+            ).fetchone()
 
-                if existing is not None:
-                    logger.debug(
-                        f"Snapshot already exists for experiment={experiment_id}, question={question_id}"
-                    )
-                    return existing["snapshot_id"]
+            if existing is not None:
+                logger.debug(
+                    f"Snapshot already exists for experiment={experiment_id}, question={question_id} (ID={existing['snapshot_id']})"
+                )
+                return existing["snapshot_id"]
 
             # Create new snapshot
             cursor.execute(
@@ -856,6 +864,46 @@ class QuestionSnapshotRepository:
             if self.db_manager.should_close_connection():
                 conn.close()
 
+    def validate_snapshot_integrity(self, snapshot_id: int) -> tuple[bool, str]:
+        """Validate that snapshot JSON matches question_id.
+
+        This method ensures data integrity by verifying that the question_id
+        stored in the snapshot metadata matches the 'id' field inside the
+        question_json.
+
+        Args:
+            snapshot_id: ID of the snapshot to validate.
+
+        Returns:
+            Tuple of (is_valid, error_message).
+            If valid: (True, "")
+            If invalid: (False, "error description")
+
+        Example:
+            >>> repo = QuestionSnapshotRepository(db_manager)
+            >>> is_valid, error = repo.validate_snapshot_integrity(1)
+            >>> if not is_valid:
+            ...     print(f"Snapshot integrity check failed: {error}")
+        """
+        snapshot = self.get_by_id(snapshot_id)
+        if not snapshot:
+            return False, "Snapshot not found"
+
+        try:
+            import json
+            question_data = json.loads(snapshot.question_json)
+            if question_data.get("id") != snapshot.question_id:
+                return (
+                    False,
+                    f"Question ID mismatch: snapshot.question_id={snapshot.question_id}, "
+                    f"json.id={question_data.get('id')}",
+                )
+            return True, ""
+        except json.JSONDecodeError as e:
+            return False, f"Invalid JSON in question_json: {e}"
+        except Exception as e:
+            return False, f"Unexpected error validating snapshot: {e}"
+
 
 class ResponseRepository:
     """Repository for Response entity CRUD operations.
@@ -870,22 +918,33 @@ class ResponseRepository:
         self.db_manager = db_manager
 
     def create(self, response: Response) -> Response:
-        """Create a new response record."""
+        """Create a new response record.
+
+        Args:
+            response: Response object to create.
+
+        Returns:
+            The created Response object with database-generated response_id.
+        """
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
-            logger.info(f"Saving response: run_id={response.run_id}, snapshot_id={response.snapshot_id}, model_id={response.model_id}")
+            logger.info(
+                f"Saving response: run_id={response.run_id}, snapshot_id={response.snapshot_id}, "
+                f"question_id={response.question_id}, model_id={response.model_id}"
+            )
             cursor.execute(
                 """
                 INSERT INTO responses (
-                    run_id, snapshot_id, model_id, iteration,
+                    run_id, snapshot_id, question_id, model_id, iteration,
                     selected_answer, response_text, is_correct,
                     status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
                     response.snapshot_id,
+                    response.question_id,
                     response.model_id,
                     response.iteration,
                     response.selected_answer,
@@ -906,12 +965,19 @@ class ResponseRepository:
             return response
         except sqlite3.Error as e:
             logger.error(f"Failed to save response: {e}")
-            logger.error(f"Response data: run_id={response.run_id}, snapshot_id={response.snapshot_id}, model_id={response.model_id}")
+            logger.error(
+                f"Response data: run_id={response.run_id}, snapshot_id={response.snapshot_id}, "
+                f"question_id={response.question_id}, model_id={response.model_id}"
+            )
             # Check which FK is failing
             run_exists = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (response.run_id,)).fetchone() is not None
             snapshot_exists = conn.execute("SELECT 1 FROM question_snapshots WHERE snapshot_id = ?", (response.snapshot_id,)).fetchone() is not None
+            question_exists = conn.execute("SELECT 1 FROM questions WHERE question_id = ?", (response.question_id,)).fetchone() is not None
             model_exists = conn.execute("SELECT 1 FROM models WHERE model_id = ?", (response.model_id,)).fetchone() is not None
-            logger.error(f"FK check: run_exists={run_exists}, snapshot_exists={snapshot_exists}, model_exists={model_exists}")
+            logger.error(
+                f"FK check: run_exists={run_exists}, snapshot_exists={snapshot_exists}, "
+                f"question_exists={question_exists}, model_exists={model_exists}"
+            )
             conn.rollback()
             raise
         finally:
@@ -925,7 +991,7 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
                 FROM responses WHERE response_id = ?
@@ -939,6 +1005,7 @@ class ResponseRepository:
                 response_id=row["response_id"],
                 run_id=row["run_id"],
                 snapshot_id=row["snapshot_id"],
+                question_id=row["question_id"],
                 model_id=row["model_id"],
                 iteration=row["iteration"],
                 selected_answer=row["selected_answer"],
@@ -964,10 +1031,10 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
-                FROM responses WHERE run_id = ? ORDER BY iteration, snapshot_id
+                FROM responses WHERE run_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id,),
             )
@@ -978,6 +1045,7 @@ class ResponseRepository:
                         response_id=row["response_id"],
                         run_id=row["run_id"],
                         snapshot_id=row["snapshot_id"],
+                        question_id=row["question_id"],
                         model_id=row["model_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
@@ -1005,10 +1073,10 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
-                FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
+                FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
                 """,
                 (model_id,),
             )
@@ -1019,6 +1087,7 @@ class ResponseRepository:
                         response_id=row["response_id"],
                         run_id=row["run_id"],
                         snapshot_id=row["snapshot_id"],
+                        question_id=row["question_id"],
                         model_id=row["model_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
@@ -1046,10 +1115,10 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, timestamp
-                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
+                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id, model_id),
             )
@@ -1060,6 +1129,7 @@ class ResponseRepository:
                         response_id=row["response_id"],
                         run_id=row["run_id"],
                         snapshot_id=row["snapshot_id"],
+                        question_id=row["question_id"],
                         model_id=row["model_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
@@ -1173,7 +1243,7 @@ class ResponseRepository:
             cursor.execute(
                 """
                 UPDATE responses SET
-                    run_id = ?, snapshot_id = ?, model_id = ?, iteration = ?,
+                    run_id = ?, snapshot_id = ?, question_id = ?, model_id = ?, iteration = ?,
                     selected_answer = ?, response_text = ?, is_correct = ?,
                     status = ?, latency_ms = ?, input_tokens = ?, output_tokens = ?, total_tokens = ?, reasoning_tokens = ?, cost = ?
                 WHERE response_id = ?
@@ -1181,6 +1251,7 @@ class ResponseRepository:
                 (
                     response.run_id,
                     response.snapshot_id,
+                    response.question_id,
                     response.model_id,
                     response.iteration,
                     response.selected_answer,

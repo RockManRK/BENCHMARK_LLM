@@ -57,6 +57,7 @@ class IterationExecutor:
         run_id: str,
         model_id: str,
         iteration_number: int,
+        experiment_id: str,
         model_kwargs: Optional[dict[str, Any]] = None,
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
@@ -71,6 +72,7 @@ class IterationExecutor:
             run_id: ID of the current benchmark run.
             model_id: ID of the model being tested.
             iteration_number: Sequential iteration number (1-based).
+            experiment_id: ID of the experiment (ALWAYS required, never None).
             model_kwargs: Optional dict with model generation parameters.
             use_structured_outputs: Whether to use structured outputs (JSON schema)
                 for model responses. Falls back to traditional method if not supported.
@@ -80,6 +82,7 @@ class IterationExecutor:
             >>> executor = IterationExecutor(
             ...     db_manager, api_client, randomizer,
             ...     run_id="run-123", model_id="gpt-4", iteration_number=1,
+            ...     experiment_id="exp-001",
             ...     model_kwargs={"max_tokens": 16384},
             ...     use_structured_outputs=True,
             ...     reasoning_config={"effort": "high"}
@@ -91,6 +94,7 @@ class IterationExecutor:
         self.run_id = run_id
         self.model_id = model_id
         self.iteration_number = iteration_number
+        self.experiment_id = experiment_id
         self._response_repository = ResponseRepository(db_manager)
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
@@ -101,6 +105,7 @@ class IterationExecutor:
         logger.info(
             f"IterationExecutor initialized for run={run_id}, "
             f"model={model_id}, iteration={iteration_number}, "
+            f"experiment_id={experiment_id}, "
             f"reasoning_config={self._reasoning_config}"
         )
 
@@ -223,7 +228,7 @@ class IterationExecutor:
         """
         # Create question executor
         from src.db.repository import QuestionSnapshotRepository
-        
+
         snapshot_repository = QuestionSnapshotRepository(self.db_manager)
         question_executor = QuestionExecutor(
             db_manager=self.db_manager,
@@ -232,6 +237,7 @@ class IterationExecutor:
             run_id=self.run_id,
             model_id=self.model_id,
             iteration_number=self.iteration_number,
+            experiment_id=self.experiment_id,
             model_kwargs=self._model_kwargs,
             use_structured_outputs=self._use_structured_outputs,
             reasoning_config=self._reasoning_config,

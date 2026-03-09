@@ -187,7 +187,7 @@ Stores **immutable snapshots** of questions used in each experiment.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `snapshot_id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
-| `experiment_id` | TEXT | FK → experiments | Associated experiment (NULL for dev mode) |
+| `experiment_id` | TEXT | NOT NULL, FK → experiments | Associated experiment (NEVER NULL) |
 | `question_id` | TEXT | NOT NULL, FK → questions | Reference to canonical question |
 | `question_json` | TEXT | NOT NULL | Complete JSON representation of the question |
 | `created_at` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
@@ -200,9 +200,11 @@ Stores **immutable snapshots** of questions used in each experiment.
 **Usage:**
 - Created automatically when a question is first used in an experiment
 - **Immutable** - never updated after creation
+- **Every snapshot MUST belong to a valid experiment** - NO NULL experiment_id allowed
 - Ensures reproducibility: experiment results reference the exact question version used
 - Responses reference snapshots, not the canonical questions table
 - Allows questions to be corrected/updated without affecting old experiments
+- In dev mode, a "shadow experiment" is automatically created for isolation
 
 **Snapshot Creation Logic:**
 1. When executing a question, check if snapshot exists for (experiment_id, question_id)
@@ -232,12 +234,42 @@ Core table storing model responses to questions.
 |--------|------|-------------|-------------|
 | `response_id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
 | `run_id` | TEXT | NOT NULL, FK → runs | Parent run |
-| `snapshot_id` | TEXT | NOT NULL, FK → question_snapshots | Question snapshot answered |
+| `snapshot_id` | INTEGER | NOT NULL, FK → question_snapshots | Question snapshot answered (authoritative) |
+| `question_id` | TEXT | NOT NULL, FK → questions | Question ID (semantic redundancy) |
 | `model_id` | TEXT | NOT NULL, FK → models | Model that responded |
 | `iteration` | INTEGER | NOT NULL, DEFAULT 1 | Iteration number (1-based) |
 | `selected_answer` | TEXT | | Answer letter selected by model |
 | `response_text` | TEXT | | Full model response text |
 | `is_correct` | BOOLEAN | | Whether answer is correct |
+| `status` | TEXT | NOT NULL, DEFAULT 'pending' | Response status |
+| `latency_ms` | INTEGER | | Response time in milliseconds |
+| `input_tokens` | INTEGER | | Tokens in request |
+| `output_tokens` | INTEGER | | Tokens in response |
+| `total_tokens` | INTEGER | | Total tokens used |
+| `reasoning_tokens` | INTEGER | | Reasoning tokens used |
+| `cost` | REAL | | Cost in credits |
+| `timestamp` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Response timestamp |
+
+**Indexes:**
+- `idx_responses_run` - Fast lookup by run
+- `idx_responses_snapshot` - Fast lookup by snapshot (authoritative)
+- `idx_responses_question` - Fast lookup by question (semantic redundancy)
+- `idx_responses_model` - Fast lookup by model
+- `idx_responses_run_iteration` - Composite index for (run + iteration)
+- `idx_responses_model_correct` - Composite index for accuracy analysis
+
+**Usage:**
+- One row per model per question per iteration
+- `snapshot_id` is the **authoritative reference** for immutability
+- `question_id` is **semantic redundancy** for easier querying and debugging
+- Both IDs should always be consistent (question_id matches snapshot's question_json->>'$.id')
+- Iteration is a field (not a separate table)
+- Token metrics stored separately for analysis
+
+**Why Both snapshot_id and question_id?**
+- `snapshot_id` ensures immutability and points to the exact question version used
+- `question_id` provides ergonomic queries without requiring JOINs for simple operations
+- This design balances data integrity with query convenience
 | `status` | TEXT | NOT NULL, DEFAULT 'pending' | Response status |
 | `latency_ms` | INTEGER | | Response time in milliseconds |
 | `input_tokens` | INTEGER | | Tokens in request |

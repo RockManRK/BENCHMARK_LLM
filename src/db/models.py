@@ -164,10 +164,13 @@ class QuestionSnapshot:
     Snapshots are created only once per (experiment_id, question_id) pair.
     Subsequent executions reuse the existing snapshot.
 
+    IMPORTANT: Every snapshot MUST be associated with a valid experiment.
+    There is NO support for experiment_id = NULL.
+
     Attributes:
         question_id: ID of the question this snapshot is for.
         question_json: Complete JSON representation of the question.
-        experiment_id: ID of the experiment this snapshot belongs to (NULL for dev mode).
+        experiment_id: ID of the experiment this snapshot belongs to (ALWAYS required).
         snapshot_id: Auto-incrementing unique identifier (assigned by DB).
         created_at: Timestamp when the snapshot was created.
 
@@ -183,7 +186,7 @@ class QuestionSnapshot:
 
     question_id: str
     question_json: str
-    experiment_id: Optional[str] = None
+    experiment_id: str
     snapshot_id: Optional[int] = None
     created_at: Optional[datetime] = None
 
@@ -195,12 +198,14 @@ class Response:
     This is the core data structure for storing benchmark results,
     capturing all metrics and outcomes from a single question attempt.
 
-    Responses reference question_snapshots (not questions directly) to
-    ensure immutability and reproducibility of experiment results.
+    Responses reference question_snapshots for immutability, and also
+    include question_id as semantic redundancy for easier querying and
+    debugging. The snapshot_id is the authoritative reference.
 
     Attributes:
         run_id: ID of the run this response belongs to.
-        snapshot_id: ID of the question snapshot being answered.
+        snapshot_id: ID of the question snapshot being answered (authoritative).
+        question_id: ID of the question (semantic redundancy for convenience).
         model_id: ID of the model that generated the response.
         iteration: Iteration number (1-based) within the run.
         selected_answer: The answer letter selected by the model.
@@ -220,6 +225,7 @@ class Response:
         >>> response = Response(
         ...     run_id="run-001",
         ...     snapshot_id=1,
+        ...     question_id="Q001",
         ...     model_id="gpt-4",
         ...     iteration=1,
         ...     selected_answer="B",
@@ -235,6 +241,7 @@ class Response:
 
     run_id: str
     snapshot_id: int
+    question_id: str
     model_id: str
     iteration: int = 1
     response_id: Optional[int] = None
@@ -249,6 +256,18 @@ class Response:
     reasoning_tokens: Optional[int] = None
     cost: Optional[float] = None
     timestamp: datetime = field(default_factory=datetime.now)
+
+    def __post_init__(self) -> None:
+        """Validate response data after initialization.
+
+        Ensures consistency between snapshot_id and question_id.
+        """
+        # Note: Full validation (checking snapshot JSON) requires database access
+        # and should be done in the repository layer. This is a basic sanity check.
+        if not self.snapshot_id or self.snapshot_id <= 0:
+            raise ValueError("snapshot_id must be a positive integer")
+        if not self.question_id or not isinstance(self.question_id, str):
+            raise ValueError("question_id must be a non-empty string")
 
 
 @dataclass
