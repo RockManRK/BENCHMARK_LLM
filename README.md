@@ -7,13 +7,14 @@ A Python-based benchmark tool for evaluating LLM (Large Language Model) performa
 This tool enables researchers and developers to:
 - Test multiple LLM models against a standardized questionnaire
 - Configure test iterations for consistency analysis
-- Filter questions by ID or metadata attributes
-- Collect comprehensive metrics (response time, token usage, accuracy)
+- Filter questions by ID or metadata attributes (e.g., `--where status=valid`, `--exclude status=annulled`)
+- Collect comprehensive metrics (response time, token usage, accuracy, **cost**)
 - Store all experimental data in SQLite for analysis
 - Handle both text-only and image-based questions
 - **NEW:** Automatic model detection with metadata
 - **NEW:** Structured outputs (JSON schema) support
 - **NEW:** Simplified CLI with `bcllm` command
+- **NEW:** Cost tracking per request (via OpenRouter `usage.cost`)
 
 ## Requirements
 
@@ -85,6 +86,7 @@ Edit `.env` with your settings:
 
 ```env
 # OpenRouter API Configuration (required)
+# Can also load from external file: OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_API_KEY=your_api_key_here
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
@@ -101,6 +103,14 @@ DEFAULT_MODELS=
 
 # Randomization Seed (optional, for reproducibility)
 RANDOM_SEED=
+```
+
+**Note:** For security, you can store your API key in an external file:
+
+```python
+# In src/main.py (already configured)
+from dotenv import load_dotenv
+load_dotenv(r"C:\path\to\your\api.env")  # Contains only: OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
 ### Configuration Options
@@ -159,8 +169,27 @@ python -m src.main --models openai/gpt-4 --iterations 3
 |--------|-------------|
 | `--models` | Comma-separated list of model IDs to test |
 | `--iterations` | Number of iterations per model |
-| `--questions` | Filter questions by ID (e.g., `1,2,3` or `1-10`) |
+| `--questions` | Filter questions by ID or range (e.g., `Q001` or `Q001-Q010`) |
+| `--where` | Filter questions by metadata (e.g., `--where status=valid has_image=false`) |
+| `--exclude` | Exclude questions by metadata (e.g., `--exclude status=annulled has_image=true`) |
 | `--config` | Path to configuration file |
+| `--output` | Output format: `console`, `json`, `csv`, `markdown` |
+| `--test-mode` | Run without persisting data (in-memory database) |
+| `--dry-run` | Validate configuration without executing |
+| `--verbose` | Enable verbose logging |
+
+### Example: Filter Questions by Metadata
+
+```bash
+# Exclude annulled questions
+python bcllm.py --models gpt-4 --questions Q001-Q100 --exclude status=annulled
+
+# Only valid questions without images
+python bcllm.py --models gpt-4 --questions Q001-Q100 --where status=valid has_image=false
+
+# Combine filters
+python bcllm.py --models gpt-4 --questions Q001-Q100 --where status=valid --exclude has_image=true
+```
 
 ### Example: Test Multiple Models
 
@@ -239,9 +268,29 @@ The benchmark collects comprehensive metrics:
 - **Response Data**: Selected answer, full response text
 - **Performance Metrics**: Response time/latency
 - **Token Usage**: Input tokens, output tokens, total tokens
+- **Cost**: Final cost per request (from OpenRouter `usage.cost`)
+- **Reasoning Tokens**: Tokens used for internal reasoning (when available)
 - **Error Tracking**: All errors, failures, and edge cases
 - **Consistency Data**: Multiple run comparisons when configured
 - **Metadata**: Timestamp, model version, configuration used
+
+**Database Schema:**
+```sql
+CREATE TABLE responses (
+    -- ... other fields ...
+    input_tokens INTEGER,      -- prompt_tokens
+    output_tokens INTEGER,     -- completion_tokens
+    total_tokens INTEGER,      -- total_tokens
+    reasoning_tokens INTEGER,  -- reasoning_tokens (optional)
+    cost REAL,                 -- cost in credits (from usage.cost)
+    -- ... other fields ...
+);
+```
+
+**Important:** 
+- `usage.cost` is the official cost value (the "receipt")
+- `usage.cost_details` is NOT used (informational only)
+- Empty configuration values are NOT sent to the API (model uses its own defaults)
 
 ## Logging
 

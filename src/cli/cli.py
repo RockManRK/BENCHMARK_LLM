@@ -87,6 +87,25 @@ Examples:
             help="Filter questions by ID or range (e.g., Q001 or Q001-Q010)",
         )
 
+        # Question metadata filtering
+        parser.add_argument(
+            "--where",
+            nargs="+",
+            type=str,
+            required=False,
+            default=[],
+            help="Filter questions by metadata (e.g., --where status=valid has_image=false)",
+        )
+
+        parser.add_argument(
+            "--exclude",
+            nargs="+",
+            type=str,
+            required=False,
+            default=[],
+            help="Exclude questions by metadata (e.g., --exclude status=annulled has_image=true)",
+        )
+
         # Configuration file
         parser.add_argument(
             "--config",
@@ -300,6 +319,51 @@ Examples:
         args.experiment_name = args.experiment if args.experiment else None
 
         return args
+
+    def _parse_metadata_filters(self, metadata_args: list[str]) -> dict:
+        """Parse metadata filter arguments into a dictionary.
+
+        Converts list of key=value strings into a dictionary with proper type conversion.
+
+        Args:
+            metadata_args: List of metadata filters in format "key=value".
+
+        Returns:
+            Dictionary with metadata key-value pairs.
+
+        Example:
+            >>> parser = CLIParser()
+            >>> parser._parse_metadata_filters(["status=valid", "has_image=false"])
+            {'status': 'valid', 'has_image': False}
+        """
+        metadata = {}
+        for item in metadata_args:
+            if "=" not in item:
+                logger.warning(f"Invalid metadata filter '{item}', expected key=value format")
+                continue
+
+            key, value = item.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+
+            # Type conversion
+            if value.lower() == "true":
+                metadata[key] = True
+            elif value.lower() == "false":
+                metadata[key] = False
+            else:
+                # Try integer
+                try:
+                    metadata[key] = int(value)
+                except ValueError:
+                    # Try float
+                    try:
+                        metadata[key] = float(value)
+                    except ValueError:
+                        # Keep as string
+                        metadata[key] = value
+
+        return metadata
 
     def _expand_question_ranges(self, questions: list[str]) -> list[str]:
         """Expand question ranges into individual question IDs.

@@ -287,15 +287,11 @@ class QuestionExecutor:
         options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
 
         # Build the prompt
-        # Base instruction for text-only questions
+        # Default instruction for all questions (with or without images)
         default_instruction = "Select the correct answer by providing only the letter (A, B, C, or D)."
 
-        # Get custom prompt from settings or use default
-        if question.has_image and self._enable_vision:
-            default_with_image = "First, describe what you see in the image in detail. Then, " + default_instruction.lower()
-            instruction = self._settings.prompt_with_image or default_with_image
-        else:
-            instruction = default_instruction
+        # Use custom prompt from settings or default (NO distinction for images)
+        instruction = self._settings.default_prompt or default_instruction
 
         # Parse options from JSON
         import json

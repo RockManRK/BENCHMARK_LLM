@@ -179,6 +179,39 @@ class QuestionFilter:
         """
         return self.by_metadata(has_table=has_table)
 
+    def exclude_by_metadata(self, **kwargs: Any) -> "QuestionFilter":
+        """Exclude questions by metadata attributes.
+
+        Excludes questions where metadata matches any of the specified key-value pairs.
+        Uses OR logic - if any criterion matches, the question is excluded.
+
+        Args:
+            **kwargs: Metadata key-value pairs to exclude.
+
+        Returns:
+            Self for method chaining.
+
+        Example:
+            >>> filter_obj = QuestionFilter(questions)
+            >>> filtered = filter_obj.exclude_by_metadata(status="annulled", has_image=True)
+            >>> # Excludes questions that are annulled OR have images
+        """
+        if not self._filtered:
+            return self
+
+        def matches_any_criterion(question: Question) -> bool:
+            """Check if question metadata matches any exclusion criterion."""
+            for key, value in kwargs.items():
+                if question.metadata.get(key) == value:
+                    return True
+            return False
+
+        self._filtered = [q for q in self._filtered if not matches_any_criterion(q)]
+        logger.debug(
+            f"Excluded by metadata {kwargs}: {len(self._filtered)} questions remaining"
+        )
+        return self
+
     def get_filtered(self) -> list[Question]:
         """Get the current filtered list of questions.
 

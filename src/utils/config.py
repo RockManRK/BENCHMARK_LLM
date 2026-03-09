@@ -118,9 +118,9 @@ class Settings(BaseSettings):
     )
 
     # Prompt Configuration
-    prompt_with_image: Optional[str] = Field(
+    default_prompt: Optional[str] = Field(
         default=None,
-        description="Custom prompt for questions with images (leave None for default)",
+        description="Default prompt instruction for all questions (with or without images). If None, uses built-in default.",
     )
 
     # Questionnaire Configuration
@@ -178,13 +178,13 @@ class Settings(BaseSettings):
         default=None,
         description="Maximum tokens for reasoning",
     )
-    reasoning_exclude: bool = Field(
-        default=False,
-        description="Exclude reasoning from response (use internally but don't return)",
+    reasoning_exclude: Optional[bool] = Field(
+        default=None,
+        description="Exclude reasoning from response (use internally but don't return). Leave blank to not send.",
     )
-    reasoning_enabled: bool = Field(
-        default=False,
-        description="Enable reasoning with default parameters",
+    reasoning_enabled: Optional[bool] = Field(
+        default=None,
+        description="Enable reasoning with default parameters. Leave blank to not send.",
     )
 
     @field_validator("log_level")
@@ -265,16 +265,29 @@ class Settings(BaseSettings):
 
         return value_lower
 
+    @field_validator("reasoning_max_tokens", mode="before")
+    @classmethod
+    def validate_reasoning_max_tokens(cls, value: Optional[str | int]) -> Optional[int]:
+        """Validate reasoning_max_tokens, converting empty string to None."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError:
+                raise ValueError(f"reasoning_max_tokens must be an integer, got '{value}'")
+        return value
+
     @field_validator("execution_mode", mode="before")
     @classmethod
     def validate_execution_mode(cls, value: Optional[str | ExecutionMode]) -> ExecutionMode:
         """Validate execution_mode is a valid mode."""
         if value is None or value == "":
             return ExecutionMode.DEV
-        
+
         if isinstance(value, ExecutionMode):
             return value
-        
+
         if isinstance(value, str):
             value_lower = value.lower().strip()
             if value_lower in {"test", "dev", "experiment"}:
@@ -282,8 +295,23 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"execution_mode must be one of: test, dev, experiment, got '{value}'"
             )
-        
+
         return ExecutionMode.DEV
+
+    @field_validator("reasoning_exclude", "reasoning_enabled", mode="before")
+    @classmethod
+    def validate_reasoning_bool(cls, value: Optional[str | bool]) -> Optional[bool]:
+        """Validate reasoning boolean fields, converting empty string to None."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            value_lower = value.lower().strip()
+            if value_lower in {"true", "1", "yes"}:
+                return True
+            if value_lower in {"false", "0", "no"}:
+                return False
+            raise ValueError(f"Value must be true/false, got '{value}'")
+        return bool(value)
 
     @field_validator("experiment_name", mode="before")
     @classmethod
@@ -384,7 +412,7 @@ class Settings(BaseSettings):
             "reasoning_enabled": self.reasoning_enabled,
             "use_structured_outputs": self.use_structured_outputs,
             "enable_vision": self.enable_vision,
-            "prompt_with_image": self.prompt_with_image,
+            "default_prompt": self.default_prompt,
         }
         
         # Serialize to JSON with sorted keys for determinism
@@ -415,7 +443,7 @@ class Settings(BaseSettings):
             "reasoning_enabled": self.reasoning_enabled,
             "use_structured_outputs": self.use_structured_outputs,
             "enable_vision": self.enable_vision,
-            "prompt_with_image": self.prompt_with_image,
+            "default_prompt": self.default_prompt,
             "openrouter_base_url": self.openrouter_base_url,
             "default_iterations": self.default_iterations,
             "random_seed": self.random_seed,

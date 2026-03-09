@@ -5,6 +5,12 @@ wiring together CLI argument parsing, execution engine, statistics
 calculation, and output formatting.
 """
 
+from dotenv import load_dotenv
+
+# Load API key from external file (before Settings is initialized)
+# Note: Local .env takes precedence for OPENROUTER_BASE_URL
+load_dotenv(r"C:\Users\rockm\OneDrive\Documentos\ak\api.env")
+
 import asyncio
 import json
 import logging
@@ -297,12 +303,50 @@ class BenchmarkRunner:
             filter_obj = QuestionFilter(questions)
             filter_obj.by_ids(self.args.questions)
             questions = filter_obj.get_results()
-            logger.info(f"Filtered to {len(questions)} questions")
-            
+            logger.info(f"Filtered by IDs to {len(questions)} questions")
+
             # Validate that at least one question matched
             if not questions:
                 logger.error(f"No questions found matching filter: {self.args.questions}")
                 print(f"Error: No questions found matching filter: {self.args.questions}", file=sys.stderr)
+                return {}
+
+        # Step 3: Apply metadata filters (--where)
+        if hasattr(self.args, 'where') and self.args.where:
+            from src.core.filter import QuestionFilter
+            from src.cli.cli import CLIParser
+
+            # Parse metadata filters
+            cli_parser = CLIParser()
+            metadata_filters = cli_parser._parse_metadata_filters(self.args.where)
+
+            filter_obj = QuestionFilter(questions)
+            filter_obj.by_metadata(**metadata_filters)
+            questions = filter_obj.get_results()
+            logger.info(f"Filtered by metadata {self.args.where} to {len(questions)} questions")
+
+            if not questions:
+                logger.error(f"No questions found matching metadata filter: {self.args.where}")
+                print(f"Error: No questions found matching metadata filter: {self.args.where}", file=sys.stderr)
+                return {}
+
+        # Step 4: Apply exclusion filters (--exclude)
+        if hasattr(self.args, 'exclude') and self.args.exclude:
+            from src.core.filter import QuestionFilter
+            from src.cli.cli import CLIParser
+
+            # Parse exclusion filters
+            cli_parser = CLIParser()
+            exclude_filters = cli_parser._parse_metadata_filters(self.args.exclude)
+
+            filter_obj = QuestionFilter(questions)
+            filter_obj.exclude_by_metadata(**exclude_filters)
+            questions = filter_obj.get_results()
+            logger.info(f"Excluded by metadata {self.args.exclude}, {len(questions)} questions remaining")
+
+            if not questions:
+                logger.error(f"No questions remaining after exclusion filter: {self.args.exclude}")
+                print(f"Error: No questions remaining after exclusion filter: {self.args.exclude}", file=sys.stderr)
                 return {}
 
         # Persist questions to database (in test mode this goes to :memory:)
@@ -418,25 +462,25 @@ class BenchmarkRunner:
                 if self.settings.model_repeat_penalty is not None:
                     model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
 
-                # Build reasoning config from settings
+                # Build reasoning config from settings (only include non-None values)
                 reasoning_config = None
                 if any([
-                    self.settings.reasoning_effort,
-                    self.settings.reasoning_max_tokens,
-                    self.settings.reasoning_exclude,
-                    self.settings.reasoning_enabled
+                    self.settings.reasoning_effort is not None,
+                    self.settings.reasoning_max_tokens is not None,
+                    self.settings.reasoning_exclude is not None,
+                    self.settings.reasoning_enabled is not None
                 ]):
                     reasoning_config = {}
-                    
-                    if self.settings.reasoning_effort:
+
+                    if self.settings.reasoning_effort is not None:
                         reasoning_config["effort"] = self.settings.reasoning_effort
-                    if self.settings.reasoning_max_tokens:
+                    if self.settings.reasoning_max_tokens is not None:
                         reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
-                    if self.settings.reasoning_exclude:
+                    if self.settings.reasoning_exclude is not None:
                         reasoning_config["exclude"] = self.settings.reasoning_exclude
-                    if self.settings.reasoning_enabled:
+                    if self.settings.reasoning_enabled is not None:
                         reasoning_config["enabled"] = self.settings.reasoning_enabled
-                    
+
                     logger.info(f"Using reasoning config: {reasoning_config}")
 
                 # Create iteration executor

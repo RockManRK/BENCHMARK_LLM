@@ -35,7 +35,57 @@ bcllm --questions Q001-Q020
 
 # Combinado
 bcllm --questions Q001 Q005-Q010
+
+# Filtrar por metadata (NOVO)
+bcllm --questions Q001-Q100 --where status=valid
+
+# Excluir por metadata (NOVO)
+bcllm --questions Q001-Q100 --exclude status=annulled
+
+# Combinar filtros (NOVO)
+bcllm --questions Q001-Q100 --where status=valid has_image=false --exclude has_audio=true
 ```
+
+### Filtros de Metadata (--where e --exclude)
+
+**`--where`**: Filtra questões que correspondem a TODOS os critérios (lógica AND)
+
+```bash
+# Apenas questões válidas
+bcllm --models gpt-4 --questions Q001-Q100 --where status=valid
+
+# Apenas questões sem imagem
+bcllm --models gpt-4 --questions Q001-Q100 --where has_image=false
+
+# Múltiplos critérios (AND)
+bcllm --models gpt-4 --questions Q001-Q100 --where status=valid has_image=false
+```
+
+**`--exclude`**: Exclui questões que correspondem a QUALQUER critério (lógica OR)
+
+```bash
+# Excluir questões anuladas
+bcllm --models gpt-4 --questions Q001-Q100 --exclude status=annulled
+
+# Excluir questões com imagem
+bcllm --models gpt-4 --questions Q001-Q100 --exclude has_image=true
+
+# Múltiplos critérios (OR)
+bcllm --models gpt-4 --questions Q001-Q100 --exclude status=annulled has_image=true
+```
+
+**Combinação**:
+
+```bash
+# Filtra por válidas E exclui as que têm imagem
+bcllm --models gpt-4 --questions Q001-Q100 --where status=valid --exclude has_image=true
+```
+
+**Tipos de valores suportados**:
+- Booleanos: `true`, `false` (case-insensitive)
+- Inteiros: `123`
+- Floats: `12.5`
+- Strings: Qualquer outro texto
 
 ### Iterações
 ```bash
@@ -272,6 +322,15 @@ OPENROUTER_API_KEY=sua-chave-aqui
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
+**Dica de Segurança**: Para não deixar a API key no arquivo `.env` do projeto, você pode usar um arquivo externo:
+
+```env
+# Arquivo externo: C:/Users/rockm/OneDrive/Documentos/ak/api.env
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+O sistema já está configurado para carregar automaticamente deste arquivo.
+
 ### Configuração para Reasoning Models
 ```env
 OPENROUTER_API_KEY=sua-chave-aqui
@@ -305,6 +364,7 @@ LOG_FILE_PATH=./logs/benchmark.log
 DEFAULT_ITERATIONS=1
 
 # Model Generation (Opcionais, em branco = padrão do modelo)
+# IMPORTANTE: Deixar em branco NÃO envia o parâmetro para a API
 MODEL_MAX_TOKENS=16384
 MODEL_TEMPERATURE=0.0
 MODEL_TOP_P=
@@ -316,7 +376,16 @@ RANDOM_SEED=
 
 # Structured Outputs (Experimental)
 USE_STRUCTURED_OUTPUTS=false
+
+# Reasoning Tokens (Opcional, padrão OpenRouter)
+# Deixar em branco = NÃO enviar (usa padrão do modelo)
+REASONING_EFFORT=
+REASONING_MAX_TOKENS=
+REASONING_EXCLUDE=
+REASONING_ENABLED=
 ```
+
+**Nota sobre configurações vazias**: Quando uma configuração está em branco no `.env`, o sistema NÃO envia esse parâmetro para a API, permitindo que o modelo use seus próprios valores padrão.
 
 ### Detecção Automática de Modelo
 
@@ -338,6 +407,37 @@ metadata: {
   "n_ctx_train": 262144
 }
 ```
+
+## Coleta de Dados e Custos
+
+O benchmark coleta as seguintes métricas:
+
+- **Resposta**: Resposta selecionada, texto completo da resposta
+- **Performance**: Tempo de resposta/latência em milissegundos
+- **Tokens**: Input tokens, output tokens, total tokens
+- **Custo**: Custo final por requisição (do OpenRouter `usage.cost`)
+- **Reasoning Tokens**: Tokens usados para raciocínio interno (quando disponível)
+- **Erros**: Todos os erros, falhas e edge cases
+- **Metadados**: Timestamp, versão do modelo, configuração usada
+
+**Schema do Banco de Dados**:
+
+```sql
+CREATE TABLE responses (
+    -- ... outros campos ...
+    input_tokens INTEGER,      -- prompt_tokens
+    output_tokens INTEGER,     -- completion_tokens
+    total_tokens INTEGER,      -- total_tokens
+    reasoning_tokens INTEGER,  -- reasoning_tokens (opcional)
+    cost REAL,                 -- custo em créditos (do usage.cost)
+    -- ... outros campos ...
+);
+```
+
+**Importante**:
+- `usage.cost` é o valor oficial de custo (o "recibo")
+- `usage.cost_details` NÃO é usado (apenas informativo)
+- Configurações vazias no `.env` NÃO são enviadas para a API (modelo usa seus próprios defaults)
 
 ## Troubleshooting
 
@@ -361,6 +461,8 @@ metadata: {
 |------|-----------|---------|
 | `--models` | Modelos para testar | `--models Qwen gpt-4` |
 | `--questions` | Questões para testar | `--questions Q001-Q010` |
+| `--where` | Filtrar por metadata (AND) | `--where status=valid has_image=false` |
+| `--exclude` | Excluir por metadata (OR) | `--exclude status=annulled` |
 | `--iterations` | Iterações por modelo | `--iterations 3` |
 | `--seed` | Seed para reprodução | `--seed 42` |
 | `--vary-seed` | Varia seed por iteração | `--vary-seed` |
@@ -381,9 +483,6 @@ python -m pytest tests/test_mock_basic.py -v
 
 # 3 testes em ~2 segundos, zero custo
 ```
-| `--reasoning-effort` | Reasoning effort level | `--reasoning-effort high` |
-| `--reasoning-tokens` | Max reasoning tokens | `--reasoning-tokens 2000` |
-| `--reasoning-exclude` | Exclude reasoning from response | `--reasoning-exclude` |
 
 ### Configurações via .env
 
@@ -400,8 +499,10 @@ python -m pytest tests/test_mock_basic.py -v
 | `USE_STRUCTURED_OUTPUTS` | JSON estruturado | `false` | `true` (se suportado) |
 | `REASONING_EFFORT` | Reasoning effort level | `None` | `high` para modelos reasoning |
 | `REASONING_MAX_TOKENS` | Max reasoning tokens | `None` | `2000` ou conforme necessário |
-| `REASONING_EXCLUDE` | Exclude reasoning | `false` | `true` para usar internamente |
-| `REASONING_ENABLED` | Enable reasoning | `false` | `true` para habilitar |
+| `REASONING_EXCLUDE` | Exclude reasoning | `None` | `true` para usar internamente |
+| `REASONING_ENABLED` | Enable reasoning | `None` | `true` para habilitar |
+
+**Nota**: Valores `None` ou em branco NÃO são enviados para a API, permitindo que o modelo use seus próprios defaults.
 
 ### Metadados Salvos
 
