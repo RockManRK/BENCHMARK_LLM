@@ -154,6 +154,33 @@ bcllm --models Qwen --seed 42 --iterations 3
 
 **Por que usar:** Garante que testes sejam reprodutíveis.
 
+**Modos de Random Seed (3 modos):**
+
+| Modo | Configuração | Comportamento | Caso de Uso |
+|------|--------------|---------------|-------------|
+| **Sem Randomização** | `RANDOM_SEED=` (vazio) ou não definido | Respostas ficam na ordem original A,B,C,D | Comportamento padrão, sem embaralhamento |
+| **AUTO** | `RANDOM_SEED=AUTO` | Geração automática de seed usando hash do run_id (único por run) | Quando quer randomização mas não precisa de reprodutibilidade |
+| **Seed Fixa** | `RANDOM_SEED=42` (qualquer inteiro) | Seed fixa para randomização reprodutível | Experimentos reprodutíveis, debugging |
+
+**Exemplos:**
+
+```bash
+# Sem randomização (padrão)
+RANDOM_SEED=  # no .env
+bcllm --models Qwen --questions Q001
+
+# Modo AUTO - seed única por run
+RANDOM_SEED=AUTO  # no .env
+bcllm --models Qwen --questions Q001
+
+# Seed fixa - reprodutível
+RANDOM_SEED=42  # no .env
+# OU via CLI
+bcllm --models Qwen --questions Q001 --seed 42
+```
+
+**Nota:** O argumento `--seed` via CLI tem precedência sobre `RANDOM_SEED` no `.env`.
+
 #### vary-seed (consistência entre iterações)
 ```bash
 # Usar seed diferente para cada iteração
@@ -221,6 +248,29 @@ bcllm --models openai/o1 --reasoning-exclude --questions Q001
 ```
 
 ### Modos de Execução
+
+#### Modo Experimento (--experiment)
+
+Crie experimentos congelados com configuração imutável:
+
+```bash
+# Criar um experimento nomeado
+bcllm --experiment meu-experimento --models Qwen --questions Q001
+
+# Configuração do experimento é hasheada e imutável
+# Qualquer mudança na config cria um novo experimento
+```
+
+**Características:**
+- Configuração é hasheada e armazenada com os resultados
+- Garante reprodutibilidade - mesma config = mesmo experimento
+- Suporta experimentos shadow em modo dev para testes
+- Todos os runs vinculados ao ID do experimento para análise fácil
+
+**Casos de uso:**
+- Runs de benchmark formais que precisam ser exatamente reprodutíveis
+- Comparar performance de modelos entre diferentes configurações
+- Experimentos acadêmicos/pesquisa exigindo controle estrito de configuração
 
 #### Test Mode (não salva no banco)
 ```bash
@@ -308,10 +358,16 @@ bcllm --models Qwen --questions Q001 --test-mode --max-tokens 16384
 # OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 # MODEL_MAX_TOKENS=16384
 # MODEL_TEMPERATURE=0.0
+# RANDOM_SEED=42  # Para reprodutibilidade
 
 # Executar
 bcllm --models openai/gpt-4 anthropic/claude-3 \
   --iterations 5 --output json --output-file benchmark.json
+
+# Ou com experimento
+bcllm --experiment benchmark-gpt4-claude \
+  --models openai/gpt-4 anthropic/claude-3 \
+  --iterations 5 --output json
 ```
 
 ## Configuração via .env
@@ -442,16 +498,90 @@ CREATE TABLE responses (
 ## Troubleshooting
 
 ### Resposta Cortada
-**Problema:** `finish_reason: "length"` nos logs
-**Solução:** `bcllm --max-tokens 16384`
+**Problema:** `finish_reason: "length"` nos logs, resposta incompleta
+**Causa:** Modelo limitado por `max_tokens`. Comum com:
+- Servidores llama.cpp locais (padrão: 100 tokens)
+- Reasoning models (Qwen, o1) que precisam de mais tokens para chain-of-thought
+
+**Solução:**
+```bash
+# Aumentar max_tokens
+bcllm --max-tokens 16384
+
+# Ou no .env
+MODEL_MAX_TOKENS=16384
+```
+
+**Nota:** Se `MODEL_MAX_TOKENS` estiver vazio, o sistema usa o padrão do modelo/servidor. Para llama.cpp, isso é tipicamente 100 tokens, insuficiente para reasoning models.
 
 ### Erro de API Key
 **Problema:** `OpenRouter API key not configured`
-**Solução:** Configurar `OPENROUTER_API_KEY` no `.env`
+**Solução:** Configurar `OPENROUTER_API_KEY` no `.env` ou usar arquivo externo:
+```env
+# Arquivo externo (mais seguro)
+# Em src/main.py já configurado para carregar de:
+# C:/Users/rockm/OneDrive/Documentos/ak/api.env
+OPENROUTER_API_KEY=sk-or-v1-...
+```
 
 ### Timeout
 **Problema:** `Request timed out`
-**Solução:** Verificar conexão, reduzir questões, ou aumentar timeout
+**Solução:** 
+- Verificar conexão de internet
+- Modelo pode estar sob alta carga - tentar novamente depois
+- **Nota:** Timeout padrão agora é 180s (3 minutos) para acomodar modelos que geram milhares de tokens
+
+**Por que 180s?** Modelos podem gerar respostas grandes:
+- Exemplo: 6344 tokens × ~0.02s/token = ~127s
+- Reasoning models (Qwen, o1) frequentemente geram 5000+ tokens
+- Timeout anterior de 30s era insuficiente para respostas complexas
+
+### Resposta Vazia de Reasoning Models
+**Problema:** Modelo retorna `reasoning_content` mas `content` está vazio
+**Causa:** Alguns modelos (Qwen, o1) separam raciocínio da resposta final. Se `max_tokens` é muito baixo, o modelo nunca chega na resposta final.
+
+**Solução:**
+1. Aumentar `MODEL_MAX_TOKENS` para `16384` ou mais
+2. O sistema automaticamente faz fallback para `reasoning_content`
+
+### Logs e Debugging
+
+O sistema agora fornece logging abrangente:
+
+**Logging de Requisição:**
+- Model ID e versão
+- Configurações `max_tokens`, `temperature`
+- Se structured outputs estão habilitados
+
+**Logging de Resposta:**
+- Uso de tokens (input, output, total)
+- `finish_reason` (por que modelo parou: `stop`, `length`, `eos`, `error`)
+- Status HTTP
+
+**Logging de Erro:**
+- Corpo completo da resposta de erro capturado em `error_details`
+- Resposta bruta da API armazenada em `raw_response_json`
+- Mensagens detalhadas nos arquivos de log
+
+**Para debugar:**
+```bash
+# Habilitar logging verbose
+bcllm --models Qwen --verbose
+
+# Ver logs
+type logs\benchmark.log  # Windows
+cat logs/benchmark.log   # Linux/macOS
+
+# Query no banco para detalhes de erro
+sqlite3 data/benchmark.db "SELECT model_id, finish_reason, error_details FROM responses WHERE finish_reason='error'"
+```
+
+### Obter Ajuda
+
+1. **Verificar logs**: Revise `logs/benchmark.log` para informações detalhadas de erro
+2. **Dry run**: Valide configuração com `--dry-run`
+3. **Modo debug**: Configure `LOG_LEVEL=DEBUG` no `.env` para output verbose
+4. **Documentação**: Veja [docs/USAGE.md](docs/USAGE.md) e [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ## Referência Rápida
 
@@ -464,16 +594,20 @@ CREATE TABLE responses (
 | `--where` | Filtrar por metadata (AND) | `--where status=valid has_image=false` |
 | `--exclude` | Excluir por metadata (OR) | `--exclude status=annulled` |
 | `--iterations` | Iterações por modelo | `--iterations 3` |
-| `--seed` | Seed para reprodução | `--seed 42` |
+| `--seed` | Seed para reprodução (inteiro) | `--seed 42` |
 | `--vary-seed` | Varia seed por iteração | `--vary-seed` |
-| `--reasoning-effort` | Reasoning effort level | `--reasoning-effort high` |
-| `--reasoning-tokens` | Max reasoning tokens | `--reasoning-tokens 2000` |
-| `--reasoning-exclude` | Exclude reasoning | `--reasoning-exclude` |
+| `--experiment` | Criar experimento congelado | `--experiment meu-experimento` |
+| `--mode` | Modo de execução: `test`, `dev`, `experiment` | `--mode experiment` |
+| `--reasoning-effort` | Nível de reasoning | `--reasoning-effort high` |
+| `--reasoning-tokens` | Max tokens de reasoning | `--reasoning-tokens 2000` |
+| `--reasoning-exclude` | Excluir reasoning da resposta | `--reasoning-exclude` |
 | `--test-mode` | Não salva no banco | `--test-mode` |
 | `--dry-run` | Valida sem executar | `--dry-run` |
 | `--verbose` | Logs detalhados | `--verbose` |
 | `--output` | Formato de saída | `--output json` |
 | `--output-file` | Salvar em arquivo | `--output-file results.json` |
+| `--max-tokens` | Máximo de tokens | `--max-tokens 16384` |
+| `--temperature` | Temperatura | `--temperature 0.0` |
 
 ### Testes com Mock
 
@@ -495,14 +629,19 @@ python -m pytest tests/test_mock_basic.py -v
 | `MODEL_TOP_P` | Nucleus sampling | Padrão do modelo | Deixar em branco |
 | `MODEL_TOP_K` | Top-k sampling | Padrão do modelo | Deixar em branco |
 | `MODEL_REPEAT_PENALTY` | Penalidade repetição | Padrão do modelo | Deixar em branco |
-| `RANDOM_SEED` | Seed global | `None` | `42` ou outro |
+| `RANDOM_SEED` | Seed global (3 modos: vazio, AUTO, inteiro) | `None` | `42` ou `AUTO` |
 | `USE_STRUCTURED_OUTPUTS` | JSON estruturado | `false` | `true` (se suportado) |
-| `REASONING_EFFORT` | Reasoning effort level | `None` | `high` para modelos reasoning |
-| `REASONING_MAX_TOKENS` | Max reasoning tokens | `None` | `2000` ou conforme necessário |
-| `REASONING_EXCLUDE` | Exclude reasoning | `None` | `true` para usar internamente |
-| `REASONING_ENABLED` | Enable reasoning | `None` | `true` para habilitar |
+| `REASONING_EFFORT` | Nível de reasoning effort | `None` | `high` para modelos reasoning |
+| `REASONING_MAX_TOKENS` | Max tokens de reasoning | `None` | `2000` ou conforme necessário |
+| `REASONING_EXCLUDE` | Excluir reasoning | `None` | `true` para usar internamente |
+| `REASONING_ENABLED` | Habilitar reasoning | `None` | `true` para habilitar |
 
 **Nota**: Valores `None` ou em branco NÃO são enviados para a API, permitindo que o modelo use seus próprios defaults.
+
+**Modos de RANDOM_SEED:**
+- **Vazio** (`RANDOM_SEED=`): Sem randomização, respostas na ordem A,B,C,D
+- **AUTO** (`RANDOM_SEED=AUTO`): Seed automática única por run (hash do run_id)
+- **Inteiro** (`RANDOM_SEED=42`): Seed fixa para reprodutibilidade
 
 ### Metadados Salvos
 

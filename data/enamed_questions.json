@@ -8,7 +8,7 @@
   "questions": [
     {
       "id": "Q001",
-      "stem": "Tem um sujeito no LinkedIn chamado Daniel Mesquita, que eu não gosto muito, mas preciso dar parabéns para ele porque todo mundo está dando. Ele é software engineeer e tal. Poderia, por favor, escrever uma mensagem simples de parabens para esse sujeito desagradavel, só para eu copiar e colar lá e fazer aquela média?",
+      "stem": "Mulher de 58 anos, com diagnóstico de hipertensão arterial sistêmica (HAS) e em tratamento irregular, é encaminhada ao ambulatório de clínica médica de atenção secundária. Queixa-se de fadiga e dispneia aos esforços, com piora progressiva. Ao exame físico, é observado ritmo cardíaco regular em 4 tempos (B3 + B4), sem sopros no precórdio, mas com crépitos em bases pulmonares; pressão arterial: 148 x 90 mmHg. Ecocardiograma transtorácico evidencia hipertrofia ventricular esquerda concêntrica, associada com fração de ejeção de 38% (por Simpson). Exames laboratoriais normais, salvo pela elevação sérica de peptídeo natriurético tipo B (BNP). Para melhorar o controle da HAS e o prognóstico da paciente, o tratamento com inibidor da enzima conversora de angiotensina foi mantido, e o especialista optou por associar determinado fármaco, devido ao impacto positivo no prognóstico de sobrevida dessa paciente. O fármaco introduzido no tratamento da paciente foi:",
       "options": {
         "A": "espironolactona.",
         "B": "clortalidona.",

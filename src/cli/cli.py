@@ -52,9 +52,26 @@ class CLIParser:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
+  # Basic benchmark
   %(prog)s --models gpt-4 claude-3 --iterations 3
+
+  # With question filtering
   %(prog)s --models gpt-4 --questions Q001-Q010 --output json
-  %(prog)s --config config.yaml --verbose
+
+  # With random seed (3 modes: empty=A,B,C,D order, AUTO=unique per run, 42=fixed)
+  %(prog)s --models Qwen --questions Q001 --seed 42
+
+  # Create frozen experiment (immutable config)
+  %(prog)s --experiment my-experiment --models Qwen --questions Q001
+
+  # With metadata filtering
+  %(prog)s --models gpt-4 --where status=valid has_image=false
+
+  # Reasoning models (Qwen, o1) with high max-tokens
+  %(prog)s --models Qwen --max-tokens 16384 --temperature 0.0
+
+  # Structured outputs (set USE_STRUCTURED_OUTPUTS=true in .env)
+  %(prog)s --models gpt-4o --questions Q001
             """,
         )
 
@@ -140,7 +157,11 @@ Examples:
             "-s",
             type=int,
             required=False,
-            help="Random seed for reproducible answer randomization",
+            help="Random seed for reproducible answer randomization. "
+                 "Three modes: (1) Empty/None = no randomization (A,B,C,D order), "
+                 "(2) AUTO = automatic seed per run (hash of run_id), "
+                 "(3) Integer = fixed seed for reproducibility. "
+                 "CLI --seed takes precedence over RANDOM_SEED in .env.",
         )
 
         # Verbose mode
@@ -164,7 +185,9 @@ Examples:
             type=str,
             choices=["test", "dev", "experiment"],
             default=None,
-            help="Execution mode: test (no persistence), dev (default), experiment (frozen config)",
+            help="Execution mode: test (no persistence, in-memory DB), "
+                 "dev (default, full persistence), "
+                 "experiment (frozen config with hash, requires --experiment)",
         )
 
         # Experiment name
@@ -172,7 +195,9 @@ Examples:
             "--experiment",
             type=str,
             required=False,
-            help="Name of the experiment (required for experiment mode)",
+            help="Name of the experiment. Creates a frozen experiment with immutable "
+                 "configuration hash. All runs are linked to the experiment ID for "
+                 "reproducibility. Configuration changes create a new experiment.",
         )
 
         # Test mode (backward compatibility - alias for --mode test)
@@ -193,27 +218,33 @@ Examples:
         parser.add_argument(
             "--temperature",
             type=float,
-            help="Temperature for model generation",
+            help="Temperature for model generation. Lower = more deterministic, "
+                 "higher = more creative. Leave blank in .env for model default.",
         )
         parser.add_argument(
             "--max-tokens",
             type=int,
-            help="Maximum tokens for model generation",
+            help="Maximum tokens for model generation. Critical for reasoning models "
+                 "(Qwen, o1): set to 16384 or higher. llama.cpp defaults to 100 tokens "
+                 "(insufficient for reasoning). Leave blank in .env for model default.",
         )
         parser.add_argument(
             "--top-p",
             type=float,
-            help="Top-p sampling parameter",
+            help="Top-p (nucleus) sampling parameter. Alternative to temperature. "
+                 "Leave blank in .env for model default.",
         )
         parser.add_argument(
             "--top-k",
             type=int,
-            help="Top-k sampling parameter",
+            help="Top-k sampling parameter. Limits token selection. "
+                 "Leave blank in .env for model default.",
         )
         parser.add_argument(
             "--repeat-penalty",
             type=float,
-            help="Repeat penalty parameter",
+            help="Repeat penalty parameter. Reduces repetitive output. "
+                 "Leave blank in .env for model default.",
         )
 
         # Reasoning parameters (OpenRouter standard)
@@ -221,19 +252,23 @@ Examples:
             "--reasoning-effort",
             type=str,
             choices=["xhigh", "high", "medium", "low", "minimal", "none"],
-            help="Reasoning effort level (OpenRouter standard)",
+            help="Reasoning effort level for models that support reasoning (o1, o3, "
+                 "Claude, Gemini, etc.). Higher effort = more thorough reasoning but "
+                 "more tokens and time.",
         )
 
         parser.add_argument(
             "--reasoning-tokens",
             type=int,
-            help="Maximum tokens for reasoning",
+            help="Maximum tokens for reasoning. Controls how much the model can "
+                 "'think' before answering. Leave blank in .env for model default.",
         )
 
         parser.add_argument(
             "--reasoning-exclude",
             action="store_true",
-            help="Exclude reasoning from response (use internally but don't return)",
+            help="Exclude reasoning from response text. Model uses reasoning internally "
+                 "but only returns the final answer. Useful for cleaner output.",
         )
 
         return parser

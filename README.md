@@ -123,7 +123,37 @@ load_dotenv(r"C:\path\to\your\api.env")  # Contains only: OPENROUTER_API_KEY=sk-
 | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) | `INFO` | No |
 | `LOG_FILE_PATH` | Path to log file | `./logs/benchmark.log` | No |
 | `DEFAULT_ITERATIONS` | Number of test iterations per model | `1` | No |
-| `RANDOM_SEED` | Seed for reproducible randomization | `None` | No |
+| `RANDOM_SEED` | Seed for randomization (see Random Seed Modes below) | `None` | No |
+| `USE_STRUCTURED_OUTPUTS` | Enable JSON schema structured outputs | `false` | No |
+
+### Random Seed Modes
+
+The `RANDOM_SEED` configuration supports three distinct modes for controlling answer randomization:
+
+| Mode | Configuration | Behavior | Use Case |
+|------|---------------|----------|----------|
+| **No Randomization** | `RANDOM_SEED=` (empty) or not set | Answers stay in original A,B,C,D order | Default behavior, no shuffling |
+| **AUTO** | `RANDOM_SEED=AUTO` | Automatic seed generation using hash of run_id (unique per run) | When you want randomization but don't need reproducibility |
+| **Fixed Seed** | `RANDOM_SEED=42` (any integer) | Fixed seed for reproducible randomization | Reproducible experiments, debugging |
+
+**Example usage:**
+
+```bash
+# No randomization (default)
+RANDOM_SEED=  # in .env
+bcllm --models Qwen --questions Q001
+
+# AUTO mode - unique seed per run
+RANDOM_SEED=AUTO  # in .env
+bcllm --models Qwen --questions Q001
+
+# Fixed seed - reproducible
+RANDOM_SEED=42  # in .env
+# OR via CLI
+bcllm --models Qwen --questions Q001 --seed 42
+```
+
+**Note:** The `--seed` CLI argument takes precedence over `RANDOM_SEED` in `.env`.
 
 ### Model Generation Parameters (Optional)
 
@@ -170,13 +200,26 @@ python -m src.main --models openai/gpt-4 --iterations 3
 | `--models` | Comma-separated list of model IDs to test |
 | `--iterations` | Number of iterations per model |
 | `--questions` | Filter questions by ID or range (e.g., `Q001` or `Q001-Q010`) |
-| `--where` | Filter questions by metadata (e.g., `--where status=valid has_image=false`) |
-| `--exclude` | Exclude questions by metadata (e.g., `--exclude status=annulled has_image=true`) |
+| `--where` | Filter questions by metadata (e.g., `--where status=valid`) |
+| `--exclude` | Exclude questions by metadata (e.g., `--exclude status=annulled`) |
+| `--experiment` | Create a frozen experiment with config hash (immutable config) |
 | `--config` | Path to configuration file |
 | `--output` | Output format: `console`, `json`, `csv`, `markdown` |
+| `--output-file` | Path to output file for results |
+| `--seed` | Random seed for reproducible answer randomization (integer or use RANDOM_SEED in .env) |
+| `--vary-seed` | Use different seed for each iteration |
 | `--test-mode` | Run without persisting data (in-memory database) |
+| `--mode` | Execution mode: `test`, `dev`, `experiment` |
 | `--dry-run` | Validate configuration without executing |
 | `--verbose` | Enable verbose logging |
+| `--temperature` | Temperature for model generation |
+| `--max-tokens` | Maximum tokens for model generation |
+| `--top-p` | Top-p sampling parameter |
+| `--top-k` | Top-k sampling parameter |
+| `--repeat-penalty` | Repeat penalty parameter |
+| `--reasoning-effort` | Reasoning effort level: `xhigh`, `high`, `medium`, `low`, `minimal`, `none` |
+| `--reasoning-tokens` | Maximum tokens for reasoning |
+| `--reasoning-exclude` | Exclude reasoning from response (use internally) |
 
 ### Example: Filter Questions by Metadata
 
@@ -202,6 +245,29 @@ python -m src.main --models openai/gpt-4,anthropic/claude-3,google/gemini-pro --
 ```bash
 python -m src.main --models openai/gpt-4 --questions 1-10
 ```
+
+### Experiment Mode
+
+Create frozen experiments with immutable configuration:
+
+```bash
+# Create a named experiment
+bcllm --experiment my-experiment --models Qwen --questions Q001
+
+# Experiment configuration is hashed and immutable
+# Any change to config creates a new experiment
+```
+
+**Features:**
+- Configuration is hashed and stored with results
+- Ensures reproducibility - same config = same experiment
+- Supports shadow experiments in dev mode for testing
+- All runs linked to experiment ID for easy analysis
+
+**Use cases:**
+- Formal benchmark runs that need to be exactly reproducible
+- Comparing model performance across different configurations
+- Academic/research experiments requiring strict configuration control
 
 ## Project Structure
 
@@ -345,6 +411,43 @@ export DATABASE_PATH=/tmp/benchmark.db
 - Check your internet connection
 - The model may be experiencing high load - retry later
 - Consider using a model with faster response times
+- **Note:** Default timeout is now 180s (3 minutes) to accommodate models that generate thousands of tokens
+
+**Why 180s?** Models can generate large responses:
+- Example: 6344 tokens × ~0.02s/token = ~127s
+- Reasoning models (Qwen, o1) often generate 5000+ tokens
+- Previous 30s timeout was insufficient for complex responses
+
+#### Enhanced Logging and Debugging
+
+The system now provides comprehensive logging for debugging:
+
+**Request Logging:**
+- Model ID and version
+- `max_tokens`, `temperature` settings
+- Whether structured outputs are enabled
+
+**Response Logging:**
+- Token usage (input, output, total)
+- `finish_reason` (why model stopped: `stop`, `length`, `eos`, `error`)
+- HTTP status code
+
+**Error Logging:**
+- Full error response body captured in `error_details` database field
+- Complete raw API response stored in `raw_response_json` field
+- Detailed error messages in log files
+
+**To debug issues:**
+```bash
+# Enable verbose logging
+bcllm --models Qwen --verbose
+
+# Check logs
+cat logs/benchmark.log
+
+# Query database for error details
+sqlite3 data/benchmark.db "SELECT model_id, finish_reason, error_details FROM responses WHERE finish_reason='error'"
+```
 
 #### Response Cut Off / Incomplete
 
