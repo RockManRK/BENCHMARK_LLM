@@ -419,7 +419,6 @@ class TestQuestionExecutor:
         """Create a mock answer randomizer."""
         randomizer = MagicMock()
         randomizer.randomize = MagicMock(side_effect=lambda q: q)
-        randomizer.is_randomized = MagicMock(return_value=False)
         return randomizer
 
     @pytest.fixture
@@ -1124,7 +1123,6 @@ class TestExecutionIntegration:
         """Create a mock answer randomizer."""
         randomizer = MagicMock()
         randomizer.randomize = MagicMock(side_effect=lambda q: q)
-        randomizer.is_randomized = MagicMock(return_value=False)
         return randomizer
 
     def test_full_execution_flow(
