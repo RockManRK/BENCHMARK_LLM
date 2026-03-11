@@ -5,7 +5,6 @@ extracting answers, token usage, latency, and status information.
 """
 
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -77,9 +76,6 @@ class ResponseParser:
         >>> print(parsed.selected_answer)
         'A'
     """
-
-    # Regex pattern to extract answer letters (A, B, C, D, E, etc.)
-    ANSWER_PATTERN = re.compile(r'\b([A-E])\b', re.IGNORECASE)
 
     # Status codes that indicate successful completion
     SUCCESS_FINISH_REASONS = {"stop", "length", "eos_token"}
@@ -195,8 +191,7 @@ class ResponseParser:
     def _extract_answer(self, content: str) -> str:
         """Extract the answer letter from response content.
 
-        Uses regex pattern matching to find answer letters (A-E)
-        in the response text.
+        Uses the new AnswerParser module for robust pattern matching.
 
         Args:
             content: The response text content.
@@ -212,29 +207,14 @@ class ResponseParser:
         if not content:
             return ""
 
-        # Try to find answer letter pattern (word boundary ensures standalone letters)
-        matches = self.ANSWER_PATTERN.findall(content)
-
-        if matches:
-            # Return the first match (most likely the answer)
-            return matches[0].upper()
-
-        # If no pattern match, try to find answer patterns like "Answer: X" or "is X."
-        answer_patterns = [
-            r"[Aa]nswer\s*(?:is)?\s*([A-E])\b",
-            r"[Cc]orrect\s*(?:answer)?\s*(?:is)?\s*([A-E])\b",
-            r"[Oo]ption\s*([A-E])\b",
-            r"\(\s*([A-E])\s*\)",
-            r"^([A-E])\s*:",  # Matches "A: text" at start of line
-            r"^([A-E])\s*\)",  # Matches "A) text" at start of line
-        ]
-
-        for pattern in answer_patterns:
-            match = re.search(pattern, content, re.MULTILINE)
-            if match:
-                return match.group(1).upper()
-
-        return ""
+        # Use the new AnswerParser for robust extraction
+        from src.core.answer_parser import AnswerParser
+        
+        answer_parser = AnswerParser()
+        parsed = answer_parser.parse(content)
+        
+        # Return the answer or empty string if None
+        return parsed.answer or ""
 
     def _determine_status(self, finish_reason: str, content: str) -> str:
         """Determine the response status based on finish reason and content.

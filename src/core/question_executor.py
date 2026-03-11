@@ -455,7 +455,11 @@ class QuestionExecutor:
             selected_answer = data.get("answer", "").upper()
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Failed to parse structured response: {e}")
-            selected_answer = self._extract_answer_letter(content) or ""
+            # Use new AnswerParser for fallback
+            from src.core.answer_parser import AnswerParser
+            parser = AnswerParser()
+            parsed_answer = parser.parse(content)
+            selected_answer = parsed_answer.answer or ""
 
         # Extract token usage
         usage = response_data.get("usage", {})
@@ -571,8 +575,22 @@ class QuestionExecutor:
                 f"requested={self._model_id}, actual={actual_model}"
             )
 
-        # Parse selected answer from response text
-        selected_answer = self._extract_answer_letter(response_text)
+        # Parse selected answer from response text using the new AnswerParser
+        from src.core.answer_parser import AnswerParser
+        
+        parser = AnswerParser()
+        parsed_answer = parser.parse(response_text)
+        selected_answer = parsed_answer.answer
+        
+        # Log parsing confidence for debugging
+        logger.debug(
+            f"Answer parsing for question {question.question_id}: "
+            f"answer={selected_answer}, confidence={parsed_answer.confidence}, "
+            f"raw_matches={parsed_answer.raw_matches}"
+        )
+        
+        # Store parse confidence for manual review workflow
+        parse_confidence = parsed_answer.confidence
 
         # Determine if answer is correct
         is_correct = selected_answer == question.correct_answer
@@ -587,57 +605,8 @@ class QuestionExecutor:
             "cost": cost,
             "actual_model": actual_model,
             "finish_reason": finish_reason,
+            "parse_confidence": parse_confidence,
         }
-
-    def _extract_answer_letter(self, response_text: str) -> Optional[str]:
-        """Extract the answer letter from response text.
-
-        Uses regex patterns to find the most likely answer letter
-        in the model's response.
-
-        Args:
-            response_text: Full text response from the model.
-
-        Returns:
-            The extracted answer letter (A, B, C, or D), or None if not found.
-
-        Example:
-            >>> letter = self._extract_answer_letter("The answer is **B**")
-            >>> print(letter)
-            B
-        """
-        # Common patterns for answer extraction
-        patterns = [
-            (r"\*\*([A-D])\*\*", True),  # **A**, **B**, etc. (has group)
-            (r"\b([A-D])\b\s*:", True),  # A:, B:, etc. (has group)
-            (r"answer\s*is\s*([A-D])", True),  # "answer is A" (has group)
-            (r"correct\s*answer\s*is\s*([A-D])", True),  # "correct answer is A" (has group)
-            (r"option\s*([A-D])", True),  # "option A" (has group)
-            (r"^[A-D]\b", False),  # Line starting with A, B, C, or D (no group)
-            (r"\b([A-D])\b", True),  # Any standalone letter A-D (has group)
-        ]
-
-        response_upper = response_text.upper()
-
-        for pattern, has_group in patterns:
-            match = re.search(pattern, response_text, re.IGNORECASE)
-            if match:
-                if has_group:
-                    letter = match.group(1).upper()
-                else:
-                    letter = match.group(0).upper()
-                if letter in ("A", "B", "C", "D"):
-                    logger.debug(f"Extracted answer '{letter}' using pattern: {pattern}")
-                    return letter
-
-        # Fallback: look for any A-D in the response
-        for char in response_upper:
-            if char in ("A", "B", "C", "D"):
-                logger.debug(f"Extracted answer '{char}' as fallback")
-                return char
-
-        logger.warning(f"Could not extract answer letter from: {response_text[:100]}")
-        return None
 
     def _extract_reasoning_details(
         self, api_response: dict[str, Any]
@@ -732,6 +701,8 @@ class QuestionExecutor:
             reasoning_tokens=reasoning_tokens,
             raw_response_json=json.dumps(api_response),
             timestamp=datetime.now(),
+            parse_confidence=parsed.get("parse_confidence", "clear"),
+            review_status="auto",
         )
 
     def _handle_http_error(

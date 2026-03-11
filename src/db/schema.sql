@@ -155,6 +155,12 @@ CREATE TABLE IF NOT EXISTS responses (
     cost REAL,
     raw_response_json TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Manual review fields
+    parse_confidence TEXT NOT NULL DEFAULT 'clear',
+    review_status TEXT NOT NULL DEFAULT 'auto',
+    reviewed_by TEXT,
+    reviewed_at TIMESTAMP,
+    manual_answer TEXT,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,
     FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT,

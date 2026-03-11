@@ -75,19 +75,36 @@ bcllm --help
 
 ### Environment Variables
 
-Copy the example environment file and configure it:
+#### Step 1: Configure OPENROUTER_API_KEY (Required)
+
+**IMPORTANT:** For security reasons, the API key must be set via system environment variable, NOT in the `.env` file.
+
+**Windows (PowerShell or CMD):**
+```bash
+setx OPENROUTER_API_KEY "your-api-key-here"
+```
+
+**Linux/macOS:**
+```bash
+export OPENROUTER_API_KEY=your-api-key-here
+```
+
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`, or PowerShell profile) for persistence.
+
+#### Step 2: Configure Non-Sensitive Settings
+
+Copy the example environment file:
 
 ```bash
 copy .env.example .env    # Windows
 cp .env.example .env      # Linux/macOS
 ```
 
-Edit `.env` with your settings:
+Edit `.env` with your settings (DO NOT include OPENROUTER_API_KEY here):
 
 ```env
-# OpenRouter API Configuration (required)
-# Can also load from external file: OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_API_KEY=your_api_key_here
+# OpenRouter API Configuration
+# NOTE: OPENROUTER_API_KEY must be set via system environment variable, not in this file!
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
 # Database Configuration
@@ -105,19 +122,11 @@ DEFAULT_MODELS=
 RANDOM_SEED=
 ```
 
-**Note:** For security, you can store your API key in an external file:
-
-```python
-# In src/main.py (already configured)
-from dotenv import load_dotenv
-load_dotenv(r"C:\path\to\your\api.env")  # Contains only: OPENROUTER_API_KEY=sk-or-v1-...
-```
-
 ### Configuration Options
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `OPENROUTER_API_KEY` | Your OpenRouter API key | - | Yes |
+| `OPENROUTER_API_KEY` | Your OpenRouter API key (**must be set via system env**) | - | Yes |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL | `https://openrouter.ai/api/v1` | No |
 | `DATABASE_PATH` | Path to SQLite database | `./data/benchmark.db` | No |
 | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) | `INFO` | No |
@@ -125,6 +134,8 @@ load_dotenv(r"C:\path\to\your\api.env")  # Contains only: OPENROUTER_API_KEY=sk-
 | `DEFAULT_ITERATIONS` | Number of test iterations per model | `1` | No |
 | `RANDOM_SEED` | Seed for randomization (see Random Seed Modes below) | `None` | No |
 | `USE_STRUCTURED_OUTPUTS` | Enable JSON schema structured outputs | `false` | No |
+
+**Security Note:** The `OPENROUTER_API_KEY` must be configured via system environment variable, not in the `.env` file. This prevents accidental exposure in version control.
 
 ### Random Seed Modes
 

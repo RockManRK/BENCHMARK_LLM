@@ -5,12 +5,6 @@ wiring together CLI argument parsing, execution engine, statistics
 calculation, and output formatting.
 """
 
-from dotenv import load_dotenv
-
-# Load API key from external file (before Settings is initialized)
-# Note: Local .env takes precedence for OPENROUTER_BASE_URL
-load_dotenv(r"C:\Users\rockm\OneDrive\Documentos\ak\api.env")
-
 import asyncio
 import json
 import logging
@@ -147,6 +141,54 @@ class BenchmarkRunner:
         else:
             logger.info("DEV MODE: Full persistence enabled")
 
+    def _handle_review_experiment(self) -> int:
+        """Handle manual review for an experiment.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.review_ui import ReviewUI
+
+            # Initialize database
+            self._init_database()
+
+            # Create review UI and start review
+            ui = ReviewUI(self.db_manager)
+            ui.start_review_by_experiment(self.args.review_experiment)
+
+            return 0
+        except Exception as e:
+            logger.exception(f"Review failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            self._cleanup()
+
+    def _handle_review_run(self) -> int:
+        """Handle manual review for a run.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.review_ui import ReviewUI
+
+            # Initialize database
+            self._init_database()
+
+            # Create review UI and start review
+            ui = ReviewUI(self.db_manager)
+            ui.start_review_by_run(self.args.review_run)
+
+            return 0
+        except Exception as e:
+            logger.exception(f"Review failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            self._cleanup()
+
     def run(self) -> int:
         """Execute the benchmark.
 
@@ -160,6 +202,12 @@ class BenchmarkRunner:
             >>> exit_code = runner.run()
         """
         try:
+            # Handle manual review commands
+            if self.args.review_experiment:
+                return self._handle_review_experiment()
+            if self.args.review_run:
+                return self._handle_review_run()
+
             # Apply execution mode presets
             self._apply_execution_mode()
 

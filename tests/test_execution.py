@@ -759,7 +759,10 @@ class TestQuestionExecutor:
         assert result["status"] == "success"
 
     def test_extract_answer_letter_patterns(self, question_executor: QuestionExecutor) -> None:
-        """Test answer letter extraction with various patterns."""
+        """Test answer letter extraction with various patterns using new AnswerParser."""
+        from src.core.answer_parser import AnswerParser
+        
+        parser = AnswerParser()
         patterns = [
             ("**A**", "A"),
             ("The answer is B", "B"),
@@ -768,10 +771,10 @@ class TestQuestionExecutor:
             ("A: Paris", "A"),
             ("The correct answer is B because...", "B"),
         ]
-        
+
         for response_text, expected in patterns:
-            result = question_executor._extract_answer_letter(response_text)
-            assert result == expected, f"Failed for pattern: {response_text}"
+            result = parser.parse(response_text)
+            assert result.answer == expected, f"Failed for pattern: {response_text}"
 
 
 class TestProgressTracker:

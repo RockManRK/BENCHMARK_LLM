@@ -938,8 +938,9 @@ class ResponseRepository:
                 INSERT INTO responses (
                     run_id, snapshot_id, question_id, model_id, iteration,
                     selected_answer, response_text, is_correct,
-                    status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json,
+                    parse_confidence, review_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
@@ -960,6 +961,8 @@ class ResponseRepository:
                     response.reasoning_tokens,
                     response.cost,
                     response.raw_response_json,
+                    response.parse_confidence,
+                    response.review_status,
                 ),
             )
             conn.commit()
@@ -996,7 +999,8 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp,
+                       parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer
                 FROM responses WHERE response_id = ?
                 """,
                 (response_id,),
@@ -1025,6 +1029,11 @@ class ResponseRepository:
                 cost=row["cost"],
                 raw_response_json=row["raw_response_json"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
+                parse_confidence=row["parse_confidence"],
+                review_status=row["review_status"],
+                reviewed_by=row["reviewed_by"],
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                manual_answer=row["manual_answer"],
             )
         finally:
             if self.db_manager.should_close_connection():
@@ -1039,7 +1048,8 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp,
+                       parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer
                 FROM responses WHERE run_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id,),
@@ -1068,7 +1078,12 @@ class ResponseRepository:
                         cost=row["cost"],
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                    )
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
+            )
                 )
             return responses
         finally:
@@ -1084,7 +1099,8 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp,
+                       parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
                 """,
                 (model_id,),
@@ -1113,7 +1129,12 @@ class ResponseRepository:
                         cost=row["cost"],
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                    )
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
+            )
                 )
             return responses
         finally:
@@ -1129,7 +1150,8 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp,
+                       parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id, model_id),
@@ -1158,7 +1180,12 @@ class ResponseRepository:
                         cost=row["cost"],
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                    )
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
+            )
                 )
             return responses
         finally:
@@ -1174,7 +1201,8 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp,
+                       parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
                 """,
                 (model_id,),
@@ -1202,7 +1230,12 @@ class ResponseRepository:
                         cost=row["cost"],
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                    )
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
+            )
                 )
             return responses
         finally:
@@ -1218,7 +1251,8 @@ class ResponseRepository:
                 """
                 SELECT response_id, run_id, snapshot_id, model_id, iteration,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp
+                       status, finish_reason, error_details, latency_ms, input_tokens, output_tokens, total_tokens, reasoning_tokens, cost, raw_response_json, timestamp,
+                       parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
                 """,
                 (run_id, model_id),
@@ -1246,7 +1280,12 @@ class ResponseRepository:
                         cost=row["cost"],
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                    )
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
+            )
                 )
             return responses
         finally:
@@ -1381,6 +1420,11 @@ class ErrorRepository:
                 error_message=row["error_message"],
                 stack_trace=row["stack_trace"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
             )
         finally:
             if self.db_manager.should_close_connection():
@@ -1410,7 +1454,12 @@ class ErrorRepository:
                         error_message=row["error_message"],
                         stack_trace=row["stack_trace"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                    )
+                parse_confidence=row.get("parse_confidence", "clear"),
+                review_status=row.get("review_status", "auto"),
+                reviewed_by=row.get("reviewed_by"),
+                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None,
+                manual_answer=row.get("manual_answer"),
+            )
                 )
             return errors
         finally:

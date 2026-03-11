@@ -271,6 +271,21 @@ Examples:
                  "but only returns the final answer. Useful for cleaner output.",
         )
 
+        # Manual review commands
+        parser.add_argument(
+            "--review-run",
+            type=str,
+            metavar="RUN_ID",
+            help="Start manual review interface for a specific run (e.g., run-001)",
+        )
+
+        parser.add_argument(
+            "--review-experiment",
+            type=str,
+            metavar="EXPERIMENT_ID",
+            help="Start manual review interface for a specific experiment (e.g., exp-001)",
+        )
+
         return parser
 
     def parse(self, args: Optional[list[str]] = None) -> argparse.Namespace:

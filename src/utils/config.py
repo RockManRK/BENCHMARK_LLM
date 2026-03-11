@@ -2,6 +2,11 @@
 
 This module provides settings management using pydantic-settings,
 with environment variable validation and default values.
+
+Security Notes:
+    - OPENROUTER_API_KEY should be set via environment variable only
+    - Do NOT store API keys in .env files committed to version control
+    - Use .env only for non-sensitive configuration (debug flags, paths, etc.)
 """
 
 import hashlib
@@ -12,10 +17,15 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+# Load .env file for non-sensitive configuration
+# NOTE: OPENROUTER_API_KEY should NOT be in .env - use system environment variable
+load_dotenv(".env")
 
 
 class ExecutionMode(str, Enum):
@@ -38,6 +48,11 @@ class Settings(BaseSettings):
     This class defines all configuration options for the benchmark_llm project,
     with sensible defaults and environment variable validation.
 
+    Security Notes:
+        - OPENROUTER_API_KEY must be set via system environment variable
+        - The .env file is loaded ONLY for non-sensitive settings
+        - API key from .env will be ignored for security
+
     Attributes:
         openrouter_api_key: API key for OpenRouter API authentication.
         openrouter_base_url: Base URL for OpenRouter API endpoints.
@@ -54,7 +69,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,  # .env already loaded manually above
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -63,12 +78,35 @@ class Settings(BaseSettings):
     # OpenRouter API Configuration
     openrouter_api_key: str = Field(
         default="",
-        description="API key for OpenRouter API authentication",
+        description="API key for OpenRouter API authentication. Must be set via OPENROUTER_API_KEY environment variable.",
     )
     openrouter_base_url: str = Field(
         default="https://openrouter.ai/api/v1",
         description="Base URL for OpenRouter API endpoints",
     )
+
+    @model_validator(mode="after")
+    def validate_api_key_from_env(self) -> "Settings":
+        """Validate that API key is provided via system environment variable.
+
+        This validator ensures that OPENROUTER_API_KEY is read from the system
+        environment, not from .env files, for security reasons.
+
+        Returns:
+            The Settings instance.
+
+        Raises:
+            ValueError: If API key is not configured.
+        """
+        # Try to get API key from system environment variable
+        # This takes precedence over any value from .env
+        env_api_key = os.getenv("OPENROUTER_API_KEY")
+        
+        if env_api_key:
+            # Use the environment variable value
+            object.__setattr__(self, "openrouter_api_key", env_api_key)
+        
+        return self
 
     # Database Configuration
     database_path: Path = Field(
@@ -529,9 +567,11 @@ class Settings(BaseSettings):
     def _log_configuration_status(self) -> None:
         """Log the current configuration status."""
         if not self.openrouter_api_key:
-            logger.warning(
-                "OpenRouter API key is not configured. "
-                "Set OPENROUTER_API_KEY environment variable."
+            logger.error(
+                "OPENROUTER_API_KEY is not configured. "
+                "Please set the system environment variable OPENROUTER_API_KEY. "
+                "On Windows: setx OPENROUTER_API_KEY \"your-api-key-here\" "
+                "On Linux/macOS: export OPENROUTER_API_KEY=your-api-key-here"
             )
         else:
             logger.info("OpenRouter API key is configured.")
@@ -540,7 +580,7 @@ class Settings(BaseSettings):
         logger.info(f"Log level: {self.log_level}")
         logger.info(f"Log file path: {self.log_file_path}")
         logger.info(f"Execution mode: {self.execution_mode.value}")
-        
+
         if self.is_experiment_mode:
             logger.info(f"Experiment name: {self.experiment_name}")
             logger.info(f"Configuration frozen: YES (hash={self.get_config_hash()})")
