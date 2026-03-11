@@ -186,6 +186,7 @@ class OpenRouterClient:
         temperature: Optional[float] = None,
         reasoning: Optional[dict[str, Any]] = None,
         response_format: Optional[dict[str, Any]] = None,
+        include_debug: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Send a chat completion request to OpenRouter API.
@@ -197,10 +198,15 @@ class OpenRouterClient:
             temperature: Sampling temperature (0.0 for deterministic).
             reasoning: Reasoning configuration (OpenRouter standard).
             response_format: Response format configuration for structured outputs.
+            include_debug: If True, enable OpenRouter debug mode and capture payload.
             **kwargs: Additional parameters to pass to the API.
 
         Returns:
             The parsed JSON response from the API.
+            If include_debug=True, returns {"_debug": {...}, "response": {...}}.
+            
+            NOTE: _debug is internal metadata for debugging purposes only.
+            Downstream consumers should access only response['response'] for model data.
 
         Raises:
             httpx.HTTPStatusError: If the API returns an error status code.
@@ -234,11 +240,16 @@ class OpenRouterClient:
         if reasoning is not None:
             payload["reasoning"] = reasoning
 
+        # Add debug configuration if requested
+        if include_debug:
+            payload["debug"] = {"echo_upstream_body": True}
+            logger.info("Debug mode enabled: capturing request payload and upstream body")
+
         # Add other kwargs
         payload.update(kwargs)
 
         # Log request details for debugging
-        logger.info(f"Sending API request: model={model}, max_tokens={max_tokens}, temperature={temperature}, structured_output={response_format is not None}")
+        logger.info(f"Sending API request: model={model}, max_tokens={max_tokens}, temperature={temperature}, structured_output={response_format is not None}, debug={include_debug}")
         logger.debug(f"Sending chat completion request to {self.base_url}/chat/completions")
         logger.debug(f"Model: {model}, Messages: {len(messages)}")
 
@@ -252,7 +263,7 @@ class OpenRouterClient:
             if response.status_code != 200:
                 error_data = response.json() if response.headers.get("content-type") == "application/json" else {}
                 error_message = error_data.get("error", {}).get("message", "Unknown API error")
-                
+
                 # Log full error response for debugging
                 logger.error(f"API error {response.status_code}: model={model}, message={error_message}")
                 logger.error(f"Error response body: {response.text}")
@@ -265,16 +276,40 @@ class OpenRouterClient:
                     raise httpx.HTTPStatusError(f"API error: {error_message}", request=response.request, response=response)
 
             response_data = response.json()
-            
+
             # Extract token usage and finish reason for logging
             usage = response_data.get("usage", {})
             total_tokens = usage.get("total_tokens", 0)
             finish_reason = "unknown"
             if response_data.get("choices"):
                 finish_reason = response_data["choices"][0].get("finish_reason", "unknown")
-            
+
             logger.info(f"API response: model={model}, tokens={total_tokens}, finish_reason={finish_reason}, status={response.status_code}")
             logger.debug(f"Received response: id={response_data.get('id')}")
+            
+            # If debug mode is enabled, wrap response with debug info
+            if include_debug:
+                # Try to extract upstream body from response if present
+                upstream_body = None
+                if "debug" in response_data:
+                    upstream_body = response_data["debug"].get("upstream_body")
+
+                # Debug payload structure:
+                # - request_payload: What we sent to OpenRouter (your system → OpenRouter)
+                # - upstream_body: What OpenRouter sent to provider (OpenRouter → upstream provider)
+                # NOTE: _debug is internal metadata; downstream consumers should use response['response']
+                debug_info = {
+                    "request_payload": payload,
+                    "upstream_body": upstream_body,
+                }
+
+                logger.debug(f"Debug mode: captured request payload and upstream_body")
+
+                return {
+                    "_debug": debug_info,
+                    "response": response_data,
+                }
+            
             return response_data
 
         except httpx.TimeoutException:

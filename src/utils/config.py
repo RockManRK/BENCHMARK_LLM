@@ -12,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -115,6 +115,12 @@ class Settings(BaseSettings):
     enable_vision: bool = Field(
         default=False,
         description="Enable vision support (send images with questions)",
+    )
+
+    # OpenRouter Debug Configuration
+    openrouter_debug_enabled: bool = Field(
+        default=False,
+        description="Enable OpenRouter debug mode (echo_upstream_body). BLOCKED in EXPERIMENT mode.",
     )
 
     # Prompt Configuration
@@ -341,14 +347,36 @@ class Settings(BaseSettings):
         else:
             # Default to DEV if mode not yet determined
             mode = ExecutionMode.DEV
-        
+
         if mode == ExecutionMode.EXPERIMENT and (value is None or value == ""):
             raise ValueError("experiment_name is required when execution_mode is 'experiment'")
-        
+
         if value is None or value == "":
             return None
-        
+
         return value.strip()
+
+    @model_validator(mode="after")
+    def validate_openrouter_debug_enabled_after(self) -> "Settings":
+        """Validate openrouter_debug_enabled after all fields are set.
+
+        In EXPERIMENT mode, emits a warning and sets openrouter_debug_enabled to False
+        instead of raising ValueError. This prevents hard failures in long-running pipelines.
+
+        Returns:
+            The Settings instance.
+        """
+        if self.execution_mode == ExecutionMode.EXPERIMENT and self.openrouter_debug_enabled:
+            # Emit warning instead of raising ValueError
+            logger.warning(
+                "openrouter_debug_enabled is BLOCKED in EXPERIMENT mode. "
+                "Debug flag will be ignored. Debug mode cannot be used for experimental runs. "
+                "Execution will continue without debug."
+            )
+            # Set to False silently after warning
+            object.__setattr__(self, "openrouter_debug_enabled", False)
+
+        return self
 
     @property
     def is_api_configured(self) -> bool:
@@ -461,6 +489,7 @@ class Settings(BaseSettings):
             "reasoning_enabled": self.reasoning_enabled,
             "use_structured_outputs": self.use_structured_outputs,
             "enable_vision": self.enable_vision,
+            "openrouter_debug_enabled": self.openrouter_debug_enabled,
             "default_prompt": self.default_prompt,
             "openrouter_base_url": self.openrouter_base_url,
             "default_iterations": self.default_iterations,

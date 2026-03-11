@@ -16,6 +16,7 @@ from typing import Any, Optional
 import httpx
 
 from src.api.client import MessageBuilder, OpenRouterClient
+from src.api.error_handler import extract_error_from_raw, format_error_details, normalize_openrouter_error
 from src.core.randomizer import AnswerRandomizer
 from src.db.models import Error, Question, QuestionSnapshot, Response
 from src.db.repository import ErrorRepository, QuestionSnapshotRepository, ResponseRepository
@@ -312,8 +313,7 @@ class QuestionExecutor:
         Example:
             >>> content = self._build_request_content(question)
             >>> print(content["content"])
-            Question: What is...?
-            Options:
+            What is...?
             A. Option A
             B. Option B
             ...
@@ -330,14 +330,8 @@ class QuestionExecutor:
         # Use custom prompt from settings or default (NO distinction for images)
         instruction = self._settings.default_prompt or default_instruction
 
-        # Parse options from JSON
-        import json
-        options = json.loads(question.options_json)
-        options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
+        prompt = f"""{question.stem}
 
-        prompt = f"""Question: {question.stem}
-
-Options:
 {options_text}
 
 {instruction}"""
@@ -363,7 +357,8 @@ Options:
             request_content: The request content dictionary.
 
         Returns:
-            Raw API response dictionary.
+            Raw API response dictionary. If debug is enabled, returns
+            {"_debug": {...}, "response": {...}}.
         """
         # Build API request with response_format
         api_kwargs = {
@@ -371,6 +366,7 @@ Options:
             "messages": [request_content],
             "response_format": ANSWER_SCHEMA,
             "stream": False,  # Disable streaming to ensure complete response
+            "include_debug": self._settings.openrouter_debug_enabled if self._settings else False,
         }
         # Add optional parameters only if configured
         if "max_tokens" in self._model_kwargs:
@@ -399,13 +395,15 @@ Options:
             request_content: The request content dictionary.
 
         Returns:
-            Raw API response dictionary.
+            Raw API response dictionary. If debug is enabled, returns
+            {"_debug": {...}, "response": {...}}.
         """
         # Build API request with model kwargs (only include non-None values)
         api_kwargs = {
             "model": self._model_id,
             "messages": [request_content],
             "stream": False,  # Disable streaming to ensure complete response
+            "include_debug": self._settings.openrouter_debug_enabled if self._settings else False,
         }
         # Add optional parameters only if configured
         if "max_tokens" in self._model_kwargs:
@@ -431,14 +429,21 @@ Options:
         """Parse structured JSON response.
 
         Args:
-            api_response: Raw API response dictionary.
+            api_response: Raw API response dictionary. If debug is enabled,
+                this will be {"_debug": {...}, "response": {...}}.
             question: Question object (for answer validation).
 
         Returns:
             Dictionary containing parsed response data.
         """
+        # Handle debug wrapper format:
+        # If debug enabled, response is in api_response['response']; otherwise, use api_response directly
+        response_data = api_response.get("response", api_response)
+        if "_debug" in api_response:
+            logger.debug("Debug mode detected: extracting response from wrapper")
+
         # Extract content
-        choices = api_response.get("choices", [])
+        choices = response_data.get("choices", [])
         content = ""
         if choices:
             message = choices[0].get("message", {})
@@ -453,18 +458,18 @@ Options:
             selected_answer = self._extract_answer_letter(content) or ""
 
         # Extract token usage
-        usage = api_response.get("usage", {})
+        usage = response_data.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
         total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
         cost = usage.get("cost")
 
         # Capture actual model from response
-        actual_model = api_response.get("model", self._model_id)
+        actual_model = response_data.get("model", self._model_id)
 
         # Extract finish_reason from API response
         finish_reason = None
-        choices = api_response.get("choices", [])
+        choices = response_data.get("choices", [])
         if choices:
             finish_reason = choices[0].get("finish_reason")
 
@@ -509,7 +514,8 @@ Options:
         """Parse the API response and extract the answer.
 
         Args:
-            api_response: Raw API response dictionary.
+            api_response: Raw API response dictionary. If debug is enabled,
+                this will be {"_debug": {...}, "response": {...}}.
             question: Question object (for answer validation).
 
         Returns:
@@ -522,11 +528,17 @@ Options:
             - actual_model: The actual model ID from the response
             - finish_reason: The reason for response termination
         """
+        # Handle debug wrapper format:
+        # If debug enabled, response is in api_response['response']; otherwise, use api_response directly
+        response_data = api_response.get("response", api_response)
+        if "_debug" in api_response:
+            logger.debug("Debug mode detected: extracting response from wrapper")
+
         # Extract response text
-        choices = api_response.get("choices", [])
+        choices = response_data.get("choices", [])
         response_text = ""
         finish_reason = None
-        
+
         if choices:
             message = choices[0].get("message", {})
             response_text = message.get("content", "")
@@ -545,14 +557,14 @@ Options:
                     response_text = reasoning_content
 
         # Extract token usage
-        usage = api_response.get("usage", {})
+        usage = response_data.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
         total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
         cost = usage.get("cost")
 
         # Capture actual model from response for verification
-        actual_model = api_response.get("model", self._model_id)
+        actual_model = response_data.get("model", self._model_id)
         if actual_model != self._model_id:
             logger.info(
                 f"API response indicates different model: "
@@ -697,6 +709,10 @@ Options:
             logger.error("snapshot_id is required but was not provided")
             raise ValueError("snapshot_id is required for creating a response")
 
+        # Store with debug wrapper (if enabled):
+        # - _debug.request_payload: What we sent to OpenRouter
+        # - _debug.upstream_body: What OpenRouter sent to provider
+        # - response: Actual model response (downstream consumers should use this)
         return Response(
             run_id=self._run_id,
             snapshot_id=snapshot_id,
@@ -740,12 +756,15 @@ Options:
             f"{error.response.status_code} - {error_message}"
         )
 
-        # Extract error details from response
-        error_details = ""
+        # Extract and normalize error details from response
         try:
-            error_details = error.response.text
+            error_body = error.response.json() if error.response.headers.get("content-type") == "application/json" else {}
         except:
-            error_details = error_message
+            error_body = {}
+        
+        # Normalize the error using error_handler
+        normalized_error = normalize_openrouter_error(error.response.status_code, error_body)
+        error_details = format_error_details(normalized_error)
 
         # Store error in database
         self._store_error(
@@ -783,8 +802,16 @@ Options:
 
         logger.error(f"Timeout for question {question.question_id}: {error_message}")
 
+        # Create normalized error details for timeout
+        normalized_error = {
+            "error_type": "timeout",
+            "http_status": None,
+            "message": f"Request timed out after {self._api_client._timeout}s",
+            "timeout_seconds": self._api_client._timeout,
+        }
+        error_details = format_error_details(normalized_error)
+        
         # Store error in database
-        error_details = f"Request timed out after {self._api_client._timeout}s"
         self._store_error(
             question=question,
             error_type=error_type,
@@ -822,13 +849,22 @@ Options:
             f"Request error for question {question.question_id}: {error_message}"
         )
 
+        # Create normalized error details for request errors
+        normalized_error = {
+            "error_type": "request_error",
+            "http_status": None,
+            "message": error_message,
+            "request_error_type": type(error).__name__,
+        }
+        error_details = format_error_details(normalized_error)
+        
         # Store error in database
         self._store_error(
             question=question,
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
-            error_details=None,  # Request errors don't have response body
+            error_details=error_details,
         )
 
         return {
@@ -860,6 +896,15 @@ Options:
             f"Unexpected error for question {question.question_id}: {error_message}"
         )
 
+        # Create normalized error details for general errors
+        normalized_error = {
+            "error_type": "unexpected_error",
+            "http_status": None,
+            "message": error_message,
+            "exception_type": type(error).__name__,
+        }
+        error_details = format_error_details(normalized_error)
+        
         # Store error in database
         self._store_error(
             question=question,
@@ -867,7 +912,7 @@ Options:
             error_message=error_message,
             latency_ms=latency_ms,
             stack_trace=self._get_stack_trace(),
-            error_details=None,  # General errors don't have specific details
+            error_details=error_details,
         )
 
         return {
