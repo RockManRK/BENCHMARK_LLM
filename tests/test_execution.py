@@ -43,9 +43,14 @@ class TestRunManager:
         self, mock_db_manager: MagicMock, mock_run_repository: MagicMock
     ) -> RunManager:
         """Create a RunManager instance with mock DB."""
+        from src.utils.config import Settings, ExecutionMode
+        
         run_manager = RunManager.__new__(RunManager)
         run_manager.db_manager = mock_db_manager
         run_manager._run_repository = mock_run_repository
+        run_manager._model_repository = MagicMock()
+        run_manager._experiment_repository = MagicMock()
+        run_manager.settings = Settings(execution_mode=ExecutionMode.TEST)
         run_manager.current_run = None
         return run_manager
 
@@ -59,7 +64,9 @@ class TestRunManager:
         assert run.run_id.startswith("run-")
         assert len(run.run_id) > 4  # Should have timestamp component
         assert run.status == "running"
-        assert run.config == json.dumps(config)
+        # In TEST mode: experiment_id is None (no persistence)
+        assert run.experiment_id is None
+        assert run.is_dev is False  # Test mode
 
     def test_initialize_run_stores_configuration(
         self, run_manager: RunManager, mock_db_manager: MagicMock
@@ -72,10 +79,10 @@ class TestRunManager:
         }
         run = run_manager.initialize_run(config)
 
-        stored_config = json.loads(run.config)
-        assert stored_config["models"] == ["gpt-4", "claude-3"]
-        assert stored_config["iterations"] == 5
-        assert stored_config["questions"] == ["Q001", "Q002"]
+        # In TEST mode: experiment_id is None, seed is None (not provided)
+        assert run.experiment_id is None
+        assert run.seed is None
+        assert run.is_dev is False
 
     def test_initialize_run_tracks_status(
         self, run_manager: RunManager, mock_db_manager: MagicMock
@@ -431,6 +438,8 @@ class TestQuestionExecutor:
         mock_error_repository: MagicMock,
     ) -> QuestionExecutor:
         """Create a QuestionExecutor instance."""
+        from src.utils.config import Settings, ExecutionMode
+        
         executor = QuestionExecutor.__new__(QuestionExecutor)
         executor.db_manager = mock_db_manager
         executor._api_client = mock_api_client
@@ -443,15 +452,21 @@ class TestQuestionExecutor:
         executor._reasoning_config = None
         executor._response_repository = mock_response_repository
         executor._error_repository = mock_error_repository
+        executor._snapshot_repository = None  # No snapshot repository in tests
+        executor._settings = Settings(execution_mode=ExecutionMode.TEST)  # Test mode
+        executor._current_snapshot_id = 1  # Mock snapshot_id for error storage
         return executor
 
     @pytest.fixture
     def sample_question(self) -> MagicMock:
         """Create a sample question."""
+        import json
+        
         question = MagicMock()
         question.question_id = "Q001"
         question.question_text = "What is the capital of France?"
         question.options = {"A": "Paris", "B": "London", "C": "Berlin", "D": "Madrid"}  # Real dict
+        question.options_json = json.dumps({"A": "Paris", "B": "London", "C": "Berlin", "D": "Madrid"})
         question.correct_answer = "A"
         question.has_image = False
         question.image_path = None

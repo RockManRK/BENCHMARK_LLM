@@ -7,6 +7,7 @@ Supports three execution modes: test, dev, and experiment.
 
 import json
 import logging
+import random
 import sqlite3
 import uuid
 from datetime import datetime
@@ -119,10 +120,13 @@ class RunManager:
             logger.info(f"Created shadow experiment for dev mode: {experiment.name}")
 
         # Create run object
+        # Determine seed value based on configuration
+        seed_value = self._determine_seed(config)
+
         run = Run(
             run_id=run_id,
             experiment_id=experiment_id,
-            seed=config.get("seed"),
+            seed=seed_value,
             is_dev=is_dev,
             started_at=datetime.now(),
             status="running",
@@ -147,6 +151,53 @@ class RunManager:
         logger.debug(f"Run configuration: experiment_id={experiment_id}, is_dev={is_dev}")
 
         return run
+
+    def _determine_seed(self, config: dict[str, Any]) -> Optional[int]:
+        """Determine the seed value based on configuration.
+
+        Rules:
+        - None/empty → Keep original order (seed = None)
+        - "AUTO" → Generate random seed per RUN
+        - int → Use provided seed
+
+        Args:
+            config: Run configuration dictionary containing seed setting.
+
+        Returns:
+            Integer seed value or None if no seed should be used.
+
+        Example:
+            >>> config = {"seed": "AUTO"}
+            >>> seed = manager._determine_seed(config)
+            >>> isinstance(seed, int)
+            True
+        """
+        seed_config = config.get("seed")
+
+        # Case 1: None or empty → Keep original order
+        if seed_config is None or seed_config == "":
+            logger.debug("No seed configured, keeping original answer order")
+            return None
+
+        # Case 2: "AUTO" → Generate random seed for this RUN
+        if seed_config == "AUTO":
+            auto_seed = random.randint(0, 2**31 - 1)
+            logger.info(f"AUTO seed generated: {auto_seed}")
+            return auto_seed
+
+        # Case 3: int → Use provided seed
+        if isinstance(seed_config, int):
+            logger.info(f"Using fixed seed: {seed_config}")
+            return seed_config
+
+        # Fallback: try to convert to int
+        try:
+            seed_int = int(seed_config)
+            logger.info(f"Using seed from string: {seed_int}")
+            return seed_int
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid seed value: {seed_config}, using None")
+            return None
 
     def _get_or_create_experiment(self, config: dict[str, Any]) -> Experiment:
         """Get existing experiment or create new one with frozen config.
@@ -332,6 +383,12 @@ class RunManager:
             return None
 
         run.status = status
+
+        # Set finished_at when completing or failing a run
+        if status in ("completed", "failed") and run.finished_at is None:
+            run.finished_at = datetime.now()
+            logger.debug(f"Run {run_id} finished_at set to {run.finished_at}")
+
         self._run_repository.update(run)
 
         # Update current run if it's the same run

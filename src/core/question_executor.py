@@ -902,6 +902,8 @@ class QuestionExecutor:
         Returns:
             Error result dictionary.
         """
+        import json
+
         latency_ms = int((time.time() - start_time) * 1000)
         error_type = f"HTTPError_{error.response.status_code}"
         error_message = str(error)
@@ -916,10 +918,14 @@ class QuestionExecutor:
             error_body = error.response.json() if error.response.headers.get("content-type") == "application/json" else {}
         except:
             error_body = {}
-        
+
         # Normalize the error using error_handler
         normalized_error = normalize_openrouter_error(error.response.status_code, error_body)
         error_details = format_error_details(normalized_error)
+
+        # Extract raw response JSON for storage
+        # This ensures we have the complete error response, even if error_details is truncated
+        raw_response_json = json.dumps(error_body) if error_body else None
 
         # Store error in database
         self._store_error(
@@ -928,6 +934,7 @@ class QuestionExecutor:
             error_message=error_message,
             latency_ms=latency_ms,
             error_details=error_details,
+            raw_response_json=raw_response_json,
         )
 
         return {
@@ -965,7 +972,10 @@ class QuestionExecutor:
             "timeout_seconds": self._api_client._timeout,
         }
         error_details = format_error_details(normalized_error)
-        
+
+        # No raw response JSON available for timeouts
+        raw_response_json = None
+
         # Store error in database
         self._store_error(
             question=question,
@@ -973,6 +983,7 @@ class QuestionExecutor:
             error_message=error_message,
             latency_ms=latency_ms,
             error_details=error_details,
+            raw_response_json=raw_response_json,
         )
 
         return {
@@ -1012,7 +1023,10 @@ class QuestionExecutor:
             "request_error_type": type(error).__name__,
         }
         error_details = format_error_details(normalized_error)
-        
+
+        # No raw response JSON available for request errors
+        raw_response_json = None
+
         # Store error in database
         self._store_error(
             question=question,
@@ -1020,6 +1034,7 @@ class QuestionExecutor:
             error_message=error_message,
             latency_ms=latency_ms,
             error_details=error_details,
+            raw_response_json=raw_response_json,
         )
 
         return {
@@ -1059,7 +1074,10 @@ class QuestionExecutor:
             "exception_type": type(error).__name__,
         }
         error_details = format_error_details(normalized_error)
-        
+
+        # No raw response JSON available for general errors
+        raw_response_json = None
+
         # Store error in database
         self._store_error(
             question=question,
@@ -1068,6 +1086,7 @@ class QuestionExecutor:
             latency_ms=latency_ms,
             stack_trace=self._get_stack_trace(),
             error_details=error_details,
+            raw_response_json=raw_response_json,
         )
 
         return {
@@ -1086,6 +1105,7 @@ class QuestionExecutor:
         latency_ms: int,
         stack_trace: str = "",
         error_details: Optional[str] = None,
+        raw_response_json: Optional[str] = None,
     ) -> None:
         """Store an error in the database.
 
@@ -1096,6 +1116,7 @@ class QuestionExecutor:
             latency_ms: Latency when error occurred.
             stack_trace: Optional stack trace.
             error_details: Optional detailed error information (e.g., full error response body).
+            raw_response_json: Optional raw API response JSON string for debugging.
         """
         # First create a response record for the error
         # Store response and error in database (skip in test mode)
@@ -1123,6 +1144,7 @@ class QuestionExecutor:
                 total_tokens=None,
                 cost=None,
                 error_details=error_details,
+                raw_response_json=raw_response_json,
                 timestamp=datetime.now(),
             )
             self._response_repository.create(response)
