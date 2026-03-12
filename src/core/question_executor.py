@@ -22,6 +22,7 @@ from src.db.models import Error, Question, QuestionSnapshot, Response
 from src.db.repository import ErrorRepository, QuestionSnapshotRepository, ResponseRepository
 from src.db.schema import DatabaseManager
 from src.utils.answer_schema import ANSWER_SCHEMA
+from src.utils.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class QuestionExecutor:
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
         enable_vision: bool = False,
-        settings: Optional[Any] = None,
+        settings: Optional[Settings] = None,
         snapshot_repository: Optional[QuestionSnapshotRepository] = None,
     ) -> None:
         """Initialize the QuestionExecutor.

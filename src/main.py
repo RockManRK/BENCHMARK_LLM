@@ -11,8 +11,9 @@ import logging
 import random
 import sqlite3
 import sys
+from argparse import Namespace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from src.cli.cli import CLIParser, parse_arguments
 from src.cli.output_formatter import ConsoleFormatter, OutputFormatter, create_formatter
@@ -48,7 +49,7 @@ class BenchmarkRunner:
         >>> runner.run()
     """
 
-    def __init__(self, args: Optional[Any] = None) -> None:
+    def __init__(self, args: Optional[Namespace] = None) -> None:
         """Initialize the benchmark runner.
 
         Args:

@@ -18,6 +18,7 @@ from src.core.question_executor import QuestionExecutor
 from src.core.randomizer import AnswerRandomizer
 from src.db.repository import ResponseRepository
 from src.db.schema import DatabaseManager
+from src.utils.config import Settings
 from src.utils.progress import ProgressTracker
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ class IterationExecutor:
         model_kwargs: Optional[dict[str, Any]] = None,
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
-        settings: Optional[Any] = None,
+        settings: Optional[Settings] = None,
     ) -> None:
         """Initialize the IterationExecutor.
 
