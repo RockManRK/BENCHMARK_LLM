@@ -143,7 +143,10 @@ class QuestionExecutor:
             - correct_answer: The correct answer
             - is_correct: Whether the answer was correct
             - input_tokens: Number of input tokens used
-            - output_tokens: Number of output tokens generated
+            - response_tokens: Number of response tokens generated
+            - total_tokens: Total tokens (input + response, excludes reasoning)
+            - reasoning_tokens: Number of reasoning tokens (if available)
+            - effective_tokens: Total computational cost (input + response + reasoning)
             - latency_ms: Response time in milliseconds
             - error_type: Type of error if status is "error"
             - metadata: Additional metadata (e.g., used_structured_outputs)
@@ -248,8 +251,12 @@ class QuestionExecutor:
             # Calculate total execution time
             total_latency_ms = int((time.time() - start_time) * 1000)
 
-            # Extract reasoning details
-            reasoning_details, reasoning_tokens = self._extract_reasoning_details(api_response)
+            # Extract token usage using consolidated method
+            # This extracts: input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens, cost
+            tokens = self._extract_token_usage(api_response)
+
+            # Extract reasoning details (text) separately
+            reasoning_details, _ = self._extract_reasoning_details(api_response)
 
             # Step 4: Store response in database (in test mode this goes to :memory:)
             logger.debug(f"Creating response: run_id={self._run_id}, snapshot_id={snapshot_id}, model_id={self._model_id}")
@@ -260,7 +267,7 @@ class QuestionExecutor:
                 latency_ms=total_latency_ms,
                 snapshot_id=snapshot_id,
                 reasoning_details=reasoning_details,
-                reasoning_tokens=reasoning_tokens,
+                tokens=tokens,  # Pass consolidated token data
             )
             logger.debug(f"Response object created, saving to DB")
             self._response_repository.create(response)
@@ -273,8 +280,11 @@ class QuestionExecutor:
                     "selected_answer": parsed["selected_answer"],
                     "correct_answer": randomized_question.correct_answer,
                     "is_correct": parsed["is_correct"],
-                    "input_tokens": parsed["input_tokens"],
-                    "output_tokens": parsed["output_tokens"],
+                    "input_tokens": tokens["input_tokens"],
+                    "response_tokens": tokens["response_tokens"],
+                    "total_tokens": tokens["total_tokens"],
+                    "reasoning_tokens": tokens["reasoning_tokens"],
+                    "effective_tokens": tokens["effective_tokens"],
                     "latency_ms": latency_ms,
                     "response_text": parsed["response_text"],
                     "metadata": {"used_structured_outputs": used_structured_outputs},
@@ -461,12 +471,8 @@ class QuestionExecutor:
             parsed_answer = parser.parse(content)
             selected_answer = parsed_answer.answer or ""
 
-        # Extract token usage
-        usage = response_data.get("usage", {})
-        input_tokens = usage.get("prompt_tokens", 0)
-        output_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
-        cost = usage.get("cost")
+        # Extract token usage using consolidated method
+        tokens = self._extract_token_usage(api_response)
 
         # Capture actual model from response
         actual_model = response_data.get("model", self._model_id)
@@ -484,10 +490,12 @@ class QuestionExecutor:
             "selected_answer": selected_answer,
             "is_correct": is_correct,
             "response_text": content,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": total_tokens,
-            "cost": cost,
+            "input_tokens": tokens["input_tokens"],
+            "response_tokens": tokens["response_tokens"],
+            "total_tokens": tokens["total_tokens"],
+            "reasoning_tokens": tokens["reasoning_tokens"],
+            "effective_tokens": tokens["effective_tokens"],
+            "cost": tokens["cost"],
             "actual_model": actual_model,
             "finish_reason": finish_reason,
         }
@@ -528,9 +536,13 @@ class QuestionExecutor:
             - is_correct: Whether the answer is correct
             - response_text: Full response text
             - input_tokens: Input token count
-            - output_tokens: Output token count
+            - response_tokens: Response token count
+            - total_tokens: Total tokens (input + response, excludes reasoning)
+            - reasoning_tokens: Reasoning token count (if available)
+            - effective_tokens: Total computational cost
             - actual_model: The actual model ID from the response
             - finish_reason: The reason for response termination
+            - parse_confidence: Confidence level from answer parsing
         """
         # Handle debug wrapper format:
         # If debug enabled, response is in api_response['response']; otherwise, use api_response directly
@@ -560,12 +572,8 @@ class QuestionExecutor:
                     logger.debug(f"Using reasoning_content: {reasoning_content[:200]}...")
                     response_text = reasoning_content
 
-        # Extract token usage
-        usage = response_data.get("usage", {})
-        input_tokens = usage.get("prompt_tokens", 0)
-        output_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
-        cost = usage.get("cost")
+        # Extract token usage using consolidated method
+        tokens = self._extract_token_usage(api_response)
 
         # Capture actual model from response for verification
         actual_model = response_data.get("model", self._model_id)
@@ -577,18 +585,18 @@ class QuestionExecutor:
 
         # Parse selected answer from response text using the new AnswerParser
         from src.core.answer_parser import AnswerParser
-        
+
         parser = AnswerParser()
         parsed_answer = parser.parse(response_text)
         selected_answer = parsed_answer.answer
-        
+
         # Log parsing confidence for debugging
         logger.debug(
             f"Answer parsing for question {question.question_id}: "
             f"answer={selected_answer}, confidence={parsed_answer.confidence}, "
             f"raw_matches={parsed_answer.raw_matches}"
         )
-        
+
         # Store parse confidence for manual review workflow
         parse_confidence = parsed_answer.confidence
 
@@ -599,63 +607,111 @@ class QuestionExecutor:
             "selected_answer": selected_answer,
             "is_correct": is_correct,
             "response_text": response_text,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": total_tokens,
-            "cost": cost,
+            "input_tokens": tokens["input_tokens"],
+            "response_tokens": tokens["response_tokens"],
+            "total_tokens": tokens["total_tokens"],
+            "reasoning_tokens": tokens["reasoning_tokens"],
+            "effective_tokens": tokens["effective_tokens"],
+            "cost": tokens["cost"],
             "actual_model": actual_model,
             "finish_reason": finish_reason,
             "parse_confidence": parse_confidence,
         }
 
-    def _extract_reasoning_details(
-        self, api_response: dict[str, Any]
-    ) -> tuple[Optional[str], Optional[int]]:
-        """Extract reasoning details and tokens from API response.
+    def _extract_token_usage(self, api_response: dict[str, Any]) -> dict[str, Any]:
+        """Extract all token-related metrics from API response.
+
+        This method consolidates token extraction logic from multiple locations
+        into a single, maintainable function. It handles both debug and non-debug
+        response formats.
+
+        Token calculation formulas (documented):
+        - total_tokens = input_tokens + response_tokens (excludes reasoning_tokens)
+        - effective_tokens = input_tokens + response_tokens + reasoning_tokens
+        - reasoning_tokens are a subtype of response_tokens, not additional
 
         Args:
             api_response: Raw API response dictionary. If debug is enabled,
                 this will be {"_debug": {...}, "response": {...}}.
 
         Returns:
-            Tuple of (reasoning_details_json, reasoning_tokens)
-        """
-        reasoning_details = None
-        reasoning_tokens = None
+            Dictionary containing:
+            - input_tokens: Number of tokens in the request (prompt_tokens)
+            - response_tokens: Number of tokens in the response (completion_tokens)
+            - total_tokens: input_tokens + response_tokens (excludes reasoning_tokens)
+            - reasoning_tokens: Number of reasoning tokens used (if available)
+            - effective_tokens: input_tokens + response_tokens + reasoning_tokens
+            - cost: Cost in credits for this response
 
+        Example:
+            >>> tokens = self._extract_token_usage(api_response)
+            >>> print(f"Input: {tokens['input_tokens']}, Response: {tokens['response_tokens']}")
+            >>> print(f"Total: {tokens['total_tokens']}, Reasoning: {tokens['reasoning_tokens']}")
+            >>> print(f"Effective: {tokens['effective_tokens']}, Cost: {tokens['cost']}")
+        """
         # Handle debug wrapper: extract actual response from wrapper
         # Format when debug enabled: {"_debug": {...}, "response": {...}}
         # Format when debug disabled: {...} (direct response)
         response_data = api_response.get("response", api_response)
         if "_debug" in api_response:
-            logger.debug("Debug mode detected in _extract_reasoning_details: extracting response from wrapper")
+            logger.debug("Debug mode detected in _extract_token_usage: extracting response from wrapper")
 
-        # Extract reasoning_details array from message
-        message = response_data.get("choices", [{}])[0].get("message", {})
-
-        # Get reasoning_details if present
-        if "reasoning_details" in message:
-            details = message["reasoning_details"]
-            if details:
-                reasoning_details = json.dumps(details)
-                logger.debug(f"Extracted reasoning_details: {len(details)} items")
-
-        # Extract reasoning tokens from usage
-        # OpenRouter standard: usage.completion_tokens_details.reasoning_tokens
-        # Some providers may use: usage.reasoning_tokens (flat)
-        # llama.cpp may use: usage.extra.usage_reasoning_tokens
+        # Extract usage from response
         usage = response_data.get("usage", {})
-        reasoning_tokens = None
 
-        # Log full usage structure for debugging
-        logger.debug(f"Full usage structure: {json.dumps(usage, indent=2)}")
+        # Extract basic token counts
+        input_tokens = usage.get("prompt_tokens", 0)
+        response_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", input_tokens + response_tokens)
+        cost = usage.get("cost")
+
+        # Extract reasoning tokens using nested search
+        reasoning_tokens = self._extract_reasoning_tokens_from_usage(usage)
+
+        # Calculate effective_tokens (total computational cost)
+        # Formula: effective_tokens = input_tokens + response_tokens + reasoning_tokens
+        effective_tokens = input_tokens + response_tokens + (reasoning_tokens or 0)
+
+        # Log token usage for debugging
+        logger.info(
+            f"Token usage: model={self._model_id}, "
+            f"input={input_tokens}, response={response_tokens}, "
+            f"total={total_tokens}, reasoning={reasoning_tokens}, "
+            f"effective={effective_tokens}"
+        )
+
+        return {
+            "input_tokens": input_tokens,
+            "response_tokens": response_tokens,
+            "total_tokens": total_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "effective_tokens": effective_tokens,
+            "cost": cost,
+        }
+
+    def _extract_reasoning_tokens_from_usage(self, usage: dict[str, Any]) -> Optional[int]:
+        """Extract reasoning_tokens from usage dictionary.
+
+        Searches for reasoning_tokens in multiple locations:
+        1. usage.completion_tokens_details.reasoning_tokens (OpenRouter standard)
+        2. usage.reasoning_tokens (flat format)
+        3. usage.extra.usage_reasoning_tokens (llama.cpp format)
+        4. Recursive search in nested dictionaries
+
+        Args:
+            usage: Usage dictionary from API response.
+
+        Returns:
+            reasoning_tokens value if found, None otherwise.
+        """
+        reasoning_tokens = None
 
         # Try nested format first (OpenRouter standard)
         completion_tokens_details = usage.get("completion_tokens_details", {})
         if completion_tokens_details and "reasoning_tokens" in completion_tokens_details:
             reasoning_tokens = completion_tokens_details["reasoning_tokens"]
             logger.debug(f"Extracted reasoning_tokens from completion_tokens_details: {reasoning_tokens}")
-        # Fallback to flat format (some providers) - CHECK THIS FIRST as it's common
+        # Fallback to flat format (some providers)
         elif "reasoning_tokens" in usage:
             reasoning_tokens = usage["reasoning_tokens"]
             logger.debug(f"Extracted reasoning_tokens from usage (flat): {reasoning_tokens}")
@@ -666,19 +722,18 @@ class QuestionExecutor:
                 reasoning_tokens = extra["usage_reasoning_tokens"]
                 logger.debug(f"Extracted reasoning_tokens from llama.cpp format: {reasoning_tokens}")
         
-        # Additional fallback: check if reasoning_tokens exists anywhere in usage
+        # Additional fallback: recursive search in nested dictionaries
         if reasoning_tokens is None:
-            # Recursively search for reasoning_tokens in usage
             reasoning_tokens = self._find_reasoning_tokens_in_usage(usage)
             if reasoning_tokens is not None:
                 logger.debug(f"Extracted reasoning_tokens from nested search: {reasoning_tokens}")
 
         if reasoning_tokens is None:
-            logger.debug(f"No reasoning_tokens found in API response")
+            logger.debug(f"No reasoning_tokens found in usage")
         else:
-            logger.info(f"reasoning_tokens extracted: {reasoning_tokens}")
+            logger.debug(f"reasoning_tokens extracted: {reasoning_tokens}")
 
-        return reasoning_details, reasoning_tokens
+        return reasoning_tokens
 
     def _find_reasoning_tokens_in_usage(self, usage: dict[str, Any], depth: int = 0) -> Optional[int]:
         """Recursively search for reasoning_tokens in usage dictionary.
@@ -706,6 +761,44 @@ class QuestionExecutor:
 
         return None
 
+    def _extract_reasoning_details(
+        self, api_response: dict[str, Any]
+    ) -> tuple[Optional[str], Optional[int]]:
+        """Extract reasoning details (text) from API response.
+
+        This method extracts the reasoning_details array from the message,
+        which contains the model's reasoning process (chain-of-thought).
+
+        Note: For reasoning_tokens extraction, use _extract_token_usage() instead.
+
+        Args:
+            api_response: Raw API response dictionary. If debug is enabled,
+                this will be {"_debug": {...}, "response": {...}}.
+
+        Returns:
+            Tuple of (reasoning_details_json, reasoning_tokens)
+            Note: reasoning_tokens is now extracted from _extract_token_usage()
+        """
+        # Handle debug wrapper: extract actual response from wrapper
+        response_data = api_response.get("response", api_response)
+        if "_debug" in api_response:
+            logger.debug("Debug mode detected in _extract_reasoning_details: extracting response from wrapper")
+
+        # Extract reasoning_details array from message
+        message = response_data.get("choices", [{}])[0].get("message", {})
+
+        # Get reasoning_details if present
+        reasoning_details = None
+        if "reasoning_details" in message:
+            details = message["reasoning_details"]
+            if details:
+                reasoning_details = json.dumps(details)
+                logger.debug(f"Extracted reasoning_details: {len(details)} items")
+
+        # Note: reasoning_tokens is now extracted via _extract_token_usage()
+        # This method returns None for reasoning_tokens to avoid duplication
+        return reasoning_details, None
+
     def _create_response_object(
         self,
         question: Question,
@@ -714,7 +807,7 @@ class QuestionExecutor:
         latency_ms: int,
         snapshot_id: Optional[int] = None,
         reasoning_details: Optional[str] = None,
-        reasoning_tokens: Optional[int] = None,
+        tokens: Optional[dict[str, Any]] = None,
     ) -> Response:
         """Create a Response object for database storage.
 
@@ -725,7 +818,9 @@ class QuestionExecutor:
             latency_ms: Total latency in milliseconds.
             snapshot_id: ID of the question snapshot (required).
             reasoning_details: Optional JSON string with reasoning details.
-            reasoning_tokens: Optional number of reasoning tokens used.
+            tokens: Dictionary containing token metrics from _extract_token_usage().
+                   Contains: input_tokens, response_tokens, total_tokens, 
+                   reasoning_tokens, effective_tokens, cost.
 
         Returns:
             Response object ready for database storage.
@@ -736,19 +831,22 @@ class QuestionExecutor:
             logger.error("snapshot_id is required but was not provided")
             raise ValueError("snapshot_id is required for creating a response")
 
+        # Use tokens from consolidated extraction, or fallback to parsed dict
+        if tokens is None:
+            # Fallback for backward compatibility
+            tokens = {
+                "input_tokens": parsed.get("input_tokens", 0),
+                "response_tokens": parsed.get("response_tokens", parsed.get("output_tokens", 0)),
+                "total_tokens": parsed.get("total_tokens"),
+                "reasoning_tokens": parsed.get("reasoning_tokens"),
+                "effective_tokens": parsed.get("effective_tokens"),
+                "cost": parsed.get("cost"),
+            }
+
         # Store with debug wrapper (if enabled):
         # - _debug.request_payload: What we sent to OpenRouter
         # - _debug.upstream_body: What OpenRouter sent to provider
         # - response: Actual model response (downstream consumers should use this)
-
-        # Calculate effective_tokens (input + response + reasoning)
-        effective_tokens = None
-        if parsed.get("input_tokens") and parsed.get("output_tokens"):
-            effective_tokens = (
-                parsed["input_tokens"] +
-                parsed["output_tokens"] +
-                (reasoning_tokens or 0)
-            )
 
         return Response(
             run_id=self._run_id,
@@ -762,12 +860,12 @@ class QuestionExecutor:
             status="success",
             finish_reason=parsed.get("finish_reason"),
             latency_ms=latency_ms,
-            input_tokens=parsed["input_tokens"],
-            response_tokens=parsed["output_tokens"],
-            total_tokens=parsed.get("total_tokens"),
-            reasoning_tokens=reasoning_tokens,
-            effective_tokens=effective_tokens,
-            cost=parsed.get("cost"),
+            input_tokens=tokens["input_tokens"],
+            response_tokens=tokens["response_tokens"],
+            total_tokens=tokens["total_tokens"],
+            reasoning_tokens=tokens["reasoning_tokens"],
+            effective_tokens=tokens["effective_tokens"],
+            cost=tokens["cost"],
             raw_response_json=json.dumps(api_response),
             timestamp=datetime.now(),
             parse_confidence=parsed.get("parse_confidence", "unknown"),
