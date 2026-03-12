@@ -2,6 +2,25 @@
 
 ## Versão 1.1.0 (Em Desenvolvimento)
 
+### Breaking Changes
+
+#### 1. Reorganização do Schema da Tabela `responses`
+- **Remoção da coluna `output_tokens`**: Consolidado em `response_tokens`
+- **Mudança de `parse_confidence` DEFAULT**: De `'clear'` para `'unknown'` (mais conservador)
+- **Documentação explícita de tokens**:
+  - `total_tokens = input_tokens + response_tokens` (exclui reasoning_tokens)
+  - `effective_tokens = input_tokens + response_tokens + reasoning_tokens`
+- **Modelo de revisão manual fechado**: 5 colunas finais (parse_confidence, review_status, reviewed_by, reviewed_at, manual_answer)
+
+**Arquivos:** `src/db/schema.sql`, `src/db/models.py`, `src/db/repository.py`, `src/core/question_executor.py`, `src/cli/statistics.py`, `src/cli/output_formatter.py`, `src/cli/review_ui.py`
+
+**Migração:** Execute `migrations/001_remove_output_tokens.sql` para bancos existentes.
+
+**Justificativa:**
+- `output_tokens` e `response_tokens` eram duplicados
+- `response_tokens` é semanticamente mais correto (tokens de resposta/completion)
+- `parse_confidence='unknown'` evita falsos positivos (assume "não avaliado" ao invés de "clear")
+
 ### Novas Funcionalidades
 
 #### 1. Configurações de Modelo via .env

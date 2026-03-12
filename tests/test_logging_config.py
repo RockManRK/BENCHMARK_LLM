@@ -402,14 +402,14 @@ class TestLoggingConfig:
 
         logger = get_structured_logger("api")
         logger.info(
-            "API_RESPONSE | status=success | input_tokens=50 | output_tokens=20 | latency_ms=1200"
+            "API_RESPONSE | status=success | input_tokens=50 | response_tokens=20 | latency_ms=1200"
         )
 
         log_content = log_file.read_text()
         assert "API_RESPONSE" in log_content
         assert "status=success" in log_content
         assert "input_tokens=50" in log_content
-        assert "output_tokens=20" in log_content
+        assert "response_tokens=20" in log_content
         assert "latency_ms=1200" in log_content
 
     def test_log_execution_progress_format(self, tmp_path: Path) -> None:

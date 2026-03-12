@@ -135,33 +135,49 @@ ON question_snapshots(experiment_id, question_id);
 --          include question_id as semantic redundancy for easier querying.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS responses (
+    -- IDENTIFICATION (6 columns)
     response_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
     snapshot_id INTEGER NOT NULL,
     question_id TEXT NOT NULL,
     model_id TEXT NOT NULL,
     iteration INTEGER NOT NULL DEFAULT 1,
+    
+    -- RESPONSE DATA (4 columns)
     selected_answer TEXT,
     response_text TEXT,
     is_correct BOOLEAN,
     status TEXT NOT NULL DEFAULT 'pending',
+    
+    -- TERMINATION (2 columns)
     finish_reason TEXT,
     error_details TEXT,
+    
+    -- PERFORMANCE (1 column)
     latency_ms INTEGER,
+    
+    -- TOKENS (5 columns)
     input_tokens INTEGER,
-    response_tokens INTEGER,  -- Renamed from output_tokens
-    total_tokens INTEGER,
-    reasoning_tokens INTEGER,
-    effective_tokens INTEGER,  -- NEW: input + response + reasoning
+    response_tokens INTEGER,
+    total_tokens INTEGER,           -- input_tokens + response_tokens (excludes reasoning_tokens)
+    reasoning_tokens INTEGER,       -- Reasoning tokens (NOT included in total_tokens)
+    effective_tokens INTEGER,       -- input_tokens + response_tokens + reasoning_tokens
+    
+    -- COST (1 column)
     cost REAL,
+    
+    -- AUDIT (2 columns)
     raw_response_json TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    -- Manual review fields
-    parse_confidence TEXT NOT NULL DEFAULT 'clear',
+    
+    -- MANUAL REVIEW (5 columns) - CLOSED: no additional columns will be added
+    parse_confidence TEXT NOT NULL DEFAULT 'unknown',
     review_status TEXT NOT NULL DEFAULT 'auto',
     reviewed_by TEXT,
     reviewed_at TIMESTAMP,
     manual_answer TEXT,
+    
+    -- FOREIGN KEYS
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,
     FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT,

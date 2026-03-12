@@ -728,7 +728,7 @@ class BenchmarkRunner:
                 "is_correct": r.is_correct,
                 "latency_ms": r.latency_ms,
                 "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
+                "response_tokens": r.response_tokens,
                 "status": r.status,
             }
             for r in responses

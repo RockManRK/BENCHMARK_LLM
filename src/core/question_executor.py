@@ -614,7 +614,8 @@ class QuestionExecutor:
         """Extract reasoning details and tokens from API response.
 
         Args:
-            api_response: Raw API response dictionary.
+            api_response: Raw API response dictionary. If debug is enabled,
+                this will be {"_debug": {...}, "response": {...}}.
 
         Returns:
             Tuple of (reasoning_details_json, reasoning_tokens)
@@ -622,8 +623,15 @@ class QuestionExecutor:
         reasoning_details = None
         reasoning_tokens = None
 
+        # Handle debug wrapper: extract actual response from wrapper
+        # Format when debug enabled: {"_debug": {...}, "response": {...}}
+        # Format when debug disabled: {...} (direct response)
+        response_data = api_response.get("response", api_response)
+        if "_debug" in api_response:
+            logger.debug("Debug mode detected in _extract_reasoning_details: extracting response from wrapper")
+
         # Extract reasoning_details array from message
-        message = api_response.get("choices", [{}])[0].get("message", {})
+        message = response_data.get("choices", [{}])[0].get("message", {})
 
         # Get reasoning_details if present
         if "reasoning_details" in message:
@@ -636,29 +644,67 @@ class QuestionExecutor:
         # OpenRouter standard: usage.completion_tokens_details.reasoning_tokens
         # Some providers may use: usage.reasoning_tokens (flat)
         # llama.cpp may use: usage.extra.usage_reasoning_tokens
-        usage = api_response.get("usage", {})
+        usage = response_data.get("usage", {})
         reasoning_tokens = None
+
+        # Log full usage structure for debugging
+        logger.debug(f"Full usage structure: {json.dumps(usage, indent=2)}")
 
         # Try nested format first (OpenRouter standard)
         completion_tokens_details = usage.get("completion_tokens_details", {})
         if completion_tokens_details and "reasoning_tokens" in completion_tokens_details:
             reasoning_tokens = completion_tokens_details["reasoning_tokens"]
             logger.debug(f"Extracted reasoning_tokens from completion_tokens_details: {reasoning_tokens}")
-        # Fallback to flat format (some providers)
+        # Fallback to flat format (some providers) - CHECK THIS FIRST as it's common
         elif "reasoning_tokens" in usage:
             reasoning_tokens = usage["reasoning_tokens"]
-            logger.debug(f"Extracted reasoning_tokens from usage: {reasoning_tokens}")
+            logger.debug(f"Extracted reasoning_tokens from usage (flat): {reasoning_tokens}")
         # Try llama.cpp format (nested in extra)
         elif "extra" in usage:
             extra = usage["extra"]
             if isinstance(extra, dict) and "usage_reasoning_tokens" in extra:
                 reasoning_tokens = extra["usage_reasoning_tokens"]
                 logger.debug(f"Extracted reasoning_tokens from llama.cpp format: {reasoning_tokens}")
+        
+        # Additional fallback: check if reasoning_tokens exists anywhere in usage
+        if reasoning_tokens is None:
+            # Recursively search for reasoning_tokens in usage
+            reasoning_tokens = self._find_reasoning_tokens_in_usage(usage)
+            if reasoning_tokens is not None:
+                logger.debug(f"Extracted reasoning_tokens from nested search: {reasoning_tokens}")
 
         if reasoning_tokens is None:
             logger.debug(f"No reasoning_tokens found in API response")
+        else:
+            logger.info(f"reasoning_tokens extracted: {reasoning_tokens}")
 
         return reasoning_details, reasoning_tokens
+
+    def _find_reasoning_tokens_in_usage(self, usage: dict[str, Any], depth: int = 0) -> Optional[int]:
+        """Recursively search for reasoning_tokens in usage dictionary.
+
+        Args:
+            usage: Usage dictionary to search.
+            depth: Current recursion depth (for logging).
+
+        Returns:
+            reasoning_tokens value if found, None otherwise.
+        """
+        if not isinstance(usage, dict) or depth > 5:  # Limit recursion depth
+            return None
+
+        # Direct key check
+        if "reasoning_tokens" in usage:
+            return usage["reasoning_tokens"]
+
+        # Search in nested dictionaries
+        for key, value in usage.items():
+            if isinstance(value, dict):
+                result = self._find_reasoning_tokens_in_usage(value, depth + 1)
+                if result is not None:
+                    return result
+
+        return None
 
     def _create_response_object(
         self,
@@ -694,16 +740,16 @@ class QuestionExecutor:
         # - _debug.request_payload: What we sent to OpenRouter
         # - _debug.upstream_body: What OpenRouter sent to provider
         # - response: Actual model response (downstream consumers should use this)
-        
+
         # Calculate effective_tokens (input + response + reasoning)
         effective_tokens = None
         if parsed.get("input_tokens") and parsed.get("output_tokens"):
             effective_tokens = (
-                parsed["input_tokens"] + 
-                parsed["output_tokens"] + 
+                parsed["input_tokens"] +
+                parsed["output_tokens"] +
                 (reasoning_tokens or 0)
             )
-        
+
         return Response(
             run_id=self._run_id,
             snapshot_id=snapshot_id,
@@ -717,15 +763,14 @@ class QuestionExecutor:
             finish_reason=parsed.get("finish_reason"),
             latency_ms=latency_ms,
             input_tokens=parsed["input_tokens"],
-            response_tokens=parsed["output_tokens"],  # Use new name
-            output_tokens=parsed["output_tokens"],  # Deprecated: kept for backward compatibility
+            response_tokens=parsed["output_tokens"],
             total_tokens=parsed.get("total_tokens"),
             reasoning_tokens=reasoning_tokens,
-            effective_tokens=effective_tokens,  # NEW
+            effective_tokens=effective_tokens,
             cost=parsed.get("cost"),
             raw_response_json=json.dumps(api_response),
             timestamp=datetime.now(),
-            parse_confidence=parsed.get("parse_confidence", "clear"),
+            parse_confidence=parsed.get("parse_confidence", "unknown"),
             review_status="auto",
         )
 
@@ -959,7 +1004,7 @@ class QuestionExecutor:
                 status="error",
                 latency_ms=latency_ms,
                 input_tokens=0,
-                output_tokens=0,
+                response_tokens=0,
                 total_tokens=None,
                 cost=None,
                 error_details=error_details,

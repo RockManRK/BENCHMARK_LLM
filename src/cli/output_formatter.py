@@ -70,7 +70,7 @@ class OutputFormatter(ABC):
             "min_latency_ms",
             "max_latency_ms",
             "total_input_tokens",
-            "total_output_tokens",
+            "total_response_tokens",
             "error_count",
             "error_rate",
         ]
@@ -109,7 +109,7 @@ class OutputFormatter(ABC):
         for stat in statistics:
             accuracy_pct = f"{stat.accuracy:.1%}"
             latency_str = f"{stat.avg_latency_ms:.0f}"
-            tokens_str = f"{stat.total_input_tokens}/{stat.total_output_tokens}"
+            tokens_str = f"{stat.total_input_tokens}/{stat.total_response_tokens}"
 
             lines.append(
                 f"| {stat.model_id} | {stat.total_questions} | "
@@ -138,7 +138,7 @@ class OutputFormatter(ABC):
             "min_latency_ms": stat.min_latency_ms,
             "max_latency_ms": stat.max_latency_ms,
             "total_input_tokens": stat.total_input_tokens,
-            "total_output_tokens": stat.total_output_tokens,
+            "total_response_tokens": stat.total_response_tokens,
             "error_count": stat.error_count,
             "error_rate": stat.error_rate,
         }
@@ -205,7 +205,7 @@ class OutputFormatter(ABC):
             lines.append(f"  Accuracy: {stat.accuracy:.1%}")
             lines.append(f"  Avg Latency: {stat.avg_latency_ms:.0f}ms")
             lines.append(f"  Latency Range: {stat.min_latency_ms}ms - {stat.max_latency_ms}ms")
-            lines.append(f"  Tokens: {stat.total_input_tokens} input / {stat.total_output_tokens} output")
+            lines.append(f"  Tokens: {stat.total_input_tokens} input / {stat.total_response_tokens} response")
             lines.append(f"  Errors: {stat.error_count} ({stat.error_rate:.1%})")
             lines.append("")
 
@@ -281,7 +281,7 @@ class ConsoleFormatter(OutputFormatter):
                 f"{stat.avg_latency_ms:.0f}",
                 str(stat.min_latency_ms),
                 str(stat.max_latency_ms),
-                f"{stat.total_input_tokens}/{stat.total_output_tokens}",
+                f"{stat.total_input_tokens}/{stat.total_response_tokens}",
                 str(stat.error_count),
             )
 

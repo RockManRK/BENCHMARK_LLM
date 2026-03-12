@@ -216,14 +216,15 @@ class Response:
         error_details: Detailed error information (e.g., full error response body) for debugging.
         latency_ms: Response time in milliseconds.
         input_tokens: Number of tokens in the request.
-        output_tokens: Number of tokens in the response.
-        total_tokens: Total tokens used (input + output).
-        reasoning_tokens: Number of reasoning tokens used.
+        response_tokens: Number of tokens in the response (completion tokens).
+        total_tokens: Total tokens used (input_tokens + response_tokens, excludes reasoning_tokens).
+        reasoning_tokens: Number of reasoning tokens used (NOT included in total_tokens).
+        effective_tokens: Total computational cost (input_tokens + response_tokens + reasoning_tokens).
         cost: Cost in credits for this response (from usage.cost).
         raw_response_json: Complete raw API response as JSON string for debugging.
         timestamp: When the response was received.
         response_id: Auto-incrementing unique identifier (assigned by DB).
-        parse_confidence: Confidence level from answer parsing ("clear", "ambiguous", "no_answer", "low_confidence").
+        parse_confidence: Confidence level from answer parsing ("unknown", "clear", "ambiguous", "no_answer", "low_confidence").
         review_status: Review status ("auto" for auto-parsed, "manual" for manually reviewed, "skipped").
         reviewed_by: Username or identifier of the human reviewer (if manually reviewed).
         reviewed_at: Timestamp of manual review (if manually reviewed).
@@ -239,7 +240,7 @@ class Response:
         ...     selected_answer="B",
         ...     is_correct=True,
         ...     input_tokens=50,
-        ...     output_tokens=10,
+        ...     response_tokens=10,
         ...     latency_ms=1200,
         ...     status="success"
         ... )
@@ -261,17 +262,16 @@ class Response:
     error_details: Optional[str] = None
     latency_ms: int = 0
     input_tokens: int = 0
-    response_tokens: int = 0  # Renamed from output_tokens
-    output_tokens: int = 0  # Deprecated: kept for backward compatibility, use response_tokens
+    response_tokens: int = 0
     total_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
-    effective_tokens: Optional[int] = None  # NEW: input + response + reasoning
+    effective_tokens: Optional[int] = None
     cost: Optional[float] = None
     raw_response_json: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
-    
+
     # Manual review fields
-    parse_confidence: str = "clear"  # "clear", "ambiguous", "no_answer", "low_confidence"
+    parse_confidence: str = "unknown"  # "unknown", "clear", "ambiguous", "no_answer", "low_confidence"
     review_status: str = "auto"  # "auto", "manual", "skipped"
     reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None

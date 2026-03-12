@@ -546,7 +546,7 @@ class TestQuestionExecutor:
         assert result["status"] == "success"
         assert result["selected_answer"] == "A"
         assert result["input_tokens"] == 50
-        assert result["output_tokens"] == 10
+        assert result["response_tokens"] == 10
 
     @pytest.mark.asyncio
     async def test_execute_question_handles_api_error(

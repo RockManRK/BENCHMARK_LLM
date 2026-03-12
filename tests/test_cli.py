@@ -198,7 +198,7 @@ class TestBenchmarkStatistics:
             min_latency_ms=800,
             max_latency_ms=3000,
             total_input_tokens=50000,
-            total_output_tokens=10000,
+            total_response_tokens=10000,
             error_count=5,
             error_rate=0.05,
         )
@@ -233,7 +233,7 @@ class TestStatisticsCalculator:
                 "correct_answer": "A",
                 "is_correct": True,
                 "input_tokens": 500,
-                "output_tokens": 100,
+                "response_tokens": 100,
                 "latency_ms": 1200,
                 "status": "success",
                 "timestamp": datetime.now().isoformat(),
@@ -248,7 +248,7 @@ class TestStatisticsCalculator:
                 "correct_answer": "A",
                 "is_correct": False,
                 "input_tokens": 450,
-                "output_tokens": 80,
+                "response_tokens": 80,
                 "latency_ms": 1800,
                 "status": "success",
                 "timestamp": datetime.now().isoformat(),
@@ -263,7 +263,7 @@ class TestStatisticsCalculator:
                 "correct_answer": "C",
                 "is_correct": False,
                 "input_tokens": 0,
-                "output_tokens": 0,
+                "response_tokens": 0,
                 "latency_ms": 0,
                 "status": "error",
                 "timestamp": datetime.now().isoformat(),
@@ -305,9 +305,9 @@ class TestStatisticsCalculator:
     def test_calculate_token_usage(self, sample_responses: list[dict[str, Any]]) -> None:
         """Test token usage calculation."""
         calculator = StatisticsCalculator(sample_responses, [])
-        input_tokens, output_tokens = calculator.calculate_token_usage("gpt-4")
+        input_tokens, response_tokens = calculator.calculate_token_usage("gpt-4")
         assert input_tokens == 950  # 500 + 450
-        assert output_tokens == 180  # 100 + 80
+        assert response_tokens == 180  # 100 + 80
 
     def test_calculate_error_rate(self, sample_responses: list[dict[str, Any]]) -> None:
         """Test error rate calculation."""
@@ -411,7 +411,7 @@ class TestConsoleFormatter:
                 min_latency_ms=800,
                 max_latency_ms=3000,
                 total_input_tokens=50000,
-                total_output_tokens=10000,
+                total_response_tokens=10000,
                 error_count=5,
                 error_rate=0.05,
             ),
@@ -424,7 +424,7 @@ class TestConsoleFormatter:
                 min_latency_ms=600,
                 max_latency_ms=2500,
                 total_input_tokens=45000,
-                total_output_tokens=9000,
+                total_response_tokens=9000,
                 error_count=3,
                 error_rate=0.03,
             ),
@@ -461,7 +461,7 @@ class TestJSONFormatter:
                 min_latency_ms=800,
                 max_latency_ms=3000,
                 total_input_tokens=50000,
-                total_output_tokens=10000,
+                total_response_tokens=10000,
                 error_count=5,
                 error_rate=0.05,
             ),
@@ -501,7 +501,7 @@ class TestCSVFormatter:
                 min_latency_ms=800,
                 max_latency_ms=3000,
                 total_input_tokens=50000,
-                total_output_tokens=10000,
+                total_response_tokens=10000,
                 error_count=5,
                 error_rate=0.05,
             ),
@@ -514,7 +514,7 @@ class TestCSVFormatter:
                 min_latency_ms=600,
                 max_latency_ms=2500,
                 total_input_tokens=45000,
-                total_output_tokens=9000,
+                total_response_tokens=9000,
                 error_count=3,
                 error_rate=0.03,
             ),
@@ -556,7 +556,7 @@ class TestMarkdownFormatter:
                 min_latency_ms=800,
                 max_latency_ms=3000,
                 total_input_tokens=50000,
-                total_output_tokens=10000,
+                total_response_tokens=10000,
                 error_count=5,
                 error_rate=0.05,
             ),
@@ -595,7 +595,7 @@ class TestOutputFormatterExportToFile:
                 min_latency_ms=800,
                 max_latency_ms=3000,
                 total_input_tokens=50000,
-                total_output_tokens=10000,
+                total_response_tokens=10000,
                 error_count=5,
                 error_rate=0.05,
             ),

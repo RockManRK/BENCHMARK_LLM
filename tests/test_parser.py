@@ -72,7 +72,7 @@ class TestParsedResponse:
             selected_answer="A",
             response_text="The answer is A",
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             total_tokens=60,
             latency_ms=1500,
             status="success",
@@ -81,7 +81,7 @@ class TestParsedResponse:
         assert response.response_id == "chatcmpl-123"
         assert response.selected_answer == "A"
         assert response.input_tokens == 50
-        assert response.output_tokens == 10
+        assert response.response_tokens == 10
 
     def test_parsed_response_defaults(self) -> None:
         """Test ParsedResponse default values."""
@@ -92,7 +92,7 @@ class TestParsedResponse:
         )
         
         assert response.input_tokens == 0
-        assert response.output_tokens == 0
+        assert response.response_tokens == 0
         assert response.total_tokens == 0
         assert response.latency_ms == 0
         assert response.status == "success"
@@ -111,7 +111,7 @@ class TestResponseParserBasic:
         assert result.selected_answer == "A"
         assert "The correct answer is A" in result.response_text
         assert result.input_tokens == 50
-        assert result.output_tokens == 10
+        assert result.response_tokens == 10
         assert result.total_tokens == 60
         assert result.status == "success"
 
@@ -224,7 +224,7 @@ class TestTokenUsageExtraction:
         result = parser.parse(successful_response)
 
         assert result.input_tokens == 50
-        assert result.output_tokens == 10
+        assert result.response_tokens == 10
         assert result.total_tokens == 60
 
     def test_extract_partial_usage(
@@ -241,7 +241,7 @@ class TestTokenUsageExtraction:
         result = parser.parse(response)
 
         assert result.input_tokens == 30
-        assert result.output_tokens == 0
+        assert result.response_tokens == 0
         assert result.total_tokens == 30
 
     def test_missing_usage(
@@ -255,7 +255,7 @@ class TestTokenUsageExtraction:
         result = parser.parse(response)
 
         assert result.input_tokens == 0
-        assert result.output_tokens == 0
+        assert result.response_tokens == 0
         assert result.total_tokens == 0
 
     def test_extract_cost(
@@ -337,7 +337,7 @@ class TestTokenUsageExtraction:
 
         assert result.response_id == "gen-123456"
         assert result.input_tokens == 194
-        assert result.output_tokens == 2
+        assert result.response_tokens == 2
         assert result.total_tokens == 196
         assert result.cost == 0.00095
         assert result.selected_answer == "A"

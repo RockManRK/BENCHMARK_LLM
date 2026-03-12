@@ -380,7 +380,7 @@ class TestDatabaseIntegration:
             is_correct=True,
             response_text="The answer is A",
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             latency_ms=1500,
             status="success",
         )
@@ -446,7 +446,7 @@ class TestDatabaseIntegration:
             is_correct=None,
             response_text="",
             input_tokens=0,
-            output_tokens=0,
+            response_tokens=0,
             latency_ms=5000,
             status="error",
         )
@@ -820,7 +820,7 @@ class TestStatisticsCalculatorIntegration:
                 "is_correct": True,
                 "latency_ms": 1000,
                 "input_tokens": 50,
-                "output_tokens": 10,
+                "response_tokens": 10,
                 "status": "success",
             },
             {
@@ -828,7 +828,7 @@ class TestStatisticsCalculatorIntegration:
                 "is_correct": False,
                 "latency_ms": 1200,
                 "input_tokens": 50,
-                "output_tokens": 10,
+                "response_tokens": 10,
                 "status": "success",
             },
             {
@@ -836,7 +836,7 @@ class TestStatisticsCalculatorIntegration:
                 "is_correct": True,
                 "latency_ms": 800,
                 "input_tokens": 50,
-                "output_tokens": 10,
+                "response_tokens": 10,
                 "status": "success",
             },
         ]
@@ -862,7 +862,7 @@ class TestStatisticsCalculatorIntegration:
                 "is_correct": True,
                 "latency_ms": 1000 * (i + 1),
                 "input_tokens": 50,
-                "output_tokens": 10,
+                "response_tokens": 10,
             }
             for i in range(3)
         ]
@@ -885,7 +885,7 @@ class TestStatisticsCalculatorIntegration:
                 "is_correct": True,
                 "latency_ms": 1000,
                 "input_tokens": 100,
-                "output_tokens": 20,
+                "response_tokens": 20,
             }
             for i in range(5)
         ]
@@ -895,7 +895,7 @@ class TestStatisticsCalculatorIntegration:
 
         assert stats is not None
         assert stats.total_input_tokens == 500  # 100 * 5
-        assert stats.total_output_tokens == 100  # 20 * 5
+        assert stats.total_response_tokens == 100  # 20 * 5
 
 
 # =============================================================================
@@ -991,7 +991,7 @@ class TestFullWorkflowIntegration:
                 is_correct=True,
                 response_text="The answer is " + randomized.correct_answer,
                 input_tokens=50,
-                output_tokens=10,
+                response_tokens=10,
                 latency_ms=1000 + (i * 100),
                 status="success",
             )
@@ -1011,7 +1011,7 @@ class TestFullWorkflowIntegration:
                 "is_correct": r.is_correct,
                 "latency_ms": r.latency_ms,
                 "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
+                "response_tokens": r.response_tokens,
                 "status": r.status,
             }
             for r in responses
@@ -1078,7 +1078,7 @@ class TestFullWorkflowIntegration:
                 is_correct=True,
                 response_text="Correct answer",
                 input_tokens=50,
-                output_tokens=10,
+                response_tokens=10,
                 latency_ms=1000,
                 status="success",
             )
@@ -1098,7 +1098,7 @@ class TestFullWorkflowIntegration:
             is_correct=None,
             response_text="",
             input_tokens=0,
-            output_tokens=0,
+            response_tokens=0,
             latency_ms=5000,
             status="error",
         )
@@ -1127,7 +1127,7 @@ class TestFullWorkflowIntegration:
                 "is_correct": r.is_correct if r.status == "success" else None,
                 "latency_ms": r.latency_ms,
                 "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
+                "response_tokens": r.response_tokens,
                 "status": r.status,
             }
             for r in responses

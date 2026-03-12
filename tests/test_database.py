@@ -137,7 +137,7 @@ class TestDatabaseSchema:
         assert "is_correct" in columns
         assert "response_text" in columns
         assert "input_tokens" in columns
-        assert "output_tokens" in columns
+        assert "response_tokens" in columns
         assert "latency_ms" in columns
         assert "timestamp" in columns
         assert "status" in columns
@@ -220,7 +220,7 @@ class TestModels:
             is_correct=True,
             response_text="The capital of France is Paris.",
             input_tokens=50,
-            output_tokens=20,
+            response_tokens=20,
             latency_ms=1500,
             timestamp=datetime.now(),
             status="success",
@@ -510,7 +510,7 @@ class TestResponseRepository:
             is_correct=True,
             response_text="Test response",
             input_tokens=10,
-            output_tokens=5,
+            response_tokens=5,
             latency_ms=100,
             status="success",
         )

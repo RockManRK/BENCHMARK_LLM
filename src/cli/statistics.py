@@ -26,7 +26,7 @@ class BenchmarkStatistics:
         min_latency_ms: Minimum response latency in milliseconds.
         max_latency_ms: Maximum response latency in milliseconds.
         total_input_tokens: Total input tokens consumed.
-        total_output_tokens: Total output tokens generated.
+        total_response_tokens: Total response tokens generated.
         error_count: Number of errors encountered.
         error_rate: Error rate (error_count / total_questions).
 
@@ -40,7 +40,7 @@ class BenchmarkStatistics:
         ...     min_latency_ms=800,
         ...     max_latency_ms=3000,
         ...     total_input_tokens=50000,
-        ...     total_output_tokens=10000,
+        ...     total_response_tokens=10000,
         ...     error_count=5,
         ...     error_rate=0.05,
         ... )
@@ -56,7 +56,7 @@ class BenchmarkStatistics:
     min_latency_ms: int = 0
     max_latency_ms: int = 0
     total_input_tokens: int = 0
-    total_output_tokens: int = 0
+    total_response_tokens: int = 0
     error_count: int = 0
     error_rate: float = 0.0
 
@@ -186,18 +186,18 @@ class StatisticsCalculator:
             model_id: The model identifier to calculate token usage for.
 
         Returns:
-            Tuple of (total_input_tokens, total_output_tokens).
+            Tuple of (total_input_tokens, total_response_tokens).
 
         Example:
             >>> input_tok, output_tok = calculator.calculate_token_usage("gpt-4")
-            >>> print(f"Tokens: {input_tok} input, {output_tok} output")
+            >>> print(f"Tokens: {input_tok} input, {output_tok} response")
         """
         model_responses = [r for r in self.responses if r.get("model_id") == model_id]
 
         total_input = sum(r.get("input_tokens", 0) for r in model_responses)
-        total_output = sum(r.get("output_tokens", 0) for r in model_responses)
+        total_response = sum(r.get("response_tokens", 0) for r in model_responses)
 
-        return (total_input, total_output)
+        return (total_input, total_response)
 
     def calculate_error_summary(self, model_id: str) -> tuple[int, float]:
         """Calculate error count and error rate for a model.
@@ -296,7 +296,7 @@ class StatisticsCalculator:
         min_latency, max_latency = self.calculate_latency_min_max(model_id)
 
         # Calculate token usage
-        input_tokens, output_tokens = self.calculate_token_usage(model_id)
+        input_tokens, response_tokens = self.calculate_token_usage(model_id)
 
         # Calculate errors
         error_count, error_rate = self.calculate_error_summary(model_id)
@@ -310,7 +310,7 @@ class StatisticsCalculator:
             min_latency_ms=min_latency,
             max_latency_ms=max_latency,
             total_input_tokens=input_tokens,
-            total_output_tokens=output_tokens,
+            total_response_tokens=response_tokens,
             error_count=error_count,
             error_rate=error_rate,
         )
