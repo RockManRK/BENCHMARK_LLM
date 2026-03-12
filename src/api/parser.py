@@ -33,13 +33,15 @@ class ParsedResponse:
         selected_answer: The extracted answer letter (A, B, C, D, etc.).
         response_text: Full text content of the response.
         input_tokens: Number of tokens in the prompt.
-        output_tokens: Number of tokens in the completion.
+        response_tokens: Number of tokens in the completion (renamed from output_tokens).
+        output_tokens: Deprecated - kept for backward compatibility, use response_tokens.
         total_tokens: Total tokens used (input + output).
         cost: Cost in credits for this response (from usage.cost).
         latency_ms: Request latency in milliseconds.
         status: Response status (success, error, etc.).
         model: Model identifier that generated the response.
         finish_reason: Reason why generation stopped.
+        effective_tokens: Total effective tokens (input + response + reasoning).
 
     Example:
         >>> response = ParsedResponse(
@@ -47,7 +49,7 @@ class ParsedResponse:
         ...     selected_answer="A",
         ...     response_text="The answer is A",
         ...     input_tokens=50,
-        ...     output_tokens=10,
+        ...     response_tokens=10,
         ... )
     """
 
@@ -55,13 +57,15 @@ class ParsedResponse:
     selected_answer: str
     response_text: str
     input_tokens: int = 0
-    output_tokens: int = 0
+    response_tokens: int = 0  # Renamed from output_tokens
+    output_tokens: int = 0  # Deprecated: kept for backward compatibility
     total_tokens: int = 0
     cost: Optional[float] = None
     latency_ms: int = 0
     status: str = "success"
     model: str = ""
     finish_reason: str = ""
+    effective_tokens: Optional[int] = None  # NEW: input + response + reasoning
 
 
 class ResponseParser:
@@ -133,9 +137,18 @@ class ResponseParser:
         # Extract token usage
         usage = response.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
-        output_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+        response_tokens = usage.get("completion_tokens", 0)  # New name
+        output_tokens = response_tokens  # Deprecated: alias for backward compatibility
+        total_tokens = usage.get("total_tokens", input_tokens + response_tokens)
         cost = usage.get("cost")
+        
+        # Calculate effective tokens
+        effective_tokens = None
+        reasoning_tokens = 0
+        completion_tokens_details = usage.get("completion_tokens_details", {})
+        if completion_tokens_details and "reasoning_tokens" in completion_tokens_details:
+            reasoning_tokens = completion_tokens_details["reasoning_tokens"]
+        effective_tokens = input_tokens + response_tokens + reasoning_tokens
 
         # Calculate latency
         latency_ms = 0
@@ -153,13 +166,15 @@ class ResponseParser:
             selected_answer=selected_answer.upper() if selected_answer else "",
             response_text=content.strip(),
             input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            response_tokens=response_tokens,
+            output_tokens=output_tokens,  # Deprecated: alias
             total_tokens=total_tokens,
             cost=cost,
             latency_ms=latency_ms,
             status=status,
             model=model,
             finish_reason=finish_reason,
+            effective_tokens=effective_tokens,
         )
 
     def _validate_response(self, response: dict[str, Any]) -> None:

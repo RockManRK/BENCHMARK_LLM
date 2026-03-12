@@ -261,9 +261,11 @@ class Response:
     error_details: Optional[str] = None
     latency_ms: int = 0
     input_tokens: int = 0
-    output_tokens: int = 0
+    response_tokens: int = 0  # Renamed from output_tokens
+    output_tokens: int = 0  # Deprecated: kept for backward compatibility, use response_tokens
     total_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
+    effective_tokens: Optional[int] = None  # NEW: input + response + reasoning
     cost: Optional[float] = None
     raw_response_json: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)

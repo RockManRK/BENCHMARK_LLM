@@ -149,9 +149,10 @@ CREATE TABLE IF NOT EXISTS responses (
     error_details TEXT,
     latency_ms INTEGER,
     input_tokens INTEGER,
-    output_tokens INTEGER,
+    response_tokens INTEGER,  -- Renamed from output_tokens
     total_tokens INTEGER,
     reasoning_tokens INTEGER,
+    effective_tokens INTEGER,  -- NEW: input + response + reasoning
     cost REAL,
     raw_response_json TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

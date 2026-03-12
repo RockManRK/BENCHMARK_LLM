@@ -635,16 +635,28 @@ class QuestionExecutor:
         # Extract reasoning tokens from usage
         # OpenRouter standard: usage.completion_tokens_details.reasoning_tokens
         # Some providers may use: usage.reasoning_tokens (flat)
+        # llama.cpp may use: usage.extra.usage_reasoning_tokens
         usage = api_response.get("usage", {})
         reasoning_tokens = None
-        
+
         # Try nested format first (OpenRouter standard)
         completion_tokens_details = usage.get("completion_tokens_details", {})
         if completion_tokens_details and "reasoning_tokens" in completion_tokens_details:
             reasoning_tokens = completion_tokens_details["reasoning_tokens"]
+            logger.debug(f"Extracted reasoning_tokens from completion_tokens_details: {reasoning_tokens}")
         # Fallback to flat format (some providers)
         elif "reasoning_tokens" in usage:
             reasoning_tokens = usage["reasoning_tokens"]
+            logger.debug(f"Extracted reasoning_tokens from usage: {reasoning_tokens}")
+        # Try llama.cpp format (nested in extra)
+        elif "extra" in usage:
+            extra = usage["extra"]
+            if isinstance(extra, dict) and "usage_reasoning_tokens" in extra:
+                reasoning_tokens = extra["usage_reasoning_tokens"]
+                logger.debug(f"Extracted reasoning_tokens from llama.cpp format: {reasoning_tokens}")
+
+        if reasoning_tokens is None:
+            logger.debug(f"No reasoning_tokens found in API response")
 
         return reasoning_details, reasoning_tokens
 
@@ -682,6 +694,16 @@ class QuestionExecutor:
         # - _debug.request_payload: What we sent to OpenRouter
         # - _debug.upstream_body: What OpenRouter sent to provider
         # - response: Actual model response (downstream consumers should use this)
+        
+        # Calculate effective_tokens (input + response + reasoning)
+        effective_tokens = None
+        if parsed.get("input_tokens") and parsed.get("output_tokens"):
+            effective_tokens = (
+                parsed["input_tokens"] + 
+                parsed["output_tokens"] + 
+                (reasoning_tokens or 0)
+            )
+        
         return Response(
             run_id=self._run_id,
             snapshot_id=snapshot_id,
@@ -695,10 +717,12 @@ class QuestionExecutor:
             finish_reason=parsed.get("finish_reason"),
             latency_ms=latency_ms,
             input_tokens=parsed["input_tokens"],
-            output_tokens=parsed["output_tokens"],
+            response_tokens=parsed["output_tokens"],  # Use new name
+            output_tokens=parsed["output_tokens"],  # Deprecated: kept for backward compatibility
             total_tokens=parsed.get("total_tokens"),
-            cost=parsed.get("cost"),
             reasoning_tokens=reasoning_tokens,
+            effective_tokens=effective_tokens,  # NEW
+            cost=parsed.get("cost"),
             raw_response_json=json.dumps(api_response),
             timestamp=datetime.now(),
             parse_confidence=parsed.get("parse_confidence", "clear"),

@@ -329,42 +329,37 @@ class BenchmarkRunner:
             system_prompt=self.settings.system_prompt,
         )
 
-    def _execute_benchmark(self) -> dict[str, Any]:
-        """Execute the benchmark test.
+    def _load_and_filter_questions(self) -> list:
+        """Load questions from JSON and apply all filters.
 
         Returns:
-            Dictionary containing execution results and statistics.
+            List of filtered and persisted Question objects.
         """
-        logger.info("Starting benchmark execution")
+        from src.core.loader import QuestionLoader
+        from src.core.filter import QuestionFilter
+        from src.cli.cli import CLIParser
+        from src.db.repository import QuestionRepository
+        import sqlite3
 
         # Step 1: Load questions from JSON
-        from src.core.loader import QuestionLoader
-        
         loader = QuestionLoader(str(self.settings.questionnaire_path))
         questions = loader.load()
         logger.info(f"Loaded {len(questions)} questions from {self.settings.questionnaire_path}")
 
-        # Step 2: Filter questions if --questions argument provided
+        # Step 2: Filter by IDs
         if self.args.questions:
-            from src.core.filter import QuestionFilter
-
             filter_obj = QuestionFilter(questions)
             filter_obj.by_ids(self.args.questions)
             questions = filter_obj.get_results()
             logger.info(f"Filtered by IDs to {len(questions)} questions")
 
-            # Validate that at least one question matched
             if not questions:
                 logger.error(f"No questions found matching filter: {self.args.questions}")
                 print(f"Error: No questions found matching filter: {self.args.questions}", file=sys.stderr)
-                return {}
+                return []
 
-        # Step 3: Apply metadata filters (--where)
+        # Step 3: Filter by metadata
         if hasattr(self.args, 'where') and self.args.where:
-            from src.core.filter import QuestionFilter
-            from src.cli.cli import CLIParser
-
-            # Parse metadata filters
             cli_parser = CLIParser()
             metadata_filters = cli_parser._parse_metadata_filters(self.args.where)
 
@@ -376,14 +371,10 @@ class BenchmarkRunner:
             if not questions:
                 logger.error(f"No questions found matching metadata filter: {self.args.where}")
                 print(f"Error: No questions found matching metadata filter: {self.args.where}", file=sys.stderr)
-                return {}
+                return []
 
-        # Step 4: Apply exclusion filters (--exclude)
+        # Step 4: Exclude by metadata
         if hasattr(self.args, 'exclude') and self.args.exclude:
-            from src.core.filter import QuestionFilter
-            from src.cli.cli import CLIParser
-
-            # Parse exclusion filters
             cli_parser = CLIParser()
             exclude_filters = cli_parser._parse_metadata_filters(self.args.exclude)
 
@@ -395,27 +386,30 @@ class BenchmarkRunner:
             if not questions:
                 logger.error(f"No questions remaining after exclusion filter: {self.args.exclude}")
                 print(f"Error: No questions remaining after exclusion filter: {self.args.exclude}", file=sys.stderr)
-                return {}
+                return []
 
-        # Persist questions to database (in test mode this goes to :memory:)
-        # Note: loader.load() returns Question objects from db.models, not QuestionData
-        from src.db.repository import QuestionRepository
-        from src.db.models import Question as DbQuestion
-        
+        # Persist questions to database
         question_repo = QuestionRepository(self.db_manager)
         logger.info(f"Persisting {len(questions)} questions to database")
-        
+
         for q in questions:
-            # q is already a Question db model, just save it
             try:
                 question_repo.create(q)
             except sqlite3.IntegrityError:
-                # Question might already exist
                 logger.debug(f"Question {q.question_id} already in database")
-        
-        logger.info("Questions persisted successfully")
 
-        # Step 3: Initialize run
+        logger.info("Questions persisted successfully")
+        return questions
+
+    def _initialize_run(self, questions: list) -> Optional:
+        """Initialize run with configuration.
+
+        Args:
+            questions: List of Question objects.
+
+        Returns:
+            Run object or None if RunManager not available.
+        """
         config = {
             "models": self.args.models,
             "iterations": self.args.iterations,
@@ -431,13 +425,199 @@ class BenchmarkRunner:
             run = self.run_manager.initialize_run(config)
             logger.info(f"Run initialized: {run.run_id}")
 
-        # Step 4: Execute benchmark for each model and iteration
-        from src.api.client import OpenRouterClient
+        return run
+
+    async def _fetch_model_info(self, client, model_id: str) -> tuple[str, dict]:
+        """Fetch actual model info from API.
+
+        Args:
+            client: OpenRouterClient instance.
+            model_id: Model ID to fetch info for.
+
+        Returns:
+            Tuple of (actual_model_id, model_info_dict).
+        """
+        actual_model_id = model_id
+        model_info = {}
+
+        try:
+            model_info = await client.get_model_info(model_id)
+            actual_model_id = model_info.get("id", model_id)
+            logger.info(f"Model {model_id} resolved to {actual_model_id}")
+
+            meta = model_info.get("meta", {})
+            if meta:
+                n_params = meta.get("n_params", "N/A")
+                size = meta.get("size", "N/A")
+                n_ctx_train = meta.get("n_ctx_train", "N/A")
+                logger.info(f"Model metadata: n_params={n_params}, size={size}, n_ctx_train={n_ctx_train}")
+        except Exception as e:
+            logger.warning(f"Could not fetch model info for {model_id}: {e}")
+            logger.info(f"Using provided model name: {model_id}")
+
+        return actual_model_id, model_info
+
+    def _build_iteration_config(
+        self, 
+        run: Optional, 
+        model_id: str, 
+        actual_model_id: str, 
+        iteration_num: int
+    ) -> dict:
+        """Build configuration for a single iteration.
+
+        Args:
+            run: Run object or None.
+            model_id: Original model ID.
+            actual_model_id: Actual model ID from API.
+            iteration_num: Iteration number (1-based).
+
+        Returns:
+            Dictionary with randomizer, model_kwargs, and reasoning_config.
+        """
         from src.core.randomizer import AnswerRandomizer
+
+        # Calculate seed
+        if self.args.seed is not None:
+            if isinstance(self.args.seed, int):
+                base_seed = self.args.seed
+                logger.info(f"  Using fixed seed {base_seed} from CLI")
+            else:
+                base_seed = None
+        elif self.settings.random_seed == "AUTO":
+            if run:
+                base_seed = hash(run.run_id) % (2**31)
+                logger.info(f"  Using AUTO seed {base_seed} (from run_id hash)")
+            else:
+                base_seed = 42
+                logger.info(f"  Using fallback seed {base_seed}")
+        elif self.settings.random_seed is not None:
+            base_seed = self.settings.random_seed
+            logger.info(f"  Using fixed seed {base_seed} from .env")
+        else:
+            base_seed = None
+            logger.info("  Randomization disabled (answers in original A,B,C,D order)")
+
+        # Vary seed per iteration if requested
+        if self.args.vary_seed and base_seed is not None:
+            randomizer_seed = (base_seed + (iteration_num * 1000)) % (2**31)
+            logger.info(f"  Using seed {randomizer_seed} for iteration {iteration_num} (base: {base_seed})")
+        elif base_seed is not None:
+            randomizer_seed = base_seed
+        else:
+            randomizer_seed = None
+
+        # Create randomizer
+        randomizer = AnswerRandomizer(run_id=randomizer_seed) if randomizer_seed is not None else None
+
+        # Build model kwargs
+        model_kwargs = {}
+        if self.settings.model_max_tokens is not None:
+            model_kwargs["max_tokens"] = self.settings.model_max_tokens
+        if self.settings.model_temperature is not None:
+            model_kwargs["temperature"] = self.settings.model_temperature
+        if self.settings.model_top_p is not None:
+            model_kwargs["top_p"] = self.settings.model_top_p
+        if self.settings.model_top_k is not None:
+            model_kwargs["top_k"] = self.settings.model_top_k
+        if self.settings.model_repeat_penalty is not None:
+            model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
+
+        # Build reasoning config
+        reasoning_config = None
+        if any([
+            self.settings.reasoning_effort is not None,
+            self.settings.reasoning_max_tokens is not None,
+            self.settings.reasoning_exclude is not None,
+            self.settings.reasoning_enabled is not None
+        ]):
+            reasoning_config = {}
+
+            if self.settings.reasoning_effort is not None:
+                reasoning_config["effort"] = self.settings.reasoning_effort
+            if self.settings.reasoning_max_tokens is not None:
+                reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
+            if self.settings.reasoning_exclude is not None:
+                reasoning_config["exclude"] = self.settings.reasoning_exclude
+            if self.settings.reasoning_enabled is not None:
+                reasoning_config["enabled"] = self.settings.reasoning_enabled
+
+            logger.info(f"Using reasoning config: {reasoning_config}")
+
+        return {
+            "randomizer": randomizer,
+            "model_kwargs": model_kwargs,
+            "reasoning_config": reasoning_config,
+        }
+
+    def _execute_single_iteration(
+        self,
+        questions: list,
+        run: Optional,
+        model_id: str,
+        actual_model_id: str,
+        iteration_num: int,
+        iteration_config: dict,
+        client,
+    ) -> dict:
+        """Execute a single iteration.
+
+        Args:
+            questions: List of Question objects.
+            run: Run object or None.
+            model_id: Original model ID.
+            actual_model_id: Actual model ID from API.
+            iteration_num: Iteration number (1-based).
+            iteration_config: Configuration from _build_iteration_config().
+            client: OpenRouterClient instance.
+
+        Returns:
+            Dictionary with iteration results.
+        """
         from src.core.iteration_executor import IterationExecutor
 
-        all_results = []
+        executor = IterationExecutor(
+            db_manager=self.db_manager,
+            api_client=client,
+            randomizer=iteration_config["randomizer"],
+            run_id=run.run_id if run else "",
+            model_id=actual_model_id,
+            iteration_number=iteration_num,
+            experiment_id=run.experiment_id if run else "",
+            model_kwargs=iteration_config["model_kwargs"],
+            use_structured_outputs=self.settings.use_structured_outputs,
+            reasoning_config=iteration_config["reasoning_config"],
+            settings=self.settings,
+        )
 
+        result = executor.execute_iteration(questions)
+        logger.info(
+            f"  Iteration {iteration_num} completed: "
+            f"{result['completed_questions']}/{result['total_questions']} questions, "
+            f"{result['errors']} errors"
+        )
+
+        return result
+
+    def _execute_all_models_and_iterations(
+        self, 
+        questions: list, 
+        run: Optional
+    ) -> list:
+        """Orchestrate execution across all models and iterations.
+
+        ⚠️ This function is purely orchestrator - delegates all logic to helpers.
+
+        Args:
+            questions: List of Question objects.
+            run: Run object or None.
+
+        Returns:
+            List of iteration results.
+        """
+        from src.api.client import OpenRouterClient
+
+        all_results = []
         client = OpenRouterClient(
             api_key=self.settings.openrouter_api_key,
             base_url=self.settings.openrouter_base_url,
@@ -446,31 +626,10 @@ class BenchmarkRunner:
         for model_id in self.args.models:
             logger.info(f"Starting benchmark for model: {model_id}")
 
-            # Fetch actual model name and metadata from API
-            actual_model_id = model_id  # Fallback to provided name
-            model_info = {}
-            try:
-                # Fetch actual model info using asyncio
-                async def fetch_model_info():
-                    return await client.get_model_info(model_id)
+            # Fetch model info
+            actual_model_id, model_info = asyncio.run(self._fetch_model_info(client, model_id))
 
-                model_info = asyncio.run(fetch_model_info())
-                actual_model_id = model_info.get("id", model_id)
-                logger.info(f"Model {model_id} resolved to {actual_model_id}")
-
-                # Log model metadata if available
-                meta = model_info.get("meta", {})
-                if meta:
-                    n_params = meta.get("n_params", "N/A")
-                    size = meta.get("size", "N/A")
-                    n_ctx_train = meta.get("n_ctx_train", "N/A")
-                    logger.info(f"Model metadata: n_params={n_params}, size={size}, n_ctx_train={n_ctx_train}")
-            except Exception as e:
-                logger.warning(f"Could not fetch model info for {model_id}: {e}")
-                logger.info(f"Using provided model name: {model_id}")
-
-            # Model was already registered by RunManager.initialize_run() using the initial name.
-            # If the actual model ID from API is different, we must register it to satisfy foreign keys.
+            # Register actual model if different
             if self.run_manager and getattr(self.run_manager, '_register_model', None) and actual_model_id != model_id:
                 self.run_manager._register_model(actual_model_id)
                 logger.debug(f"Registered actual model: {actual_model_id}")
@@ -478,111 +637,41 @@ class BenchmarkRunner:
             for iteration_num in range(1, self.args.iterations + 1):
                 logger.info(f"  Starting iteration {iteration_num} for {model_id}")
 
-                # Create randomizer with seed based on configuration
-                # Three modes:
-                # 1. None/empty: No randomization (answers stay in original A,B,C,D order)
-                # 2. "AUTO": Automatic seed (hash of run_id for uniqueness)
-                # 3. Integer: Fixed seed for reproducibility
-                if self.args.seed is not None:
-                    # CLI --seed takes priority
-                    if isinstance(self.args.seed, int):
-                        base_seed = self.args.seed
-                        logger.info(f"  Using fixed seed {base_seed} from CLI")
-                    else:
-                        base_seed = None  # Don't randomize
-                elif self.settings.random_seed == "AUTO":
-                    # AUTO mode: generate seed from run_id hash
-                    if run:
-                        base_seed = hash(run.run_id) % (2**31)
-                        logger.info(f"  Using AUTO seed {base_seed} (from run_id hash)")
-                    else:
-                        base_seed = 42  # Fallback
-                        logger.info(f"  Using fallback seed {base_seed}")
-                elif self.settings.random_seed is not None:
-                    # Fixed seed from .env
-                    base_seed = self.settings.random_seed
-                    logger.info(f"  Using fixed seed {base_seed} from .env")
-                else:
-                    # No seed configured: disable randomization
-                    base_seed = None
-                    logger.info("  Randomization disabled (answers in original A,B,C,D order)")
-
-                # Vary seed per iteration if requested
-                if self.args.vary_seed and base_seed is not None:
-                    # Use different seed for each iteration
-                    randomizer_seed = (base_seed + (iteration_num * 1000)) % (2**31)
-                    logger.info(f"  Using seed {randomizer_seed} for iteration {iteration_num} (base: {base_seed})")
-                elif base_seed is not None:
-                    randomizer_seed = base_seed
-                else:
-                    randomizer_seed = None  # No randomization
-
-                # Create randomizer (pass None to disable randomization)
-                if randomizer_seed is not None:
-                    randomizer = AnswerRandomizer(run_id=randomizer_seed)
-                else:
-                    randomizer = None  # Disable randomization
-
-                # Build model kwargs from settings (only include non-None values)
-                model_kwargs = {}
-                if self.settings.model_max_tokens is not None:
-                    model_kwargs["max_tokens"] = self.settings.model_max_tokens
-                if self.settings.model_temperature is not None:
-                    model_kwargs["temperature"] = self.settings.model_temperature
-                if self.settings.model_top_p is not None:
-                    model_kwargs["top_p"] = self.settings.model_top_p
-                if self.settings.model_top_k is not None:
-                    model_kwargs["top_k"] = self.settings.model_top_k
-                if self.settings.model_repeat_penalty is not None:
-                    model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
-
-                # Build reasoning config from settings (only include non-None values)
-                reasoning_config = None
-                if any([
-                    self.settings.reasoning_effort is not None,
-                    self.settings.reasoning_max_tokens is not None,
-                    self.settings.reasoning_exclude is not None,
-                    self.settings.reasoning_enabled is not None
-                ]):
-                    reasoning_config = {}
-
-                    if self.settings.reasoning_effort is not None:
-                        reasoning_config["effort"] = self.settings.reasoning_effort
-                    if self.settings.reasoning_max_tokens is not None:
-                        reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
-                    if self.settings.reasoning_exclude is not None:
-                        reasoning_config["exclude"] = self.settings.reasoning_exclude
-                    if self.settings.reasoning_enabled is not None:
-                        reasoning_config["enabled"] = self.settings.reasoning_enabled
-
-                    logger.info(f"Using reasoning config: {reasoning_config}")
-
-                # Create iteration executor
-                executor = IterationExecutor(
-                    db_manager=self.db_manager,
-                    api_client=client,
-                    randomizer=randomizer,
-                    run_id=run.run_id if run else "",
-                    model_id=actual_model_id,  # Use actual model ID from API
-                    iteration_number=iteration_num,
-                    experiment_id=run.experiment_id if run else "",
-                    model_kwargs=model_kwargs,
-                    use_structured_outputs=self.settings.use_structured_outputs,
-                    reasoning_config=reasoning_config,
-                    settings=self.settings,
+                # Build configuration
+                iteration_config = self._build_iteration_config(
+                    run, model_id, actual_model_id, iteration_num
                 )
-                
+
                 # Execute iteration
-                result = executor.execute_iteration(questions)
-                all_results.append(result)
-                
-                logger.info(
-                    f"  Iteration {iteration_num} completed: "
-                    f"{result['completed_questions']}/{result['total_questions']} questions, "
-                    f"{result['errors']} errors"
+                result = self._execute_single_iteration(
+                    questions, run, model_id, actual_model_id,
+                    iteration_num, iteration_config, client
                 )
 
-        # Step 5: Compile and return results
+                all_results.append(result)
+
+        return all_results
+
+    def _compile_final_results(
+        self, 
+        all_results: list, 
+        run: Optional,
+        questions: list,
+    ) -> dict:
+        """Compile final results and update run status.
+        
+        ⚠️ SIDE-EFFECTS:
+        - Updates run status in database via RunManager.update_run_status()
+        - Marks run as 'failed' if any iteration had errors
+
+        Args:
+            all_results: List of iteration results.
+            run: Run object or None.
+            questions: List of Question objects (for total_questions count).
+
+        Returns:
+            Dictionary with aggregated results and metadata.
+        """
         results = {
             "status": "completed",
             "models_tested": self.args.models,
@@ -599,6 +688,23 @@ class BenchmarkRunner:
 
         logger.info("Benchmark execution completed")
         return results
+
+    def _execute_benchmark(self) -> dict[str, Any]:
+        """Execute the benchmark test.
+
+        Returns:
+            Dictionary containing execution results and statistics.
+        """
+        logger.info("Starting benchmark execution")
+
+        # Execute benchmark using extracted helpers
+        questions = self._load_and_filter_questions()
+        if not questions:
+            return {}
+
+        run = self._initialize_run(questions)
+        all_results = self._execute_all_models_and_iterations(questions, run)
+        return self._compile_final_results(all_results, run, questions)
 
     def _display_results(self, results: dict[str, Any]) -> None:
         """Calculate and display benchmark results.
