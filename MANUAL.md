@@ -96,6 +96,164 @@ bcllm --models Qwen
 bcllm --models Qwen --iterations 3
 ```
 
+---
+
+## Revisão Manual de Respostas
+
+Quando o sistema não consegue identificar corretamente qual alternativa a LLM escolheu, a resposta é marcada para **revisão manual**.
+
+### Quando a Revisão Manual é Necessária?
+
+O sistema classifica automaticamente as respostas com base na confiança do parsing:
+
+- **`ambiguous`** - Múltiplas alternativas detectadas
+- **`no_answer`** - Nenhuma alternativa detectada
+- **`low_confidence`** - Baixa confiança no parsing
+
+### Como Iniciar a Revisão Manual
+
+#### Revisar TODAS as Respostas Pendentes (NOVO)
+```bash
+# Inicia revisão de TODAS as respostas pendentes, independente de experimento ou run
+bcllm --review-all
+```
+
+#### Por Experimento
+```bash
+# Inicia revisão de todas as respostas pendentes de um experimento
+bcllm --review-experiment exp-001
+```
+
+#### Por Run
+```bash
+# Inicia revisão de todas as respostas pendentes de uma run específica
+bcllm --review-run run-001
+```
+
+### Interface de Revisão
+
+A interface mostra:
+
+```
+================================================================================
+REVIEW MANUAL DE RESPOSTAS  |  Item 1/23
+================================================================================
+Pendentes: 23  |  Processadas: 0
+Pergunta: Q001 (Iteração 1, Modelo: liquid/lfm-2.5-1.2b-thinking:free)
+Status: AMBIGUOUS
+================================================================================
+
+ENUNCIADO:
+--------------------------------------------------------------------------------
+Homem de 45 anos foi encontrado inconsciente por familiares junto a uma escada...
+
+ALTERNATIVAS:
+--------------------------------------------------------------------------------
+  A) tomografia de crânio, face e coluna cervical; radiografia de membros...
+  B) radiografia de crânio e face; radiografia de membros; internar...
+  C) radiografia de crânio, coluna cervical e membros em duas posições...
+  D) tomografia de crânio, face e radiografia de membros; liberar...
+
+RESPOSTA DA LLM:
+--------------------------------------------------------------------------------
+Okay, let me tackle this question. So the scenario is a 45-year-old man...
+ANSWER: \boxed{C}
+
+================================================================================
+CLASSIFICAÇÃO:
+--------------------------------------------------------------------------------
+  [A]  [B]  [C]  [D]  [N]enhuma  [E]rro não detectado
+
+  [S] Pular  |  [Q] Sair e salvar  |  [Z] Desfazer última
+================================================================================
+```
+
+### Atalhos de Teclado
+
+| Tecla | Ação | Descrição |
+|-------|------|-----------|
+| **A/B/C/D** | Classificar | Seleciona a alternativa correta |
+| **N** | Nenhuma | Marca como "sem resposta clara" |
+| **E** | Erro | Marca como erro técnico (não foi possível revisar) |
+| **S** | Pular | Pula para próxima (pode revisar depois) |
+| **Q** | Sair | Sai e salva o progresso |
+| **Z** | Desfazer | Desfaz a última classificação |
+
+### Fluxo de Revisão
+
+1. **Leia a resposta da LLM** - A resposta completa é mostrada (truncada se muito longa)
+2. **Identifique a alternativa** - Procure por padrões como `\boxed{C}`, "Answer: C", etc.
+3. **Pressione a tecla correspondente** - A/B/C/D para classificar
+4. **Avanço automático** - Após classificar, avança para próxima questão
+5. **Use Z para desfazer** - Se errar, pressione Z para voltar e corrigir
+
+### O Que Acontece Após a Revisão?
+
+As respostas revisadas são atualizadas no banco de dados:
+
+- **`manual_answer`** - Alternativa selecionada pelo revisor
+- **`review_status`** - Mudado de `auto` para `manual`
+- **`reviewed_at`** - Timestamp da revisão
+- **`selected_answer`** - Atualizado com a classificação manual
+- **`is_correct`** - Recalculado com base na resposta manual
+
+### Estatísticas de Revisão
+
+Durante a revisão, o sistema mostra:
+
+```
+Pendentes: 23  |  Processadas: 10
+```
+
+Ao final:
+
+```
+Revisão concluída! 10 itens processados.
+```
+
+### Dicas de Revisão
+
+1. **Respostas longas** - Role para baixo se necessário (a resposta é truncada após 800 caracteres)
+2. **Padrões comuns** - Procure por:
+   - `\boxed{A}`, `\boxed{B}`, etc.
+   - "Answer: A", "The answer is B"
+   - "Letra C", "Alternativa D"
+3. **Raciocínio vs Resposta** - Alguns modelos fazem raciocínio longo antes de dar a resposta final
+4. **Use o contexto** - A pergunta e alternativas ajudam a identificar a resposta correta
+
+### Exemplo de Sessão
+
+```bash
+# Iniciar revisão
+$ bcllm --review-experiment exp-001
+
+Iniciando revisão para o experimento exp-001
+Total de itens pendentes: 23
+
+Pressione Enter para começar...
+
+[Interface mostra primeira questão]
+
+# Usuário pressiona: C (classifica como C)
+# Avança automaticamente para próxima
+
+[Interface mostra segunda questão]
+
+# Usuário pressiona: Z (desfaz)
+# Volta para primeira questão
+
+# Usuário pressiona: B (corrige classificação)
+# Avança para próxima
+
+# ... continua até finalizar ou pressionar Q
+
+[Usuário pressiona: Q]
+
+Salvando progresso e saindo...
+
+Revisão concluída! 15 itens processados.
+```
+
 ### Configurações do Modelo
 
 #### max-tokens (CRÍTICO para reasoning models)

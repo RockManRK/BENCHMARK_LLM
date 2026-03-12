@@ -243,12 +243,21 @@ Core table storing model responses to questions.
 | `is_correct` | BOOLEAN | | Whether answer is correct |
 | `status` | TEXT | NOT NULL, DEFAULT 'pending' | Response status |
 | `latency_ms` | INTEGER | | Response time in milliseconds |
-| `input_tokens` | INTEGER | | Tokens in request |
-| `output_tokens` | INTEGER | | Tokens in response |
-| `total_tokens` | INTEGER | | Total tokens used |
-| `reasoning_tokens` | INTEGER | | Reasoning tokens used |
-| `cost` | REAL | | Cost in credits |
+| `input_tokens` | INTEGER | | Tokens in request (prompt_tokens) |
+| `response_tokens` | INTEGER | | Tokens in response (completion_tokens) |
+| `total_tokens` | INTEGER | | input_tokens + response_tokens (excludes reasoning_tokens) |
+| `reasoning_tokens` | INTEGER | | Reasoning tokens used (subtype of response_tokens) |
+| `effective_tokens` | INTEGER | | input_tokens + response_tokens + reasoning_tokens (total computational cost) |
+| `cost` | REAL | | Cost in credits (from usage.cost) |
 | `timestamp` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Response timestamp |
+
+**Token Calculation Formulas:**
+```
+total_tokens = input_tokens + response_tokens
+effective_tokens = input_tokens + response_tokens + reasoning_tokens
+```
+
+**Note:** `reasoning_tokens` are a subtype of `response_tokens`, not additional. They represent tokens used for internal reasoning/chain-of-thought that are included in the completion but tracked separately for analysis.
 
 **Indexes:**
 - `idx_responses_run` - Fast lookup by run
@@ -270,30 +279,6 @@ Core table storing model responses to questions.
 - `snapshot_id` ensures immutability and points to the exact question version used
 - `question_id` provides ergonomic queries without requiring JOINs for simple operations
 - This design balances data integrity with query convenience
-| `status` | TEXT | NOT NULL, DEFAULT 'pending' | Response status |
-| `latency_ms` | INTEGER | | Response time in milliseconds |
-| `input_tokens` | INTEGER | | Tokens in request |
-| `output_tokens` | INTEGER | | Tokens in response |
-| `reasoning_tokens` | INTEGER | | Tokens used for reasoning |
-| `timestamp` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Response timestamp |
-
-**Status Values:**
-- `pending` - Response not yet received
-- `success` - Response received successfully
-- `error` - Error occurred during request
-- `unsupported` - Model doesn't support this question type
-
-**Indexes:**
-- `idx_responses_run` - Fast lookup by run
-- `idx_responses_question` - Fast lookup by question
-- `idx_responses_model` - Fast lookup by model
-- `idx_responses_run_iteration` - Composite index for (run_id, iteration)
-- `idx_responses_model_correct` - Composite index for accuracy analysis
-
-**Usage:**
-- One row per model per question per iteration
-- Iteration is a field (not a separate table)
-- Token metrics stored separately for analysis
 
 ---
 

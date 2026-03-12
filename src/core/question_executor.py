@@ -618,6 +618,15 @@ class QuestionExecutor:
             "parse_confidence": parse_confidence,
         }
 
+    # =========================================================================
+    # TOKEN USAGE EXTRACTION
+    # =========================================================================
+    # Token calculation formulas (documented):
+    # - total_tokens = input_tokens + response_tokens (excludes reasoning_tokens)
+    # - effective_tokens = input_tokens + response_tokens + reasoning_tokens
+    # - reasoning_tokens are a subtype of response_tokens, not additional
+    # =========================================================================
+
     def _extract_token_usage(self, api_response: dict[str, Any]) -> dict[str, Any]:
         """Extract all token-related metrics from API response.
 
@@ -672,12 +681,19 @@ class QuestionExecutor:
         # Formula: effective_tokens = input_tokens + response_tokens + reasoning_tokens
         effective_tokens = input_tokens + response_tokens + (reasoning_tokens or 0)
 
-        # Log token usage for debugging
+        # Log token usage with structured logging
+        # Format: INFO - Token usage | model=xxx | question=xxx | input=xxx | response=xxx | reasoning=xxx | total=xxx | effective=xxx
         logger.info(
-            f"Token usage: model={self._model_id}, "
-            f"input={input_tokens}, response={response_tokens}, "
-            f"total={total_tokens}, reasoning={reasoning_tokens}, "
-            f"effective={effective_tokens}"
+            "Token usage",
+            extra={
+                "model_id": self._model_id,
+                "question_id": getattr(self, '_current_question_id', None),
+                "input_tokens": input_tokens,
+                "response_tokens": response_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "total_tokens": total_tokens,
+                "effective_tokens": effective_tokens,
+            }
         )
 
         return {

@@ -189,6 +189,30 @@ class BenchmarkRunner:
         finally:
             self._cleanup()
 
+    def _handle_review_all(self) -> int:
+        """Handle manual review for all pending responses.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.review_ui import ReviewUI
+
+            # Initialize database
+            self._init_database()
+
+            # Create review UI and start review
+            ui = ReviewUI(self.db_manager)
+            ui.start_review_all()
+
+            return 0
+        except Exception as e:
+            logger.exception(f"Review failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            self._cleanup()
+
     def run(self) -> int:
         """Execute the benchmark.
 
@@ -207,6 +231,8 @@ class BenchmarkRunner:
                 return self._handle_review_experiment()
             if self.args.review_run:
                 return self._handle_review_run()
+            if self.args.review_all:
+                return self._handle_review_all()
 
             # Apply execution mode presets
             self._apply_execution_mode()

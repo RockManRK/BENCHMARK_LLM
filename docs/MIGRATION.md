@@ -23,11 +23,11 @@ Version 2.0 introduces a complete redesign of the database schema and execution 
 - `runs` - Completely redesigned
   - Removed: `created_at`, `config`
   - Added: `experiment_id`, `seed`, `is_dev`, `finished_at`
-  
+
 - `models` - Simplified structure
   - Removed: `context_length`, `max_completion_tokens`
   - Added: `supports_multimodal`, `metadata_json`, `created_at`
-  
+
 - `responses` - Major changes
   - Removed: `iteration_id`, `question_text`, `options_json`, `options_randomized`, `correct_answer`, `reasoning_details`
   - Added: `iteration` (integer field)
@@ -40,6 +40,119 @@ Version 2.0 introduces a complete redesign of the database schema and execution 
 #### New Tables
 - `experiments` - Experiment tracking with frozen configuration
 - `questions` - Question persistence for reproducibility
+
+---
+
+## Version 1.1.0 Changes (Consolidação de Tokens)
+
+### Schema Changes
+
+#### Column Renamed
+- `output_tokens` → `response_tokens` (semantically more accurate)
+
+**Migration:**
+```sql
+-- Data is automatically migrated using:
+-- response_tokens = COALESCE(response_tokens, output_tokens)
+```
+
+#### New Column
+- `effective_tokens` - Total computational cost (input + response + reasoning)
+
+#### Changed Default
+- `parse_confidence` DEFAULT changed from `'clear'` to `'unknown'` (more conservative)
+
+### Token Calculation Formulas (Documented)
+
+```
+total_tokens = input_tokens + response_tokens
+effective_tokens = input_tokens + response_tokens + reasoning_tokens
+```
+
+**Important:** `reasoning_tokens` are a **subtype** of `response_tokens`, not additional.
+
+### Code Changes
+
+#### Response Model
+```python
+# Before (v1.0.x)
+response = Response(
+    input_tokens=100,
+    output_tokens=50,  # OLD NAME
+    total_tokens=150,
+)
+
+# After (v1.1.0)
+response = Response(
+    input_tokens=100,
+    response_tokens=50,  # NEW NAME
+    total_tokens=150,
+    effective_tokens=160,  # NEW (includes reasoning)
+)
+```
+
+#### Token Extraction (Consolidated)
+```python
+# Before (v1.0.x) - Multiple locations
+input_tokens = usage.get("prompt_tokens", 0)
+output_tokens = usage.get("completion_tokens", 0)
+reasoning_tokens = self._extract_reasoning_tokens(usage)
+
+# After (v1.1.0) - Single consolidated method
+tokens = self._extract_token_usage(api_response)
+# Returns: {
+#   "input_tokens": 100,
+#   "response_tokens": 50,
+#   "total_tokens": 150,
+#   "reasoning_tokens": 10,
+#   "effective_tokens": 160,
+#   "cost": 0.0012
+# }
+```
+
+### Logging Changes
+
+#### Structured Token Logging
+```
+# Before (v1.0.x)
+INFO - Token usage: model=gpt-4, input=100, output=50, total=150
+
+# After (v1.1.0) - Structured format
+INFO - Token usage | model=gpt-4 | question=Q001 | input=100 | response=50 | reasoning=10 | total=150 | effective=160
+```
+
+### Migration Script
+
+For existing databases, run the migration script:
+
+```bash
+# Backup first
+sqlite3 data/benchmark.db ".backup 'data/benchmark_backup.db'"
+
+# Run migration
+sqlite3 data/benchmark.db < migrations/001_remove_output_tokens.sql
+```
+
+The migration script:
+1. Creates a backup table `responses_backup`
+2. Creates new `responses_new` table with updated schema
+3. Migrates data with `response_tokens = COALESCE(response_tokens, output_tokens)`
+4. Drops old table and renames new one
+5. Rebuilds all indexes
+
+### Backward Compatibility
+
+The code maintains backward compatibility in the parsing layer:
+```python
+# Fallback for old data
+tokens = {
+    "input_tokens": parsed.get("input_tokens", 0),
+    "response_tokens": parsed.get("response_tokens", parsed.get("output_tokens", 0)),
+    # ...
+}
+```
+
+---
 
 ### Execution Model
 

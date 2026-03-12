@@ -21,6 +21,25 @@
 - `response_tokens` é semanticamente mais correto (tokens de resposta/completion)
 - `parse_confidence='unknown'` evita falsos positivos (assume "não avaliado" ao invés de "clear")
 
+#### 2. Consolidação da Extração de Tokens
+- **Nova função `_extract_token_usage()`**: Centraliza toda extração de tokens
+- **Remoção de código duplicado**: Token extraction em 3 lugares → 1 lugar só
+- **Logging estruturado**: Logs de tokens agora são parseáveis
+
+**Arquivos:** `src/core/question_executor.py`
+
+**Benefícios:**
+- Menos duplicação de código
+- Mais fácil de manter e testar
+- Logs estruturados para debugging
+
+### Documentação Atualizada
+
+- **README.md**: Schema atualizado com `response_tokens` e fórmulas de tokens
+- **docs/SCHEMA.md**: Documentação completa da tabela `responses` com fórmulas
+- **docs/MIGRATION.md**: Guia de migração v1.1.0 com exemplos de código
+- **CHANGELOG.md**: Este arquivo
+
 ### Novas Funcionalidades
 
 #### 1. Configurações de Modelo via .env

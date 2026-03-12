@@ -226,7 +226,6 @@ class Response:
         response_id: Auto-incrementing unique identifier (assigned by DB).
         parse_confidence: Confidence level from answer parsing ("unknown", "clear", "ambiguous", "no_answer", "low_confidence").
         review_status: Review status ("auto" for auto-parsed, "manual" for manually reviewed, "skipped").
-        reviewed_by: Username or identifier of the human reviewer (if manually reviewed).
         reviewed_at: Timestamp of manual review (if manually reviewed).
         manual_answer: Answer letter assigned during manual review (if manually reviewed).
 
@@ -273,7 +272,6 @@ class Response:
     # Manual review fields
     parse_confidence: str = "unknown"  # "unknown", "clear", "ambiguous", "no_answer", "low_confidence"
     review_status: str = "auto"  # "auto", "manual", "skipped"
-    reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     manual_answer: Optional[str] = None
 

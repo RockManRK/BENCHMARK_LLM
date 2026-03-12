@@ -165,18 +165,17 @@ CREATE TABLE IF NOT EXISTS responses (
     
     -- COST (1 column)
     cost REAL,
-    
+
     -- AUDIT (2 columns)
     raw_response_json TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    -- MANUAL REVIEW (5 columns) - CLOSED: no additional columns will be added
+
+    -- MANUAL REVIEW (4 columns)
     parse_confidence TEXT NOT NULL DEFAULT 'unknown',
     review_status TEXT NOT NULL DEFAULT 'auto',
-    reviewed_by TEXT,
     reviewed_at TIMESTAMP,
     manual_answer TEXT,
-    
+
     -- FOREIGN KEYS
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,

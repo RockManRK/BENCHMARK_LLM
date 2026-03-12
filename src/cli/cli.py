@@ -286,6 +286,12 @@ Examples:
             help="Start manual review interface for a specific experiment (e.g., exp-001)",
         )
 
+        parser.add_argument(
+            "--review-all",
+            action="store_true",
+            help="Start manual review interface for ALL pending responses across all experiments and runs",
+        )
+
         return parser
 
     def parse(self, args: Optional[list[str]] = None) -> argparse.Namespace:

@@ -344,30 +344,36 @@ For a complete list of available models, visit [OpenRouter Models](https://openr
 The benchmark collects comprehensive metrics:
 - **Response Data**: Selected answer, full response text
 - **Performance Metrics**: Response time/latency
-- **Token Usage**: Input tokens, output tokens, total tokens
+- **Token Usage**: Input tokens, response tokens, total tokens, reasoning tokens
 - **Cost**: Final cost per request (from OpenRouter `usage.cost`)
-- **Reasoning Tokens**: Tokens used for internal reasoning (when available)
 - **Error Tracking**: All errors, failures, and edge cases
 - **Consistency Data**: Multiple run comparisons when configured
 - **Metadata**: Timestamp, model version, configuration used
+
+**Token Calculation Formulas:**
+- `total_tokens = input_tokens + response_tokens` (excludes reasoning_tokens)
+- `effective_tokens = input_tokens + response_tokens + reasoning_tokens`
+- `reasoning_tokens` are a subtype of `response_tokens`, not additional
 
 **Database Schema:**
 ```sql
 CREATE TABLE responses (
     -- ... other fields ...
-    input_tokens INTEGER,      -- prompt_tokens
-    output_tokens INTEGER,     -- completion_tokens
-    total_tokens INTEGER,      -- total_tokens
-    reasoning_tokens INTEGER,  -- reasoning_tokens (optional)
-    cost REAL,                 -- cost in credits (from usage.cost)
+    input_tokens INTEGER,       -- prompt_tokens
+    response_tokens INTEGER,    -- completion_tokens (response output)
+    total_tokens INTEGER,       -- input_tokens + response_tokens (excludes reasoning)
+    reasoning_tokens INTEGER,   -- reasoning tokens (optional, from completion_tokens_details)
+    effective_tokens INTEGER,   -- input + response + reasoning (total computational cost)
+    cost REAL,                  -- cost in credits (from usage.cost)
     -- ... other fields ...
 );
 ```
 
-**Important:** 
+**Important:**
 - `usage.cost` is the official cost value (the "receipt")
 - `usage.cost_details` is NOT used (informational only)
 - Empty configuration values are NOT sent to the API (model uses its own defaults)
+- `response_tokens` was previously named `output_tokens` (consolidated in v1.1.0)
 
 ## Logging
 
