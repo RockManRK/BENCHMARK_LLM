@@ -293,7 +293,7 @@ def log_initialization_summary(
     persist_data: bool,
     config_frozen: bool,
     config_hash: Optional[str],
-    seed: Optional[int],
+    seed: Optional[int | str],
     models: list[str],
     questions: list[str],
     system_prompt: Optional[str] = None,
@@ -355,8 +355,15 @@ def log_initialization_summary(
             logger.info(f"System prompt       : {system_prompt}")
     else:
         logger.info("Configuration       : MUTABLE (CLI/.env)")
+
+    # Seed can be int (value), str (policy), or None
+    if isinstance(seed, int):
+        logger.info(f"Seed                : {seed}")
+    elif isinstance(seed, str):
+        logger.info(f"Seed                : {seed}")
+    else:
+        logger.info("Seed                : None (original A,B,C,D order)")
     
-    logger.info(f"Seed                : {seed if seed is not None else 'None'}")
     logger.info(f"Models              : {', '.join(models)}")
     
     # Format question range for readability

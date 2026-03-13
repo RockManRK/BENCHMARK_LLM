@@ -155,10 +155,14 @@ class RunManager:
     def _determine_seed(self, config: dict[str, Any]) -> Optional[int]:
         """Determine the seed value based on configuration.
 
-        Rules:
-        - None/empty → Keep original order (seed = None)
-        - "AUTO" → Generate random seed per RUN
-        - int → Use provided seed
+        This is the SINGLE SOURCE OF TRUTH for seed generation.
+        All seed logic is centralized here.
+
+        Rules (precedence order):
+        1. CLI --seed explicit → Use fixed seed from CLI
+        2. RANDOM_SEED=AUTO in .env → Generate unique random seed per RUN
+        3. RANDOM_SEED=<int> in .env → Use fixed seed from .env
+        4. No seed → Keep original order (None)
 
         Args:
             config: Run configuration dictionary containing seed setting.
@@ -174,33 +178,32 @@ class RunManager:
         """
         seed_config = config.get("seed")
 
-        # Case 1: None or empty → Keep original order
-        if seed_config is None or seed_config == "":
-            logger.debug("No seed configured, keeping original answer order")
-            return None
-
-        # Case 2: "AUTO" → Generate random seed for this RUN
-        if seed_config == "AUTO":
-            auto_seed = random.randint(0, 2**31 - 1)
-            logger.info(f"AUTO seed generated: {auto_seed}")
-            return auto_seed
-
-        # Case 3: int → Use provided seed
-        if isinstance(seed_config, int):
-            logger.info(f"Using fixed seed: {seed_config}")
+        # Case 1: CLI --seed explicit has highest precedence
+        if seed_config is not None and isinstance(seed_config, int):
+            logger.info(f"Run initialized with seed: {seed_config} (policy=CLI)")
             return seed_config
 
-        # Fallback: try to convert to int
-        try:
-            seed_int = int(seed_config)
-            logger.info(f"Using seed from string: {seed_int}")
-            return seed_int
-        except (ValueError, TypeError):
-            logger.warning(f"Invalid seed value: {seed_config}, using None")
-            return None
+        # Case 2: RANDOM_SEED=AUTO in .env → Generate unique seed per RUN
+        if self.settings and self.settings.random_seed == "AUTO":
+            auto_seed = random.randint(0, 2**31 - 1)
+            logger.info(f"Run initialized with seed: {auto_seed} (policy=AUTO)")
+            return auto_seed
+
+        # Case 3: RANDOM_SEED=<int> in .env → Use fixed seed
+        if self.settings and isinstance(self.settings.random_seed, int):
+            logger.info(f"Run initialized with seed: {self.settings.random_seed} (policy=FIXED)")
+            return self.settings.random_seed
+
+        # Case 4: No seed configured → Keep original order
+        logger.info("Run initialized with seed: None (policy=NONE, original A,B,C,D order)")
+        return None
 
     def _get_or_create_experiment(self, config: dict[str, Any]) -> Experiment:
         """Get existing experiment or create new one with frozen config.
+
+        Protocol configuration is frozen per experiment. Model variants
+        (temperature, reasoning, vision) are NOT frozen and can vary
+        between runs within the same experiment.
 
         Args:
             config: Run configuration dictionary.
@@ -216,39 +219,37 @@ class RunManager:
         if existing:
             logger.info(f"Found existing experiment: {existing.name}")
             current_hash = self.settings.get_config_hash()
+            
             if current_hash != existing.config_hash:
-                # Capture CLI parameters that will be ignored
-                cli_params_set = []
-                generation_params = self.settings.get_generation_params()
-                for cli_name, (setting_name, value) in generation_params.items():
-                    if value is not None:
-                        cli_params_set.append(cli_name)
+                # Protocol mismatch - only PROTOCOL settings are overwritten
+                # Model variants (temperature, reasoning, vision) are preserved
+                frozen_config = json.loads(existing.config_json)
                 
-                # Log explicit warning with list of ignored parameters
-                logger.warning("Frozen experiment configuration detected.")
-                if cli_params_set:
-                    logger.warning("The following CLI parameters were ignored:")
-                    for param in cli_params_set:
-                        logger.warning(f"  - {param}")
-                    logger.warning("Using frozen configuration instead.")
-                else:
-                    logger.warning("No CLI generation parameters were provided.")
-                    logger.warning("Using frozen configuration instead.")
+                # Protocol keys that MUST be frozen per experiment
+                protocol_keys = {"default_prompt", "use_structured_outputs", "random_seed_policy"}
+                
+                # Track which protocol settings were overwritten
+                overwritten_protocol = []
+                
+                try:
+                    for key, value in frozen_config.items():
+                        # Only overwrite PROTOCOL settings, NOT model variants
+                        if key in protocol_keys and hasattr(self.settings, key):
+                            setattr(self.settings, key, value)
+                            overwritten_protocol.append(key)
+                except (json.JSONDecodeError, AttributeError):
+                    logger.error(f"Failed to parse frozen config for '{existing.name}'")
+                
+                # Log explicit warning about protocol mismatch
+                logger.warning(f"Frozen experiment protocol mismatch for '{existing.name}'.")
+                
+                if overwritten_protocol:
+                    logger.warning(f"Using frozen protocol settings: {', '.join(overwritten_protocol)}")
                 
                 logger.warning(
-                    f"Configuration mismatch for experiment '{existing.name}': "
-                    f"Current settings (hash={current_hash}) will be ignored "
-                    f"in favor of the frozen configuration (hash={existing.config_hash})."
+                    f"Model variants (temperature, max_tokens, reasoning, vision) are preserved "
+                    f"and will NOT be overwritten by frozen configuration."
                 )
-                
-                # Overwrite current mutable settings with the frozen configuration
-                try:
-                    frozen_config = json.loads(existing.config_json)
-                    for key, value in frozen_config.items():
-                        if hasattr(self.settings, key):
-                            setattr(self.settings, key, value)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse frozen config for '{existing.name}'")
 
             self.current_experiment = existing
             return existing

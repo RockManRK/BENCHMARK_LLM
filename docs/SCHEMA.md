@@ -94,6 +94,76 @@ Stores experiment configurations with frozen, immutable snapshots.
 
 ---
 
+## Política de Configurações
+
+### Configurações em Branco
+
+- Uma configuração em branco no `.env` ou CLI **É uma configuração válida**
+- Significa: **"não enviar este parâmetro; usar o default do servidor"**
+- O sistema **NÃO envia** parâmetros com valor `None` para a API
+
+**Exemplo:**
+```env
+MODEL_MAX_TOKENS=        # ← Vazio = não enviar, usar default do servidor
+MODEL_TEMPERATURE=       # ← Vazio = não enviar, usar default do servidor
+REASONING_EFFORT=        # ← Vazio = não enviar, usar default do servidor
+```
+
+### Congelamento por Experimento
+
+O experimento congela apenas o **PROTOCOLO** do teste, não capacidades do modelo.
+
+**Protocolo (congelado, imutável por experimento):**
+- `default_prompt` - Instrução padrão para todas as perguntas
+- `use_structured_outputs` - Política de uso de JSON schema
+- `random_seed_policy` - Política de seed (AUTO, FIXED, ou none)
+
+**Metadados (informativos, NÃO afetam o hash):**
+- `questionnaire_path` - Path do arquivo de perguntas (apenas identificador lógico)
+- `openrouter_base_url` - URL da API
+- `default_iterations` - Iterações padrão
+
+**Variantes de Modelo (NÃO congeladas, podem variar por run dentro do mesmo experimento):**
+- `model_max_tokens`, `model_temperature`, `model_top_p`, `model_top_k`, `model_repeat_penalty`
+- `reasoning_effort`, `reasoning_max_tokens`, `reasoning_exclude`, `reasoning_enabled`
+- `enable_vision`
+- `openrouter_debug_enabled`
+
+Estas variações aparecem nos resultados como **modelos distintos** (ex: `gpt-4`, `gpt-4_reasoning_high`, `gpt-4_vision`).
+
+### Question Snapshots são a Verdadeira Fonte da Verdade
+
+O `questionnaire_path` salvo em `config_json` é apenas **metadado** - um identificador lógico de qual arquivo foi usado para carregar as perguntas.
+
+**O que realmente define o conjunto de perguntas de um experimento:**
+- Os registros na tabela `question_snapshots`
+- Cada snapshot contém o conteúdo completo da pergunta no momento do uso
+- Snapshots são **imutáveis** e isolados por experimento
+
+**Implicação importante:**
+- O path do arquivo **NÃO está incluído** no `config_hash` do experimento
+- Mover o arquivo de `questions.json` não cria novo experimento se o conteúdo for idêntico
+- O que importa é o **conteúdo dos snapshots**, não a origem
+
+### Conflito de Configurações
+
+Se o usuário tentar rodar um experimento com configurações diferentes das salvas:
+
+1. **Protocolo diferente** → Warning, configuração do experimento é usada
+2. **Variantes de modelo diferentes** → Permitido, variantes são preservadas
+
+**Exemplo:**
+```bash
+# Primeira execução: cria experimento
+python -m src.main --experiment my_exp --models gpt-4 --temperature 0.7
+
+# Segunda execução: tenta mudar temperatura
+python -m src.main --experiment my_exp --models gpt-4 --temperature 0.9
+# Resultado: WARNING sobre protocolo, mas temperatura 0.9 é PRESERVADA
+```
+
+---
+
 ### `runs`
 
 Tracks individual benchmark execution runs.

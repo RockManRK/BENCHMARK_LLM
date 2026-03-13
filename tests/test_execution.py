@@ -44,13 +44,16 @@ class TestRunManager:
     ) -> RunManager:
         """Create a RunManager instance with mock DB."""
         from src.utils.config import Settings, ExecutionMode
-        
+
         run_manager = RunManager.__new__(RunManager)
         run_manager.db_manager = mock_db_manager
         run_manager._run_repository = mock_run_repository
         run_manager._model_repository = MagicMock()
         run_manager._experiment_repository = MagicMock()
-        run_manager.settings = Settings(execution_mode=ExecutionMode.TEST)
+        run_manager.settings = Settings(
+            execution_mode=ExecutionMode.TEST,
+            random_seed=None  # Explicitly disable random seed for tests
+        )
         run_manager.current_run = None
         return run_manager
 

@@ -39,9 +39,11 @@ class AnswerRandomizer:
         """Initialize the AnswerRandomizer.
 
         Sets the global random seed for reproducibility based on run_id.
+        The run_id should come from run.seed (single source of truth).
 
         Args:
             run_id: Unique identifier used as random seed for reproducibility.
+                   Should be the value from run.seed database field.
 
         Example:
             >>> randomizer = AnswerRandomizer(run_id=12345)
@@ -49,7 +51,7 @@ class AnswerRandomizer:
         """
         self.run_id = run_id
         random.seed(run_id)
-        logger.info(f"AnswerRandomizer initialized with seed {run_id}")
+        logger.debug(f"AnswerRandomizer initialized with seed {run_id}")
 
     def randomize(self, question: Question) -> Question:
         """Randomize the answer options for a question.

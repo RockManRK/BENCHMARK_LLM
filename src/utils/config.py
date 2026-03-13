@@ -470,52 +470,97 @@ class Settings(BaseSettings):
         """
         return self.execution_mode == ExecutionMode.EXPERIMENT
 
-    def get_config_hash(self) -> str:
-        """Generate a hash of the current configuration.
+    def get_protocol_config(self) -> dict:
+        """Get protocol configuration that is frozen per experiment.
 
-        Creates a deterministic hash from all relevant configuration
-        parameters for experiment tracking and reproducibility.
+        The protocol defines the rules of the experiment that must remain
+        immutable across all runs. This is used to calculate the config hash.
+
+        What defines an experiment protocol:
+        - default_prompt: Rules for parsing/evaluation
+        - use_structured_outputs: Policy for JSON schema usage
+        - random_seed_policy: Seed policy (AUTO, FIXED, or none)
+
+        What is NOT included (these are model variants):
+        - questionnaire_path (just metadata, snapshots are the truth)
+        - Model generation parameters (temperature, max_tokens, etc.)
+        - Reasoning parameters (effort, max_tokens, exclude)
+        - Vision settings
 
         Returns:
-            A hexadecimal string representing the configuration hash.
+            Dictionary containing only protocol configuration fields.
+
+        Example:
+            >>> settings = Settings()
+            >>> protocol = settings.get_protocol_config()
+            >>> print(protocol.keys())
+            dict_keys(['default_prompt', 'use_structured_outputs', 'random_seed_policy'])
         """
-        # Create a dict with all config fields that affect the experiment
-        config_dict = {
-            "execution_mode": self.execution_mode.value,
-            "experiment_name": self.experiment_name,
-            "system_prompt": self.system_prompt,
-            "user_prompt_template": self.user_prompt_template,
-            "model_max_tokens": self.model_max_tokens,
-            "model_temperature": self.model_temperature,
-            "model_top_p": self.model_top_p,
-            "model_top_k": self.model_top_k,
-            "model_repeat_penalty": self.model_repeat_penalty,
-            "reasoning_effort": self.reasoning_effort,
-            "reasoning_max_tokens": self.reasoning_max_tokens,
-            "reasoning_exclude": self.reasoning_exclude,
-            "reasoning_enabled": self.reasoning_enabled,
-            "use_structured_outputs": self.use_structured_outputs,
-            "enable_vision": self.enable_vision,
+        return {
             "default_prompt": self.default_prompt,
+            "use_structured_outputs": self.use_structured_outputs,
+            "random_seed_policy": str(self.random_seed) if self.random_seed else "none",
         }
-        
+
+    def get_config_hash(self) -> str:
+        """Generate a hash of the experiment protocol configuration.
+
+        Creates a deterministic hash from the protocol configuration only.
+        Model variants (temperature, reasoning, vision) do NOT affect the hash,
+        allowing different model variants to be compared within the same experiment.
+
+        Returns:
+            A hexadecimal string representing the protocol configuration hash.
+
+        Example:
+            >>> settings = Settings()
+            >>> hash1 = settings.get_config_hash()
+            >>> settings.model_temperature = 0.8  # Change model variant
+            >>> hash2 = settings.get_config_hash()
+            >>> hash1 == hash2  # Same protocol, same hash
+            True
+        """
+        # Use only protocol configuration for hash
+        config_dict = self.get_protocol_config()
+
         # Serialize to JSON with sorted keys for determinism
         config_json = json.dumps(config_dict, sort_keys=True, default=str)
-        
+
         # Generate SHA-256 hash
         return hashlib.sha256(config_json.encode()).hexdigest()[:16]
 
     def get_config_dict(self) -> dict:
         """Get configuration as a dictionary for serialization.
 
+        Returns all configuration fields for complete serialization.
+        This includes protocol, metadata, and model variants.
+
+        Structure:
+        - Protocol: Fields that define the experiment (used in hash)
+        - Metadata: Informational fields (do NOT affect hash)
+        - Model Variants: Parameters that can vary within an experiment
+
         Returns:
-            Dictionary containing all relevant configuration fields.
+            Dictionary containing all configuration fields.
+
+        Example:
+            >>> settings = Settings()
+            >>> config = settings.get_config_dict()
+            >>> "default_prompt" in config  # Protocol
+            True
+            >>> "model_temperature" in config  # Model variant
+            True
         """
         return {
-            "execution_mode": self.execution_mode.value,
-            "experiment_name": self.experiment_name,
-            "system_prompt": self.system_prompt,
-            "user_prompt_template": self.user_prompt_template,
+            # Protocol (used in config hash)
+            "default_prompt": self.default_prompt,
+            "use_structured_outputs": self.use_structured_outputs,
+            "random_seed_policy": str(self.random_seed) if self.random_seed else "none",
+            # Metadata (informational, do NOT affect hash)
+            "questionnaire_path": str(self.questionnaire_path),
+            "openrouter_base_url": self.openrouter_base_url,
+            "default_iterations": self.default_iterations,
+            # Model Variants (do NOT affect hash, can vary per run)
             "model_max_tokens": self.model_max_tokens,
             "model_temperature": self.model_temperature,
             "model_top_p": self.model_top_p,
@@ -525,14 +570,14 @@ class Settings(BaseSettings):
             "reasoning_max_tokens": self.reasoning_max_tokens,
             "reasoning_exclude": self.reasoning_exclude,
             "reasoning_enabled": self.reasoning_enabled,
-            "use_structured_outputs": self.use_structured_outputs,
             "enable_vision": self.enable_vision,
             "openrouter_debug_enabled": self.openrouter_debug_enabled,
-            "default_prompt": self.default_prompt,
-            "openrouter_base_url": self.openrouter_base_url,
-            "default_iterations": self.default_iterations,
+            # Additional context
+            "execution_mode": self.execution_mode.value,
+            "experiment_name": self.experiment_name,
+            "system_prompt": self.system_prompt,
+            "user_prompt_template": self.user_prompt_template,
             "random_seed": self.random_seed,
-            "questionnaire_path": str(self.questionnaire_path),
         }
 
     def get_generation_params(self) -> dict[str, tuple[str, any]]:

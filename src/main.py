@@ -254,11 +254,6 @@ class BenchmarkRunner:
                 print("Configuration validated successfully (dry run)")
                 return 0
 
-            # Set random seed if provided
-            if self.args.seed:
-                random.seed(self.args.seed)
-                logger.info(f"Random seed set to {self.args.seed}")
-
             # Execute benchmark
             results = self._execute_benchmark()
 
@@ -339,10 +334,20 @@ class BenchmarkRunner:
         logger.info(f"Database initialized at {self.settings.database_path}")
 
     def _log_initialization(self) -> None:
-        """Log the initialization summary with all execution context."""
+        """Log the initialization summary with all execution context.
+        
+        This log shows the CONFIGURED seed policy (from CLI/env), not the
+        actual run seed. The actual run seed is logged separately after
+        the run is created by RunManager.
+        
+        See also: _log_run_creation() for actual seed used.
+        """
         # Get question IDs (will be loaded later, but we can log the filter)
         question_ids = self.args.questions if self.args.questions else ["All questions"]
-        
+
+        # Determine seed policy for display
+        seed_policy = self._get_seed_policy_display()
+
         log_initialization_summary(
             logger=logger,
             execution_mode=self.settings.execution_mode.value,
@@ -350,11 +355,40 @@ class BenchmarkRunner:
             persist_data=self.settings.should_persist_data,
             config_frozen=self.settings.is_config_frozen,
             config_hash=self.settings.get_config_hash() if self.settings.is_config_frozen else None,
-            seed=self.args.seed,
+            seed=seed_policy,  # Show policy, not actual seed value
             models=self.args.models,
             questions=question_ids,  # type: ignore
             system_prompt=self.settings.system_prompt,
         )
+
+    def _get_seed_policy_display(self) -> str:
+        """Get seed policy display string for initialization log.
+        
+        Returns:
+            String describing seed policy: "AUTO", "FIXED", "CLI", or "NONE"
+        """
+        if self.args.seed is not None:
+            return f"CLI ({self.args.seed})"
+        elif self.settings.random_seed == "AUTO":
+            return "AUTO (generated per run)"
+        elif isinstance(self.settings.random_seed, int):
+            return f"FIXED ({self.settings.random_seed})"
+        else:
+            return "NONE (original A,B,C,D order)"
+
+    def _log_run_creation(self, run) -> None:
+        """Log run creation with actual seed used.
+        
+        This provides the definitive record of which seed was actually
+        used for this specific run, as stored in the database.
+        
+        Args:
+            run: Run object with seed value.
+        """
+        if run and run.seed is not None:
+            logger.info(f"Run {run.run_id} created with seed={run.seed} (from database)")
+        else:
+            logger.info(f"Run {run.run_id} created with no seed (original A,B,C,D order)")
 
     def _load_and_filter_questions(self) -> list:
         """Load questions from JSON and apply all filters.
@@ -450,7 +484,7 @@ class BenchmarkRunner:
         run = None
         if self.run_manager:
             run = self.run_manager.initialize_run(config)
-            logger.info(f"Run initialized: {run.run_id}")
+            self._log_run_creation(run)
 
         return run
 
@@ -485,13 +519,16 @@ class BenchmarkRunner:
         return actual_model_id, model_info
 
     def _build_iteration_config(
-        self, 
-        run: Optional, 
-        model_id: str, 
-        actual_model_id: str, 
+        self,
+        run: Optional,
+        model_id: str,
+        actual_model_id: str,
         iteration_num: int
     ) -> dict:
         """Build configuration for a single iteration.
+
+        Uses run.seed from the database as the single source of truth.
+        No seed derivation or generation happens here.
 
         Args:
             run: Run object or None.
@@ -504,37 +541,21 @@ class BenchmarkRunner:
         """
         from src.core.randomizer import AnswerRandomizer
 
-        # Calculate seed
-        if self.args.seed is not None:
-            if isinstance(self.args.seed, int):
-                base_seed = self.args.seed
-                logger.info(f"  Using fixed seed {base_seed} from CLI")
-            else:
-                base_seed = None
-        elif self.settings.random_seed == "AUTO":
-            if run:
-                base_seed = hash(run.run_id) % (2**31)
-                logger.info(f"  Using AUTO seed {base_seed} (from run_id hash)")
-            else:
-                base_seed = 42
-                logger.info(f"  Using fallback seed {base_seed}")
-        elif self.settings.random_seed is not None:
-            base_seed = self.settings.random_seed
-            logger.info(f"  Using fixed seed {base_seed} from .env")
-        else:
-            base_seed = None
-            logger.info("  Randomization disabled (answers in original A,B,C,D order)")
-
-        # Vary seed per iteration if requested
-        if self.args.vary_seed and base_seed is not None:
-            randomizer_seed = (base_seed + (iteration_num * 1000)) % (2**31)
-            logger.info(f"  Using seed {randomizer_seed} for iteration {iteration_num} (base: {base_seed})")
-        elif base_seed is not None:
-            randomizer_seed = base_seed
+        # Use seed from run (single source of truth)
+        # run.seed is set by RunManager._determine_seed() and saved to database
+        if run and run.seed is not None:
+            randomizer_seed = run.seed
+            logger.debug(f"Iteration {iteration_num} using seed {randomizer_seed} from run")
         else:
             randomizer_seed = None
+            logger.debug(f"Iteration {iteration_num} using no seed (original order)")
 
-        # Create randomizer
+        # Vary seed per iteration if requested (only for testing consistency)
+        if self.args.vary_seed and randomizer_seed is not None:
+            randomizer_seed = (run.seed + (iteration_num * 1000)) % (2**31)
+            logger.debug(f"Iteration {iteration_num} using varied seed {randomizer_seed} (base: {run.seed})")
+
+        # Create randomizer with seed from run
         randomizer = AnswerRandomizer(run_id=randomizer_seed) if randomizer_seed is not None else None
 
         # Build model kwargs
