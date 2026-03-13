@@ -63,8 +63,6 @@ CREATE TABLE IF NOT EXISTS models (
     model_id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
     model_name TEXT NOT NULL,
-    supports_multimodal BOOLEAN NOT NULL DEFAULT 0,
-    metadata_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -228,18 +226,6 @@ CREATE INDEX IF NOT EXISTS idx_errors_type ON errors(error_type);
 
 -- Index for fast lookups by timestamp
 CREATE INDEX IF NOT EXISTS idx_errors_timestamp ON errors(timestamp);
-
--- ============================================================================
--- Schema Metadata (Optional - for documentation)
--- This table can be used to store descriptions of tables and columns.
--- Currently not populated by default, but available for future use.
--- ============================================================================
-CREATE TABLE IF NOT EXISTS schema_metadata (
-    table_name TEXT NOT NULL,
-    column_name TEXT,
-    description TEXT NOT NULL,
-    PRIMARY KEY (table_name, column_name)
-);
 
 -- ============================================================================
 -- End of Schema

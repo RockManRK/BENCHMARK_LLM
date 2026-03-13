@@ -12,10 +12,9 @@ from typing import Any, Generator
 
 import pytest
 
-from src.db.models import Error, Iteration, Response, Run
+from src.db.models import Error, Response, Run
 from src.db.repository import (
     ErrorRepository,
-    IterationRepository,
     ModelRepository,
     ResponseRepository,
     RunRepository,
@@ -57,7 +56,6 @@ class TestDatabaseSchema:
         assert "CREATE TABLE" in schema
         assert "runs" in schema
         assert "models" in schema
-        assert "iterations" in schema
         assert "responses" in schema
         assert "errors" in schema
         assert "operational_logs" in schema
@@ -65,22 +63,21 @@ class TestDatabaseSchema:
     def test_database_initialization_creates_tables(self, db_connection: sqlite3.Connection) -> None:
         """Test that database initialization creates all required tables."""
         cursor = db_connection.cursor()
-        
+
         # Get all table names
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         tables = {row[0] for row in cursor.fetchall()}
-        
+
         expected_tables = {
             "runs",
             "models",
-            "iterations",
             "responses",
             "errors",
             "operational_logs",
         }
-        
+
         assert expected_tables.issubset(tables)
 
     def test_runs_table_schema(self, db_connection: sqlite3.Connection) -> None:
@@ -104,43 +101,52 @@ class TestDatabaseSchema:
         assert "model_name" in columns
         assert "provider" in columns
 
-    def test_iterations_table_schema(self, db_connection: sqlite3.Connection) -> None:
-        """Test that iterations table has correct schema."""
-        cursor = db_connection.cursor()
-        cursor.execute("PRAGMA table_info(iterations)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        
-        assert "iteration_id" in columns
-        assert "run_id" in columns
-        assert "model_id" in columns
-        assert "iteration_number" in columns
-        assert "started_at" in columns
-        assert "completed_at" in columns
-        assert "status" in columns
-
     def test_responses_table_schema(self, db_connection: sqlite3.Connection) -> None:
         """Test that responses table has correct schema."""
         cursor = db_connection.cursor()
         cursor.execute("PRAGMA table_info(responses)")
         columns = {row[1]: row[2] for row in cursor.fetchall()}
-        
+
+        # Identification
         assert "response_id" in columns
-        assert "iteration_id" in columns
+        assert "run_id" in columns
+        assert "snapshot_id" in columns
         assert "question_id" in columns
         assert "model_id" in columns
-        assert "run_id" in columns
-        assert "question_text" in columns
-        assert "options_json" in columns
-        assert "options_randomized" in columns
+        assert "iteration" in columns
+
+        # Response data
         assert "selected_answer" in columns
-        assert "correct_answer" in columns
-        assert "is_correct" in columns
         assert "response_text" in columns
+        assert "is_correct" in columns
+        assert "status" in columns
+
+        # Termination
+        assert "finish_reason" in columns
+        assert "error_details" in columns
+
+        # Performance
+        assert "latency_ms" in columns
+
+        # Tokens
         assert "input_tokens" in columns
         assert "response_tokens" in columns
-        assert "latency_ms" in columns
+        assert "total_tokens" in columns
+        assert "reasoning_tokens" in columns
+        assert "effective_tokens" in columns
+
+        # Cost
+        assert "cost" in columns
+
+        # Audit
+        assert "raw_response_json" in columns
         assert "timestamp" in columns
-        assert "status" in columns
+
+        # Manual review
+        assert "parse_confidence" in columns
+        assert "review_status" in columns
+        assert "reviewed_at" in columns
+        assert "manual_answer" in columns
 
     def test_errors_table_schema(self, db_connection: sqlite3.Connection) -> None:
         """Test that errors table has correct schema."""
@@ -207,14 +213,11 @@ class TestModels:
     def test_response_dataclass_creation(self) -> None:
         """Test creating a Response dataclass instance."""
         response = Response(
-            response_id=1,
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=1,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="What is the capital of France?",
-            options_json='{"A": "Paris", "B": "London", "C": "Berlin", "D": "Madrid"}',
-            options_randomized=False,
+            iteration=1,
             selected_answer="A",
             correct_answer="A",
             is_correct=True,
@@ -222,7 +225,6 @@ class TestModels:
             input_tokens=50,
             response_tokens=20,
             latency_ms=1500,
-            timestamp=datetime.now(),
             status="success",
         )
         assert response.question_id == "Q001"
@@ -232,15 +234,15 @@ class TestModels:
     def test_response_dataclass_defaults(self) -> None:
         """Test Response dataclass default values."""
         response = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=1,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test question",
-            options_json="{}",
+            iteration=1,
         )
-        assert response.options_randomized is False
         assert response.status == "pending"
+        assert response.is_correct is None
+        assert response.parse_confidence == "unknown"
 
     def test_error_dataclass_creation(self) -> None:
         """Test creating an Error dataclass instance."""
@@ -259,30 +261,6 @@ class TestModels:
         """Test Error dataclass default values."""
         error = Error(response_id=1, error_type="Unknown", error_message="An error occurred")
         assert error.stack_trace == ""
-
-    def test_iteration_dataclass_creation(self) -> None:
-        """Test creating an Iteration dataclass instance."""
-        iteration = Iteration(
-            iteration_id=1,
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-            completed_at=datetime.now(),
-            status="completed",
-        )
-        assert iteration.iteration_number == 1
-        assert iteration.status == "completed"
-
-    def test_iteration_dataclass_defaults(self) -> None:
-        """Test Iteration dataclass default values."""
-        iteration = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        assert iteration.status == "running"
 
 
 class TestRunRepository:
@@ -475,36 +453,30 @@ class TestModelRepository:
 class TestResponseRepository:
     """Test cases for ResponseRepository CRUD operations."""
 
-    def _setup_response_test_data(self, db_manager: DatabaseManager) -> tuple[RunRepository, ModelRepository, IterationRepository, ResponseRepository]:
+    def _setup_response_test_data(self, db_manager: DatabaseManager) -> tuple[RunRepository, ModelRepository, ResponseRepository]:
         """Set up required parent records for response tests."""
         run_repo = RunRepository(db_manager)
         model_repo = ModelRepository(db_manager)
-        iteration_repo = IterationRepository(db_manager)
         response_repo = ResponseRepository(db_manager)
-        
+
         # Create run
         run = Run(run_id="test-run-001", created_at=datetime.now())
         run_repo.create(run)
-        
+
         # Create model
         model_repo.create("gpt-4", "GPT-4", "OpenAI")
-        
-        # Create iteration
-        iteration = Iteration(run_id="test-run-001", model_id="gpt-4", iteration_number=1, started_at=datetime.now())
-        iteration_repo.create(iteration)
-        
-        return run_repo, model_repo, iteration_repo, response_repo
+
+        return run_repo, model_repo, response_repo
 
     def test_create_response(self, db_manager: DatabaseManager) -> None:
         """Test creating a new response."""
-        _, _, _, repo = self._setup_response_test_data(db_manager)
+        _, _, repo = self._setup_response_test_data(db_manager)
         response = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test question",
-            options_json="{}",
+            iteration=1,
             selected_answer="A",
             correct_answer="A",
             is_correct=True,
@@ -514,28 +486,27 @@ class TestResponseRepository:
             latency_ms=100,
             status="success",
         )
-        
+
         created = repo.create(response)
-        
+
         assert created.response_id is not None
         assert created.question_id == "Q001"
         assert created.selected_answer == "A"
 
     def test_get_response_by_id(self, db_manager: DatabaseManager) -> None:
         """Test retrieving a response by ID."""
-        _, _, _, repo = self._setup_response_test_data(db_manager)
+        _, _, repo = self._setup_response_test_data(db_manager)
         response = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test",
-            options_json="{}",
+            iteration=1,
         )
         created = repo.create(response)
-        
+
         retrieved = repo.get_by_id(created.response_id)
-        
+
         assert retrieved is not None
         assert retrieved.response_id == created.response_id
 
@@ -545,114 +516,95 @@ class TestResponseRepository:
         retrieved = repo.get_by_id(99999)
         assert retrieved is None
 
-    def test_get_responses_by_iteration(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving responses by iteration ID."""
-        _, _, _, repo = self._setup_response_test_data(db_manager)
-        
+    def test_get_responses_by_run(self, db_manager: DatabaseManager) -> None:
+        """Test retrieving responses by run ID."""
+        _, _, repo = self._setup_response_test_data(db_manager)
+
         response1 = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test 1",
-            options_json="{}",
+            iteration=1,
         )
         response2 = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q002",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test 2",
-            options_json="{}",
+            iteration=1,
         )
         response3 = Response(
-            iteration_id=2,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test 1",
-            options_json="{}",
+            iteration=2,
         )
-        
+
         repo.create(response1)
         repo.create(response2)
-        
-        # Create second iteration for response3
-        iteration_repo = IterationRepository(db_manager)
-        iteration2 = Iteration(run_id="test-run-001", model_id="gpt-4", iteration_number=2, started_at=datetime.now())
-        iteration_repo.create(iteration2)
-        response3.iteration_id = iteration2.iteration_id
         repo.create(response3)
-        
-        responses = repo.get_by_iteration(1)
-        
-        assert len(responses) == 2
-        question_ids = {r.question_id for r in responses}
-        assert question_ids == {"Q001", "Q002"}
+
+        responses = repo.get_by_run("test-run-001")
+
+        assert len(responses) == 3
 
     def test_get_responses_by_run(self, db_manager: DatabaseManager) -> None:
         """Test retrieving responses by run ID."""
         run_repo = RunRepository(db_manager)
         model_repo = ModelRepository(db_manager)
-        iteration_repo = IterationRepository(db_manager)
         repo = ResponseRepository(db_manager)
-        
+
         # Create run-1
         run1 = Run(run_id="run-1", created_at=datetime.now())
         run_repo.create(run1)
         model_repo.create("gpt-4", "GPT-4", "OpenAI")
-        iter1 = Iteration(run_id="run-1", model_id="gpt-4", iteration_number=1, started_at=datetime.now())
-        iteration_repo.create(iter1)
-        
+
         # Create run-2
         run2 = Run(run_id="run-2", created_at=datetime.now())
         run_repo.create(run2)
-        iter2 = Iteration(run_id="run-2", model_id="gpt-4", iteration_number=1, started_at=datetime.now())
-        iteration_repo.create(iter2)
-        
+
         response1 = Response(
-            iteration_id=iter1.iteration_id,
+            run_id="run-1",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="run-1",
-            question_text="Test",
-            options_json="{}",
+            iteration=1,
         )
         response2 = Response(
-            iteration_id=iter2.iteration_id,
+            run_id="run-2",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="run-2",
-            question_text="Test",
-            options_json="{}",
+            iteration=1,
         )
-        
+
         repo.create(response1)
         repo.create(response2)
-        
+
         responses = repo.get_by_run("run-1")
-        
+
         assert len(responses) == 1
         assert responses[0].run_id == "run-1"
 
     def test_update_response(self, db_manager: DatabaseManager) -> None:
         """Test updating a response."""
-        _, _, _, repo = self._setup_response_test_data(db_manager)
+        _, _, repo = self._setup_response_test_data(db_manager)
         response = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test",
-            options_json="{}",
+            iteration=1,
             status="pending",
         )
         created = repo.create(response)
-        
+
         created.status = "success"
         created.selected_answer = "A"
         updated = repo.update(created)
-        
+
         assert updated is not None
         assert updated.status == "success"
         assert updated.selected_answer == "A"
@@ -661,12 +613,11 @@ class TestResponseRepository:
         """Test updating a non-existent response."""
         repo = ResponseRepository(db_manager)
         response = Response(
-            iteration_id=1,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test",
-            options_json="{}",
+            iteration=1,
         )
         response.response_id = 99999
         updated = repo.update(response)
@@ -701,50 +652,46 @@ class TestResponseRepository:
 class TestErrorRepository:
     """Test cases for ErrorRepository CRUD operations."""
 
-    def _setup_error_test_data(self, db_manager: DatabaseManager) -> tuple[RunRepository, ModelRepository, IterationRepository, ResponseRepository, ErrorRepository]:
+    def _setup_error_test_data(self, db_manager: DatabaseManager) -> tuple[RunRepository, ModelRepository, ResponseRepository, ErrorRepository, int]:
         """Set up required parent records for error tests."""
         run_repo = RunRepository(db_manager)
         model_repo = ModelRepository(db_manager)
-        iteration_repo = IterationRepository(db_manager)
         response_repo = ResponseRepository(db_manager)
         error_repo = ErrorRepository(db_manager)
-        
+
         # Create run
         run = Run(run_id="test-run-001", created_at=datetime.now())
         run_repo.create(run)
-        
+
         # Create model
         model_repo.create("gpt-4", "GPT-4", "OpenAI")
-        
-        # Create iteration
-        iteration = Iteration(run_id="test-run-001", model_id="gpt-4", iteration_number=1, started_at=datetime.now())
-        iteration_repo.create(iteration)
-        
+
         # Create response
         response = Response(
-            iteration_id=iteration.iteration_id,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test",
-            options_json="{}",
+            iteration=1,
         )
         created_response = response_repo.create(response)
-        
-        return run_repo, model_repo, iteration_repo, response_repo, error_repo, created_response.response_id
+
+        return run_repo, model_repo, response_repo, error_repo, created_response.response_id
 
     def test_create_error(self, db_manager: DatabaseManager) -> None:
         """Test creating a new error."""
         *_, error_repo, response_id = self._setup_error_test_data(db_manager)
         error = Error(
-            response_id=response_id,
+            run_id="test-run-001",
+            question_id="Q001",
+            model_id="gpt-4",
             error_type="APIError",
             error_message="Rate limit exceeded",
             stack_trace="Traceback...",
         )
-        
+
         created = error_repo.create(error)
-        
+
         assert created.error_id is not None
         assert created.error_type == "APIError"
 
@@ -752,14 +699,16 @@ class TestErrorRepository:
         """Test retrieving an error by ID."""
         *_, error_repo, response_id = self._setup_error_test_data(db_manager)
         error = Error(
-            response_id=response_id,
+            run_id="test-run-001",
+            question_id="Q001",
+            model_id="gpt-4",
             error_type="APIError",
             error_message="Test error",
         )
         created = error_repo.create(error)
-        
+
         retrieved = error_repo.get_by_id(created.error_id)
-        
+
         assert retrieved is not None
         assert retrieved.error_id == created.error_id
 
@@ -775,34 +724,28 @@ class TestErrorRepository:
         
         # Create additional responses for testing
         response_repo = ResponseRepository(db_manager)
-        iteration_repo = IterationRepository(db_manager)
-        
-        # Create second iteration and response
-        iteration2 = Iteration(run_id="test-run-001", model_id="gpt-4", iteration_number=2, started_at=datetime.now())
-        iteration_repo.create(iteration2)
+
+        # Create second response
         response2 = Response(
-            iteration_id=iteration2.iteration_id,
+            run_id="test-run-001",
+            snapshot_id=None,
             question_id="Q001",
             model_id="gpt-4",
-            run_id="test-run-001",
-            question_text="Test",
-            options_json="{}",
+            iteration=2,
         )
         created_response2 = response_repo.create(response2)
-        
-        error1 = Error(response_id=response_id, error_type="APIError", error_message="Error 1")
-        error2 = Error(response_id=response_id, error_type="TimeoutError", error_message="Error 2")
-        error3 = Error(response_id=created_response2.response_id, error_type="APIError", error_message="Error 3")
-        
+
+        error1 = Error(run_id="test-run-001", question_id="Q001", model_id="gpt-4", error_type="APIError", error_message="Error 1")
+        error2 = Error(run_id="test-run-001", question_id="Q001", model_id="gpt-4", error_type="TimeoutError", error_message="Error 2")
+        error3 = Error(run_id="test-run-001", question_id="Q001", model_id="gpt-4", error_type="APIError", error_message="Error 3")
+
         error_repo.create(error1)
         error_repo.create(error2)
         error_repo.create(error3)
-        
-        errors = error_repo.get_by_response(response_id)
-        
-        assert len(errors) == 2
-        error_types = {e.error_type for e in errors}
-        assert error_types == {"APIError", "TimeoutError"}
+
+        errors = error_repo.get_by_run("test-run-001")
+
+        assert len(errors) == 3
 
     def test_delete_error(self, db_manager: DatabaseManager) -> None:
         """Test deleting an error."""
@@ -819,186 +762,6 @@ class TestErrorRepository:
     def test_delete_nonexistent_error(self, db_manager: DatabaseManager) -> None:
         """Test deleting a non-existent error."""
         repo = ErrorRepository(db_manager)
-        deleted = repo.delete(99999)
-        assert deleted is False
-
-
-class TestIterationRepository:
-    """Test cases for IterationRepository CRUD operations."""
-
-    def _setup_iteration_test_data(self, db_manager: DatabaseManager) -> tuple[RunRepository, ModelRepository, IterationRepository]:
-        """Set up required parent records for iteration tests."""
-        run_repo = RunRepository(db_manager)
-        model_repo = ModelRepository(db_manager)
-        iteration_repo = IterationRepository(db_manager)
-        
-        # Create run
-        run = Run(run_id="test-run-001", created_at=datetime.now())
-        run_repo.create(run)
-        
-        # Create model
-        model_repo.create("gpt-4", "GPT-4", "OpenAI")
-        
-        return run_repo, model_repo, iteration_repo
-
-    def test_create_iteration(self, db_manager: DatabaseManager) -> None:
-        """Test creating a new iteration."""
-        _, _, repo = self._setup_iteration_test_data(db_manager)
-        iteration = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        
-        created = repo.create(iteration)
-        
-        assert created.iteration_id is not None
-        assert created.iteration_number == 1
-        assert created.status == "running"
-
-    def test_get_iteration_by_id(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving an iteration by ID."""
-        _, _, repo = self._setup_iteration_test_data(db_manager)
-        iteration = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        created = repo.create(iteration)
-        
-        retrieved = repo.get_by_id(created.iteration_id)
-        
-        assert retrieved is not None
-        assert retrieved.iteration_id == created.iteration_id
-
-    def test_get_iteration_by_id_not_found(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving a non-existent iteration."""
-        repo = IterationRepository(db_manager)
-        retrieved = repo.get_by_id(99999)
-        assert retrieved is None
-
-    def test_get_iterations_by_run(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving iterations by run ID."""
-        _, _, repo = self._setup_iteration_test_data(db_manager)
-        
-        iter1 = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        iter2 = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=2,
-            started_at=datetime.now(),
-        )
-        
-        # Create second run for iter3
-        run_repo = RunRepository(db_manager)
-        run2 = Run(run_id="test-run-002", created_at=datetime.now())
-        run_repo.create(run2)
-        
-        iter3 = Iteration(
-            run_id="test-run-002",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        
-        created1 = repo.create(iter1)
-        created2 = repo.create(iter2)
-        repo.create(iter3)
-        
-        iterations = repo.get_by_run("test-run-001")
-        
-        assert len(iterations) == 2
-        iteration_ids = {i.iteration_id for i in iterations}
-        assert iteration_ids == {created1.iteration_id, created2.iteration_id}
-
-    def test_get_iterations_by_model(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving iterations by model ID."""
-        run_repo, model_repo, repo = self._setup_iteration_test_data(db_manager)
-        
-        # Create second model
-        model_repo.create("claude-3", "Claude 3", "Anthropic")
-        
-        iter1 = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        iter2 = Iteration(
-            run_id="test-run-001",
-            model_id="claude-3",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        
-        repo.create(iter1)
-        repo.create(iter2)
-        
-        iterations = repo.get_by_model("gpt-4")
-        
-        assert len(iterations) == 1
-        assert iterations[0].model_id == "gpt-4"
-
-    def test_update_iteration(self, db_manager: DatabaseManager) -> None:
-        """Test updating an iteration."""
-        _, _, repo = self._setup_iteration_test_data(db_manager)
-        iteration = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-            status="running",
-        )
-        created = repo.create(iteration)
-        
-        created.status = "completed"
-        created.completed_at = datetime.now()
-        updated = repo.update(created)
-        
-        assert updated is not None
-        assert updated.status == "completed"
-        assert updated.completed_at is not None
-
-    def test_update_nonexistent_iteration(self, db_manager: DatabaseManager) -> None:
-        """Test updating a non-existent iteration."""
-        repo = IterationRepository(db_manager)
-        iteration = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        iteration.iteration_id = 99999
-        updated = repo.update(iteration)
-        assert updated is None
-
-    def test_delete_iteration(self, db_manager: DatabaseManager) -> None:
-        """Test deleting an iteration."""
-        _, _, repo = self._setup_iteration_test_data(db_manager)
-        iteration = Iteration(
-            run_id="test-run-001",
-            model_id="gpt-4",
-            iteration_number=1,
-            started_at=datetime.now(),
-        )
-        created = repo.create(iteration)
-        
-        deleted = repo.delete(created.iteration_id)
-        assert deleted is True
-        
-        retrieved = repo.get_by_id(created.iteration_id)
-        assert retrieved is None
-
-    def test_delete_nonexistent_iteration(self, db_manager: DatabaseManager) -> None:
-        """Test deleting a non-existent iteration."""
-        repo = IterationRepository(db_manager)
         deleted = repo.delete(99999)
         assert deleted is False
 

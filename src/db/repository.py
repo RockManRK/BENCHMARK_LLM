@@ -456,15 +456,13 @@ class ModelRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO models (model_id, provider, model_name, supports_multimodal, metadata_json)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO models (model_id, provider, model_name)
+                VALUES (?, ?, ?)
                 """,
                 (
                     model.model_id,
                     model.provider,
                     model.model_name,
-                    1 if model.supports_multimodal else 0,
-                    model.metadata_json,
                 ),
             )
             conn.commit()
@@ -483,7 +481,7 @@ class ModelRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT model_id, provider, model_name, supports_multimodal, metadata_json, created_at
+                SELECT model_id, provider, model_name, created_at
                 FROM models WHERE model_id = ?
                 """,
                 (model_id,),
@@ -495,8 +493,6 @@ class ModelRepository:
                 model_id=row["model_id"],
                 provider=row["provider"],
                 model_name=row["model_name"],
-                supports_multimodal=bool(row["supports_multimodal"]),
-                metadata_json=row["metadata_json"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
         finally:
@@ -510,7 +506,7 @@ class ModelRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT model_id, provider, model_name, supports_multimodal, metadata_json, created_at
+                SELECT model_id, provider, model_name, created_at
                 FROM models ORDER BY model_name
                 """
             )
@@ -521,8 +517,6 @@ class ModelRepository:
                         model_id=row["model_id"],
                         provider=row["provider"],
                         model_name=row["model_name"],
-                        supports_multimodal=bool(row["supports_multimodal"]),
-                        metadata_json=row["metadata_json"],
                         created_at=datetime.fromisoformat(row["created_at"]),
                     )
                 )

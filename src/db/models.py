@@ -91,8 +91,6 @@ class Model:
         model_id: Unique identifier for the model.
         provider: Name of the model provider (e.g., OpenAI, Anthropic).
         model_name: Human-readable name of the model.
-        supports_multimodal: Whether the model supports multimodal input.
-        metadata_json: JSON string with model metadata.
         created_at: Timestamp when the model was registered.
 
     Example:
@@ -108,8 +106,6 @@ class Model:
     model_id: str
     provider: str
     model_name: str
-    supports_multimodal: bool = False
-    metadata_json: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
 
 

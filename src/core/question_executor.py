@@ -969,6 +969,7 @@ class QuestionExecutor:
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
+            stack_trace=self._get_stack_trace(),
             error_details=error_details,
             raw_response_json=raw_response_json,
         )
@@ -1018,6 +1019,7 @@ class QuestionExecutor:
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
+            stack_trace=self._get_stack_trace(),
             error_details=error_details,
             raw_response_json=raw_response_json,
         )
@@ -1069,6 +1071,7 @@ class QuestionExecutor:
             error_type=error_type,
             error_message=error_message,
             latency_ms=latency_ms,
+            stack_trace=self._get_stack_trace(),
             error_details=error_details,
             raw_response_json=raw_response_json,
         )
