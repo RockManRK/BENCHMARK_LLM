@@ -23,8 +23,8 @@ class Experiment:
         description: Optional description of the experiment.
         config_json: JSON string containing frozen configuration.
         config_hash: SHA-256 hash of configuration for deduplication.
-        system_prompt: System prompt used in the experiment.
-        user_prompt_template: User prompt template used.
+        system_prompt_template: System prompt template used in the experiment.
+        user_prompt_template: User prompt template used in the experiment.
         created_at: Timestamp when the experiment was created.
 
     Example:
@@ -43,7 +43,7 @@ class Experiment:
     config_hash: str
     experiment_id: Optional[str] = None
     description: Optional[str] = None
-    system_prompt: Optional[str] = None
+    system_prompt_template: Optional[str] = None
     user_prompt_template: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
 

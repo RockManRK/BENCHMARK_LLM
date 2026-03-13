@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     description TEXT,
     config_json TEXT NOT NULL,
     config_hash TEXT NOT NULL,
-    system_prompt TEXT,
+    system_prompt_template TEXT,
     user_prompt_template TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

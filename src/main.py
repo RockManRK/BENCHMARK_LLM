@@ -636,6 +636,8 @@ class BenchmarkRunner:
             use_structured_outputs=self.settings.use_structured_outputs,
             reasoning_config=iteration_config["reasoning_config"],
             settings=self.settings,
+            system_prompt_template=self.settings.system_prompt,
+            user_prompt_template=self.settings.user_prompt_template,
         )
 
         result = executor.execute_iteration(questions)

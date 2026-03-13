@@ -184,11 +184,11 @@ class Settings(BaseSettings):
     )
     system_prompt: Optional[str] = Field(
         default=None,
-        description="System prompt for experiment mode",
+        description="System prompt template for experiment mode. Loaded from SYSTEM_PROMPT environment variable.",
     )
     user_prompt_template: Optional[str] = Field(
         default=None,
-        description="User prompt template for experiment mode",
+        description="User prompt template for experiment mode. Loaded from USER_PROMPT environment variable. If not set, uses default_prompt as fallback.",
     )
 
     # Model Generation Parameters (optional, None = use model defaults)
@@ -606,7 +606,25 @@ class Settings(BaseSettings):
         Args:
             **kwargs: Optional keyword arguments to override settings.
         """
+        # Map SYSTEM_PROMPT_TEMPLATE and USER_PROMPT_TEMPLATE from .env
+        # to system_prompt and user_prompt_template fields
+        import os
+        if 'system_prompt' not in kwargs:
+            system_prompt_template = os.getenv("SYSTEM_PROMPT_TEMPLATE")
+            if system_prompt_template is not None:
+                kwargs['system_prompt'] = system_prompt_template
+        
+        if 'user_prompt_template' not in kwargs:
+            user_prompt_template = os.getenv("USER_PROMPT_TEMPLATE")
+            if user_prompt_template is not None:
+                kwargs['user_prompt_template'] = user_prompt_template
+        
         super().__init__(**kwargs)
+        # Apply fallback for user_prompt_template if not set
+        # Use default_prompt as fallback for backward compatibility
+        if self.user_prompt_template is None and self.default_prompt is not None:
+            self.user_prompt_template = self.default_prompt
+            logger.debug(f"Using default_prompt as user_prompt_template fallback: {self.default_prompt}")
         self._log_configuration_status()
 
     def _log_configuration_status(self) -> None:

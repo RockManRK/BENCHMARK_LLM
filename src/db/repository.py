@@ -59,7 +59,7 @@ class ExperimentRepository:
                 """
                 INSERT INTO experiments (
                     experiment_id, name, description, config_json, config_hash,
-                    system_prompt, user_prompt_template
+                    system_prompt_template, user_prompt_template
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -68,7 +68,7 @@ class ExperimentRepository:
                     experiment.description,
                     experiment.config_json,
                     experiment.config_hash,
-                    experiment.system_prompt,
+                    experiment.system_prompt_template,
                     experiment.user_prompt_template,
                 ),
             )
@@ -97,7 +97,7 @@ class ExperimentRepository:
             cursor.execute(
                 """
                 SELECT experiment_id, name, description, config_json, config_hash,
-                       system_prompt, user_prompt_template, created_at
+                       system_prompt_template, user_prompt_template, created_at
                 FROM experiments WHERE experiment_id = ?
                 """,
                 (experiment_id,),
@@ -111,7 +111,7 @@ class ExperimentRepository:
                 description=row["description"],
                 config_json=row["config_json"],
                 config_hash=row["config_hash"],
-                system_prompt=row["system_prompt"],
+                system_prompt_template=row["system_prompt_template"],
                 user_prompt_template=row["user_prompt_template"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
@@ -134,7 +134,7 @@ class ExperimentRepository:
             cursor.execute(
                 """
                 SELECT experiment_id, name, description, config_json, config_hash,
-                       system_prompt, user_prompt_template, created_at
+                       system_prompt_template, user_prompt_template, created_at
                 FROM experiments WHERE name = ?
                 """,
                 (name,),
@@ -148,7 +148,7 @@ class ExperimentRepository:
                 description=row["description"],
                 config_json=row["config_json"],
                 config_hash=row["config_hash"],
-                system_prompt=row["system_prompt"],
+                system_prompt_template=row["system_prompt_template"],
                 user_prompt_template=row["user_prompt_template"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
@@ -171,7 +171,7 @@ class ExperimentRepository:
             cursor.execute(
                 """
                 SELECT experiment_id, name, description, config_json, config_hash,
-                       system_prompt, user_prompt_template, created_at
+                       system_prompt_template, user_prompt_template, created_at
                 FROM experiments WHERE config_hash = ?
                 """,
                 (config_hash,),
@@ -185,7 +185,7 @@ class ExperimentRepository:
                 description=row["description"],
                 config_json=row["config_json"],
                 config_hash=row["config_hash"],
-                system_prompt=row["system_prompt"],
+                system_prompt_template=row["system_prompt_template"],
                 user_prompt_template=row["user_prompt_template"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
@@ -205,7 +205,7 @@ class ExperimentRepository:
             cursor.execute(
                 """
                 SELECT experiment_id, name, description, config_json, config_hash,
-                       system_prompt, user_prompt_template, created_at
+                       system_prompt_template, user_prompt_template, created_at
                 FROM experiments ORDER BY created_at DESC
                 """
             )
@@ -218,7 +218,7 @@ class ExperimentRepository:
                         description=row["description"],
                         config_json=row["config_json"],
                         config_hash=row["config_hash"],
-                        system_prompt=row["system_prompt"],
+                        system_prompt_template=row["system_prompt_template"],
                         user_prompt_template=row["user_prompt_template"],
                         created_at=datetime.fromisoformat(row["created_at"]),
                     )

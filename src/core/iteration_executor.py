@@ -63,6 +63,8 @@ class IterationExecutor:
         use_structured_outputs: bool = False,
         reasoning_config: Optional[dict[str, Any]] = None,
         settings: Optional[Settings] = None,
+        system_prompt_template: Optional[str] = None,
+        user_prompt_template: Optional[str] = None,
     ) -> None:
         """Initialize the IterationExecutor.
 
@@ -78,6 +80,8 @@ class IterationExecutor:
             use_structured_outputs: Whether to use structured outputs (JSON schema)
                 for model responses. Falls back to traditional method if not supported.
             reasoning_config: Optional reasoning configuration (OpenRouter standard).
+            system_prompt_template: System prompt template from experiment (frozen).
+            user_prompt_template: User prompt template from experiment (frozen).
 
         Example:
             >>> executor = IterationExecutor(
@@ -101,6 +105,8 @@ class IterationExecutor:
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
         self.settings = settings
+        self._system_prompt_template = system_prompt_template
+        self._user_prompt_template = user_prompt_template
         self._progress_tracker: Optional[ProgressTracker] = None
 
         logger.info(
@@ -245,6 +251,8 @@ class IterationExecutor:
             enable_vision=self.settings.enable_vision if hasattr(self, 'settings') else False,
             settings=self.settings if hasattr(self, 'settings') else None,
             snapshot_repository=snapshot_repository,
+            system_prompt_template=self._system_prompt_template,
+            user_prompt_template=self._user_prompt_template,
         )
 
         # Execute question and await result

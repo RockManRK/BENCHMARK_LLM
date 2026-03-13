@@ -68,6 +68,8 @@ class QuestionExecutor:
         enable_vision: bool = False,
         settings: Optional[Settings] = None,
         snapshot_repository: Optional[QuestionSnapshotRepository] = None,
+        system_prompt_template: Optional[str] = None,
+        user_prompt_template: Optional[str] = None,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -87,6 +89,8 @@ class QuestionExecutor:
             reasoning_config: Optional reasoning configuration (OpenRouter standard).
             enable_vision: Whether to send images with questions (default: False).
             snapshot_repository: Optional QuestionSnapshotRepository for creating snapshots.
+            system_prompt_template: System prompt template from experiment (frozen).
+            user_prompt_template: User prompt template from experiment (frozen).
 
         Example:
             >>> executor = QuestionExecutor(
@@ -114,6 +118,8 @@ class QuestionExecutor:
         self._snapshot_repository = snapshot_repository
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
+        self._system_prompt_template = system_prompt_template
+        self._user_prompt_template = user_prompt_template
         logger.debug(
             f"QuestionExecutor initialized for run={run_id}, "
             f"model={model_id}, iteration={self._iteration_number}, "
@@ -335,12 +341,14 @@ class QuestionExecutor:
         options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
 
         # Build the prompt
-        # Default instruction for all questions (with or without images)
+        # Use prompt templates from experiment (source of truth) or fall back to settings/default
+        # Priority: 1) experiment templates, 2) settings.default_prompt, 3) default instruction
         default_instruction = "Select the correct answer by providing only the letter (A, B, C, or D)."
+        
+        # Use user_prompt_template if available, otherwise use default_prompt from settings
+        instruction = self._user_prompt_template or self._settings.default_prompt or default_instruction
 
-        # Use custom prompt from settings or default (NO distinction for images)
-        instruction = self._settings.default_prompt or default_instruction
-
+        # Build prompt with question stem, options, and instruction
         prompt = f"""{question.stem}
 
 {options_text}
@@ -371,10 +379,24 @@ class QuestionExecutor:
             Raw API response dictionary. If debug is enabled, returns
             {"_debug": {...}, "response": {...}}.
         """
+        # Build messages array with system prompt (if configured) and user message
+        messages = []
+        
+        # Add system prompt if configured
+        if self._system_prompt_template:
+            messages.append({
+                "role": "system",
+                "content": self._system_prompt_template
+            })
+            logger.debug(f"Using system prompt (structured): {self._system_prompt_template[:100]}...")
+        
+        # Add user message (question + options + instruction)
+        messages.append(request_content)
+        
         # Build API request with response_format
         api_kwargs = {
             "model": self._model_id,
-            "messages": [request_content],
+            "messages": messages,
             "response_format": ANSWER_SCHEMA,
             "stream": False,  # Disable streaming to ensure complete response
             "include_debug": self._settings.openrouter_debug_enabled if self._settings else False,
@@ -409,10 +431,24 @@ class QuestionExecutor:
             Raw API response dictionary. If debug is enabled, returns
             {"_debug": {...}, "response": {...}}.
         """
+        # Build messages array with system prompt (if configured) and user message
+        messages = []
+        
+        # Add system prompt if configured
+        if self._system_prompt_template:
+            messages.append({
+                "role": "system",
+                "content": self._system_prompt_template
+            })
+            logger.debug(f"Using system prompt: {self._system_prompt_template[:100]}...")
+        
+        # Add user message (question + options + instruction)
+        messages.append(request_content)
+        
         # Build API request with model kwargs (only include non-None values)
         api_kwargs = {
             "model": self._model_id,
-            "messages": [request_content],
+            "messages": messages,
             "stream": False,  # Disable streaming to ensure complete response
             "include_debug": self._settings.openrouter_debug_enabled if self._settings else False,
         }

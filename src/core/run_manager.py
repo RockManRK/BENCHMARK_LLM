@@ -219,18 +219,18 @@ class RunManager:
         if existing:
             logger.info(f"Found existing experiment: {existing.name}")
             current_hash = self.settings.get_config_hash()
-            
+
             if current_hash != existing.config_hash:
                 # Protocol mismatch - only PROTOCOL settings are overwritten
                 # Model variants (temperature, reasoning, vision) are preserved
                 frozen_config = json.loads(existing.config_json)
-                
+
                 # Protocol keys that MUST be frozen per experiment
                 protocol_keys = {"default_prompt", "use_structured_outputs", "random_seed_policy"}
-                
+
                 # Track which protocol settings were overwritten
                 overwritten_protocol = []
-                
+
                 try:
                     for key, value in frozen_config.items():
                         # Only overwrite PROTOCOL settings, NOT model variants
@@ -239,17 +239,35 @@ class RunManager:
                             overwritten_protocol.append(key)
                 except (json.JSONDecodeError, AttributeError):
                     logger.error(f"Failed to parse frozen config for '{existing.name}'")
-                
+
                 # Log explicit warning about protocol mismatch
                 logger.warning(f"Frozen experiment protocol mismatch for '{existing.name}'.")
-                
+
                 if overwritten_protocol:
                     logger.warning(f"Using frozen protocol settings: {', '.join(overwritten_protocol)}")
-                
+
                 logger.warning(
                     f"Model variants (temperature, max_tokens, reasoning, vision) are preserved "
                     f"and will NOT be overwritten by frozen configuration."
                 )
+
+            # Check for prompt template conflicts (source of truth is the database)
+            # Prompts from experiment take precedence over current settings
+            if existing.system_prompt_template is not None:
+                if self.settings.system_prompt != existing.system_prompt_template:
+                    logger.warning(
+                        f"Experiment '{existing.name}' has frozen system_prompt_template. "
+                        f"Using frozen value instead of current setting."
+                    )
+                    self.settings.system_prompt = existing.system_prompt_template
+
+            if existing.user_prompt_template is not None:
+                if self.settings.user_prompt_template != existing.user_prompt_template:
+                    logger.warning(
+                        f"Experiment '{existing.name}' has frozen user_prompt_template. "
+                        f"Using frozen value instead of current setting."
+                    )
+                    self.settings.user_prompt_template = existing.user_prompt_template
 
             self.current_experiment = existing
             return existing
@@ -262,7 +280,7 @@ class RunManager:
             name=self.settings.experiment_name,
             config_json=config_json,
             config_hash=config_hash,
-            system_prompt=self.settings.system_prompt,
+            system_prompt_template=self.settings.system_prompt,
             user_prompt_template=self.settings.user_prompt_template,
             description=f"Experiment created on {datetime.now().isoformat()}",
         )
@@ -310,7 +328,7 @@ class RunManager:
             name=shadow_name,
             config_json=config_json,
             config_hash=config_hash,
-            system_prompt=self.settings.system_prompt if self.settings else None,
+            system_prompt_template=self.settings.system_prompt if self.settings else None,
             user_prompt_template=self.settings.user_prompt_template if self.settings else None,
             description=f"Shadow experiment for dev mode run {run_id}, created on {datetime.now().isoformat()}",
         )
