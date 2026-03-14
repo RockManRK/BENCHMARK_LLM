@@ -13,10 +13,11 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from src.db.models import Experiment, Model, Run
-from src.db.repository import ExperimentRepository, ModelRepository, RunRepository
+from src.db.models import Experiment, Model, ModelVariant, Run
+from src.db.repository import ExperimentRepository, ModelRepository, ModelVariantRepository, RunRepository
 from src.db.schema import DatabaseManager
 from src.utils.config import Settings
+from src.core.variant_config import VariantConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class RunManager:
         self._run_repository = RunRepository(db_manager)
         self._experiment_repository = ExperimentRepository(db_manager)
         self._model_repository = ModelRepository(db_manager)
+        self._variant_repository = ModelVariantRepository(db_manager)
         self.current_run: Optional[Run] = None
         self.current_experiment: Optional[Experiment] = None
         logger.info("RunManager initialized")
@@ -141,8 +143,8 @@ class RunManager:
         models = config.get("models", [])
         logger.info(f"Registering {len(models)} models: {models}")
         for model_id in models:
-            self._register_model(model_id)
-            logger.info(f"Model {model_id} registered")
+            self._register_model_variant(model_id)
+            logger.info(f"Model variant registered for {model_id}")
 
         # Set as current run
         self.current_run = run
@@ -338,40 +340,112 @@ class RunManager:
         self.current_experiment = created
         return created
 
-    def _register_model(self, model_id: str) -> None:
-        """Register a model in the database if it doesn't exist.
+    def _register_model_variant(self, model_id: str) -> str:
+        """Register a model variant in the database.
+
+        This method:
+        1. Registers the base model if it doesn't exist
+        2. Creates a variant config from current settings
+        3. Generates variant_id and variant_signature
+        4. Registers the variant if it doesn't exist
+        5. Logs the registration with variant details
 
         Args:
             model_id: Model identifier (e.g., "openai/gpt-4").
+
+        Returns:
+            The variant_id of the registered or existing variant.
+
+        Example:
+            >>> variant_id = manager._register_model_variant("openai/gpt-4")
+            >>> print(variant_id)
+            var-a1b2c3d4
         """
-        # Check if model already exists
-        existing = self._model_repository.get_by_id(model_id)
-        if existing:
-            logger.debug(f"Model already registered: {model_id}")
-            return
+        # Step 1: Register base model if it doesn't exist
+        existing_model = self._model_repository.get_by_id(model_id)
+        if not existing_model:
+            # Extract provider from model_id
+            if "/" in model_id:
+                parts = model_id.split("/", 1)
+                provider = parts[0]
+                model_name = parts[1] if len(parts) > 1 else model_id
+            else:
+                provider = "unknown"
+                model_name = model_id
 
-        # Extract provider from model_id
-        if "/" in model_id:
-            parts = model_id.split("/", 1)
-            provider = parts[0]
-            model_name = parts[1] if len(parts) > 1 else model_id
-        else:
-            provider = "unknown"
-            model_name = model_id
+            model = Model(
+                model_id=model_id,
+                provider=provider,
+                model_name=model_name,
+            )
 
-        # Create model record
-        model = Model(
+            try:
+                self._model_repository.create(model)
+                logger.debug(f"Registered base model: {model_id}")
+            except sqlite3.IntegrityError:
+                # Model might have been registered concurrently, ignore
+                logger.debug(f"Base model registration conflict (ignored): {model_id}")
+
+        # Step 2: Build variant config from settings
+        reasoning_mode = "unspecified"
+        reasoning_effort = None
+        reasoning_max_tokens = None
+
+        if self.settings:
+            # Determine reasoning mode from settings
+            if self.settings.reasoning_enabled is False:
+                reasoning_mode = "off"
+            elif self.settings.reasoning_effort:
+                reasoning_mode = "effort"
+                reasoning_effort = self.settings.reasoning_effort
+            elif self.settings.reasoning_max_tokens is not None:
+                reasoning_mode = "budget"
+                reasoning_max_tokens = self.settings.reasoning_max_tokens
+            elif self.settings.reasoning_enabled is True:
+                # reasoning_enabled=True without effort/tokens → use "auto"
+                reasoning_mode = "auto"
+
+        variant_config = VariantConfig(
+            reasoning_mode=reasoning_mode,
+            reasoning_effort=reasoning_effort,
+            reasoning_max_tokens=reasoning_max_tokens,
+            vision_enabled=self.settings.enable_vision if self.settings else False,
+            structured_enabled=self.settings.use_structured_outputs if self.settings else False,
+        )
+
+        # Step 3: Generate variant_id and variant_signature
+        variant_signature = variant_config.build_signature(model_id)
+        variant_id = variant_config.build_variant_id(model_id)
+
+        # Step 4: Check if variant already exists
+        existing_variant = self._variant_repository.get_by_id(variant_id)
+        if existing_variant:
+            logger.debug(f"Variant already registered: {variant_id}")
+            return variant_id
+
+        # Step 5: Create variant record
+        variant = ModelVariant(
+            variant_id=variant_id,
             model_id=model_id,
-            provider=provider,
-            model_name=model_name,
+            reasoning_mode=variant_config.reasoning_mode,
+            reasoning_effort=variant_config.reasoning_effort,
+            reasoning_max_tokens=variant_config.reasoning_max_tokens,
+            vision_enabled=variant_config.vision_enabled,
+            structured_enabled=variant_config.structured_enabled,
+            variant_signature=variant_signature,
         )
 
         try:
-            self._model_repository.create(model)
-            logger.debug(f"Registered model: {model_id}")
+            self._variant_repository.create(variant)
+            logger.info(
+                f"Registered model variant: {variant_id} | "
+                f"model={model_id} | signature={variant_signature}"
+            )
         except sqlite3.IntegrityError:
-            # Model might have been registered concurrently, ignore
-            logger.debug(f"Model registration conflict (ignored): {model_id}")
+            # Variant might have been registered concurrently, ignore
+            logger.debug(f"Variant registration conflict (ignored): {variant_id}")
+
+        return variant_id
 
     def update_run_status(self, run_id: str, status: str) -> Optional[Run]:
         """Update the status of a run.

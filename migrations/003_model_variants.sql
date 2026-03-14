@@ -1,66 +1,38 @@
--- Benchmark LLM Database Schema
--- This schema defines the structure for storing benchmark experiments, runs, and responses.
--- Generated: 2026-03-13
--- Version: 3 (Model Variants System)
+-- Migration 003: Model Variants System
+-- Purpose: Implement model variant tracking for reasoning, vision, and structured outputs
+-- Date: 2026-03-13
+-- 
+-- This migration replaces the simple models table with a variant-based system.
+-- Each model variant represents a unique combination of:
+--   - Base model (provider/model_name)
+--   - Reasoning mode (off/auto/effort/budget/unspecified)
+--   - Vision enabled (true/false)
+--   - Structured outputs enabled (true/false)
+--
+-- IMPORTANT: This is a BREAKING migration. Not backward compatible.
 
 -- Enable foreign key support
 PRAGMA foreign_keys = ON;
 
 -- ============================================================================
--- TABLE: experiments
--- Purpose: Store experiment configurations with frozen, immutable snapshots.
---          Each experiment represents a specific research question or benchmark
---          configuration that can be reproduced across multiple runs.
+-- STEP 1: Drop old tables (if exist)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS experiments (
-    experiment_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    config_json TEXT NOT NULL,
-    config_hash TEXT NOT NULL,
-    system_prompt_template TEXT,
-    user_prompt_template TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 
--- Index for fast lookups by name
-CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name);
+-- Drop responses table first (has FK to models)
+DROP TABLE IF EXISTS responses;
 
--- Index for fast lookups by hash (to detect duplicate configs)
-CREATE INDEX IF NOT EXISTS idx_experiments_hash ON experiments(config_hash);
+-- Drop errors table (has FK to models)
+DROP TABLE IF EXISTS errors;
+
+-- Drop models table
+DROP TABLE IF EXISTS models;
 
 -- ============================================================================
--- TABLE: runs
--- Purpose: Track individual benchmark execution runs.
---          Each run represents a single execution of the benchmark tool.
---          Runs can be associated with an experiment or be standalone (dev mode).
+-- STEP 2: Create new schema with variants
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS runs (
-    run_id TEXT PRIMARY KEY,
-    experiment_id TEXT,
-    seed INTEGER,
-    is_dev BOOLEAN NOT NULL DEFAULT 0,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    finished_at TIMESTAMP,
-    status TEXT NOT NULL DEFAULT 'pending',
-    FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id) ON DELETE SET NULL
-);
 
--- Index for fast lookups by experiment
-CREATE INDEX IF NOT EXISTS idx_runs_experiment ON runs(experiment_id);
-
--- Index for fast lookups by status
-CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
-
--- Index for fast lookups by is_dev flag
-CREATE INDEX IF NOT EXISTS idx_runs_is_dev ON runs(is_dev);
-
--- ============================================================================
--- TABLE: models
--- Purpose: Registry of LLM models used in benchmarks.
---          Each unique model (provider + model_name combination) is stored once.
---          This table stores ONLY base model information, NOT execution parameters.
--- ============================================================================
+-- TABLE: models (base model registry - no execution parameters)
+-- Purpose: Registry of unique base models (provider + model_name combination)
 CREATE TABLE IF NOT EXISTS models (
     model_id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -139,63 +111,9 @@ ON model_variants(
 );
 
 -- ============================================================================
--- TABLE: questions
--- Purpose: Store questionnaire questions for reproducibility.
---          Questions are loaded from external files (JSON/CSV) and persisted
---          here to ensure audit trails and version independence.
---          This is the CANONICAL CATALOG - questions can be updated here
---          without affecting existing experiment results.
--- ============================================================================
-CREATE TABLE IF NOT EXISTS questions (
-    question_id TEXT PRIMARY KEY,
-    stem TEXT NOT NULL,
-    options_json TEXT NOT NULL,
-    correct_answer TEXT,
-    has_image BOOLEAN NOT NULL DEFAULT 0,
-    image_path TEXT,
-    status TEXT NOT NULL DEFAULT 'active'
-);
-
--- Index for fast lookups by status
-CREATE INDEX IF NOT EXISTS idx_questions_status ON questions(status);
-
--- Index for fast lookups by has_image flag
-CREATE INDEX IF NOT EXISTS idx_questions_has_image ON questions(has_image);
-
--- ============================================================================
--- TABLE: question_snapshots
--- Purpose: Store IMMUTABLE snapshots of questions used in each experiment.
---          Each snapshot captures the complete question JSON at the moment
---          it was first used in an experiment, ensuring reproducibility.
---          Snapshots are created only once per (experiment_id, question_id) pair.
---          EVERY snapshot MUST be associated with a valid experiment (NO NULL).
--- ============================================================================
-CREATE TABLE IF NOT EXISTS question_snapshots (
-    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id TEXT NOT NULL,
-    question_id TEXT NOT NULL,
-    question_json TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id) ON DELETE CASCADE,
-    FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT
-);
-
--- Index for fast lookups by experiment
-CREATE INDEX IF NOT EXISTS idx_question_snapshots_experiment ON question_snapshots(experiment_id);
-
--- Index for fast lookups by question
-CREATE INDEX IF NOT EXISTS idx_question_snapshots_question ON question_snapshots(question_id);
-
--- Unique index to prevent duplicate snapshots for same (experiment, question)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_question_snapshots_unique
-ON question_snapshots(experiment_id, question_id);
-
--- ============================================================================
--- TABLE: responses
+-- TABLE: responses (updated to reference model_variants)
 -- Purpose: Store individual model responses to questions.
---          This is the core data table for benchmark analysis.
---          Each row represents one model's answer to one question in one iteration.
---          Responses reference model_variants (NOT base models) for accurate tracking.
+--          Now references model_variants instead of base models.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS responses (
@@ -266,9 +184,8 @@ CREATE INDEX IF NOT EXISTS idx_responses_run_iteration ON responses(run_id, iter
 CREATE INDEX IF NOT EXISTS idx_responses_variant_correct ON responses(variant_id, is_correct);
 
 -- ============================================================================
--- TABLE: errors
+-- TABLE: errors (updated to reference model_variants)
 -- Purpose: Track errors that occur during benchmark execution.
---          Errors are associated with a specific run, question, and model variant.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS errors (
@@ -298,7 +215,7 @@ CREATE INDEX IF NOT EXISTS idx_errors_type ON errors(error_type);
 CREATE INDEX IF NOT EXISTS idx_errors_timestamp ON errors(timestamp);
 
 -- ============================================================================
--- SYSTEM VIEWS
+-- STEP 3: Create system views for convenience
 -- ============================================================================
 
 -- VIEW: responses_with_model
@@ -376,5 +293,5 @@ GROUP BY mv.variant_id, mv.model_id, mv.variant_signature,
          mv.reasoning_mode, mv.vision_enabled, mv.structured_enabled;
 
 -- ============================================================================
--- End of Schema
+-- End of Migration 003
 -- ============================================================================

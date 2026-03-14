@@ -197,6 +197,8 @@ class OpenRouterClient:
             max_tokens: Maximum tokens to generate in the response.
             temperature: Sampling temperature (0.0 for deterministic).
             reasoning: Reasoning configuration (OpenRouter standard).
+                       If None, reasoning field is NOT sent (use model default).
+                       Examples: {"enabled": False}, {"effort": "high"}, {"max_tokens": 8000}
             response_format: Response format configuration for structured outputs.
             include_debug: If True, enable OpenRouter debug mode and capture payload.
             **kwargs: Additional parameters to pass to the API.
@@ -204,7 +206,7 @@ class OpenRouterClient:
         Returns:
             The parsed JSON response from the API.
             If include_debug=True, returns {"_debug": {...}, "response": {...}}.
-            
+
             NOTE: _debug is internal metadata for debugging purposes only.
             Downstream consumers should access only response['response'] for model data.
 

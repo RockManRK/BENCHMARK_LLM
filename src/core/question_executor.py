@@ -18,8 +18,9 @@ import httpx
 from src.api.client import MessageBuilder, OpenRouterClient
 from src.api.error_handler import extract_error_from_raw, format_error_details, normalize_openrouter_error
 from src.core.randomizer import AnswerRandomizer
+from src.core.variant_config import VariantConfig
 from src.db.models import Error, Question, QuestionSnapshot, Response
-from src.db.repository import ErrorRepository, QuestionSnapshotRepository, ResponseRepository
+from src.db.repository import ErrorRepository, ModelVariantRepository, QuestionSnapshotRepository, ResponseRepository
 from src.db.schema import DatabaseManager
 from src.utils.answer_schema import ANSWER_SCHEMA
 from src.utils.config import Settings
@@ -59,6 +60,7 @@ class QuestionExecutor:
         api_client: OpenRouterClient,
         randomizer: Optional[AnswerRandomizer],
         run_id: str,
+        variant_id: str,
         model_id: str,
         iteration_number: int,
         experiment_id: str,
@@ -70,6 +72,7 @@ class QuestionExecutor:
         snapshot_repository: Optional[QuestionSnapshotRepository] = None,
         system_prompt_template: Optional[str] = None,
         user_prompt_template: Optional[str] = None,
+        variant_repository: Optional[ModelVariantRepository] = None,
     ) -> None:
         """Initialize the QuestionExecutor.
 
@@ -78,7 +81,8 @@ class QuestionExecutor:
             api_client: OpenRouterClient instance for API calls.
             randomizer: AnswerRandomizer instance for answer shuffling, or None to disable randomization.
             run_id: ID of the current benchmark run.
-            model_id: ID of the model being tested.
+            variant_id: ID of the model variant being tested.
+            model_id: Base model ID (e.g., "openai/gpt-4").
             iteration_number: Iteration number (1-based).
             experiment_id: ID of the experiment (ALWAYS required, never None).
             model_kwargs: Optional dict with model generation parameters
@@ -91,11 +95,12 @@ class QuestionExecutor:
             snapshot_repository: Optional QuestionSnapshotRepository for creating snapshots.
             system_prompt_template: System prompt template from experiment (frozen).
             user_prompt_template: User prompt template from experiment (frozen).
+            variant_repository: Optional ModelVariantRepository for variant lookups.
 
         Example:
             >>> executor = QuestionExecutor(
             ...     db_manager, api_client, randomizer,
-            ...     run_id="run-123", model_id="gpt-4", iteration_number=1,
+            ...     run_id="run-123", variant_id="var-abc123", model_id="gpt-4", iteration_number=1,
             ...     experiment_id="exp-001",
             ...     model_kwargs={"max_tokens": 16384, "temperature": 0.0},
             ...     use_structured_outputs=True,
@@ -107,7 +112,8 @@ class QuestionExecutor:
         self._api_client = api_client
         self._randomizer = randomizer
         self._run_id = run_id
-        self._model_id = model_id
+        self._variant_id = variant_id
+        self._model_id = model_id  # Base model ID for API calls
         self._iteration_number = iteration_number
         self._experiment_id = experiment_id
         self._model_kwargs = model_kwargs or {}
@@ -116,13 +122,14 @@ class QuestionExecutor:
         self._enable_vision = enable_vision
         self._settings = settings
         self._snapshot_repository = snapshot_repository
+        self._variant_repository = variant_repository or ModelVariantRepository(db_manager)
         self._response_repository = ResponseRepository(db_manager)
         self._error_repository = ErrorRepository(db_manager)
         self._system_prompt_template = system_prompt_template
         self._user_prompt_template = user_prompt_template
         logger.debug(
             f"QuestionExecutor initialized for run={run_id}, "
-            f"model={model_id}, iteration={self._iteration_number}, "
+            f"variant={variant_id}, model={model_id}, iteration={self._iteration_number}, "
             f"use_structured_outputs={self._use_structured_outputs}, "
             f"enable_vision={self._enable_vision}, "
             f"model_kwargs={self._model_kwargs}, "
@@ -905,7 +912,7 @@ class QuestionExecutor:
             run_id=self._run_id,
             snapshot_id=snapshot_id,
             question_id=question.question_id,
-            model_id=self._model_id,
+            variant_id=self._variant_id,
             iteration=self._iteration_number,
             selected_answer=parsed["selected_answer"],
             response_text=parsed["response_text"],
@@ -1171,7 +1178,7 @@ class QuestionExecutor:
                 run_id=self._run_id,
                 snapshot_id=self._current_snapshot_id,
                 question_id=question.question_id,
-                model_id=self._model_id,
+                variant_id=self._variant_id,
                 iteration=self._iteration_number,
                 selected_answer=None,
                 response_text="",
@@ -1192,7 +1199,7 @@ class QuestionExecutor:
             error = Error(
                 run_id=self._run_id,
                 question_id=question.question_id,
-                model_id=self._model_id,
+                variant_id=self._variant_id,
                 error_type=error_type,
                 error_message=error_message,
                 stack_trace=stack_trace,

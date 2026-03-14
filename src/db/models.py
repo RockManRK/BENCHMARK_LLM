@@ -110,6 +110,62 @@ class Model:
 
 
 @dataclass
+class ModelVariant:
+    """Represents a model variant with execution parameters.
+
+    A model variant is a unique combination of:
+    - Base model (model_id)
+    - Reasoning configuration (mode, effort, max_tokens)
+    - Vision enabled
+    - Structured outputs enabled
+
+    Identity fields (define variant_signature):
+    - reasoning_mode: 'off', 'auto', 'effort', 'budget', 'unspecified'
+    - reasoning_effort: 'xhigh', 'high', 'medium', 'low', 'minimal' (when mode='effort')
+    - reasoning_max_tokens: integer (when mode='budget')
+    - vision_enabled: boolean
+    - structured_enabled: boolean
+
+    Non-identity fields (NOT part of variant_signature):
+    - temperature, top_p, top_k, max_tokens, repeat_penalty
+    These are execution parameters that do NOT define variant identity.
+
+    Attributes:
+        variant_id: Short stable identifier (hash-based).
+        model_id: Base model identifier (FK to models).
+        reasoning_mode: Reasoning mode ('off', 'auto', 'effort', 'budget', 'unspecified').
+        reasoning_effort: Reasoning effort level (when mode='effort').
+        reasoning_max_tokens: Maximum reasoning tokens (when mode='budget').
+        vision_enabled: Whether vision is enabled.
+        structured_enabled: Whether structured outputs are enabled.
+        variant_signature: Human-readable signature (unique per model_id + identity).
+        created_at: Timestamp when the variant was registered.
+
+    Example:
+        >>> variant = ModelVariant(
+        ...     variant_id="var-abc123",
+        ...     model_id="openai/gpt-4",
+        ...     reasoning_mode="auto",
+        ...     vision_enabled=False,
+        ...     structured_enabled=False,
+        ...     variant_signature="openai/gpt-4::reasoning=auto::vision=false::structured=false"
+        ... )
+        >>> print(variant.variant_signature)
+        openai/gpt-4::reasoning=auto::vision=false::structured=false
+    """
+
+    variant_id: str
+    model_id: str
+    variant_signature: str
+    reasoning_mode: str = "unspecified"
+    reasoning_effort: Optional[str] = None
+    reasoning_max_tokens: Optional[int] = None
+    vision_enabled: bool = False
+    structured_enabled: bool = False
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
 class Question:
     """Represents a question from the benchmark questionnaire.
 
@@ -198,11 +254,14 @@ class Response:
     include question_id as semantic redundancy for easier querying and
     debugging. The snapshot_id is the authoritative reference.
 
+    IMPORTANT: Responses now reference model_variants (NOT base models)
+    for accurate tracking of execution parameters.
+
     Attributes:
         run_id: ID of the run this response belongs to.
         snapshot_id: ID of the question snapshot being answered (authoritative).
         question_id: ID of the question (semantic redundancy for convenience).
-        model_id: ID of the model that generated the response.
+        variant_id: ID of the model variant that generated the response.
         iteration: Iteration number (1-based) within the run.
         selected_answer: The answer letter selected by the model.
         response_text: Full text response from the model.
@@ -230,7 +289,7 @@ class Response:
         ...     run_id="run-001",
         ...     snapshot_id=1,
         ...     question_id="Q001",
-        ...     model_id="gpt-4",
+        ...     variant_id="var-abc123",
         ...     iteration=1,
         ...     selected_answer="B",
         ...     is_correct=True,
@@ -246,7 +305,7 @@ class Response:
     run_id: str
     snapshot_id: int
     question_id: str
-    model_id: str
+    variant_id: str
     iteration: int = 1
     response_id: Optional[int] = None
     selected_answer: Optional[str] = None
@@ -296,7 +355,7 @@ class Error:
         error_message: Human-readable error message.
         run_id: ID of the run this error belongs to.
         question_id: ID of the question being answered when error occurred.
-        model_id: ID of the model that encountered the error.
+        variant_id: ID of the model variant that encountered the error.
         stack_trace: Full stack trace if available.
         timestamp: When the error occurred.
         error_id: Auto-incrementing unique identifier.
@@ -317,6 +376,6 @@ class Error:
     error_id: Optional[int] = None
     run_id: Optional[str] = None
     question_id: Optional[str] = None
-    model_id: Optional[str] = None
+    variant_id: Optional[str] = None
     stack_trace: str = ""
     timestamp: datetime = field(default_factory=datetime.now)

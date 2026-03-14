@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional
 
-from src.db.models import Error, Experiment, Model, Question, QuestionSnapshot, Response, Run
+from src.db.models import Error, Experiment, Model, ModelVariant, Question, QuestionSnapshot, Response, Run
 from src.db.schema import DatabaseManager
 
 
@@ -531,6 +531,211 @@ class ModelRepository:
         try:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM models WHERE model_id = ?", (model_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+
+class ModelVariantRepository:
+    """Repository for ModelVariant entity CRUD operations.
+
+    Model variants store execution parameters (reasoning, vision, structured)
+    for each base model. Each variant is a unique combination of:
+    - Base model (model_id)
+    - Reasoning mode (off/auto/effort/budget/unspecified)
+    - Reasoning effort (when mode='effort')
+    - Reasoning max tokens (when mode='budget')
+    - Vision enabled
+    - Structured enabled
+    """
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize the ModelVariantRepository."""
+        self.db_manager = db_manager
+
+    def create(self, variant: ModelVariant) -> ModelVariant:
+        """Create a new model variant record.
+
+        Args:
+            variant: ModelVariant object to create.
+
+        Returns:
+            The created ModelVariant object.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO model_variants (
+                    variant_id, model_id, reasoning_mode, reasoning_effort,
+                    reasoning_max_tokens, vision_enabled, structured_enabled,
+                    variant_signature
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    variant.variant_id,
+                    variant.model_id,
+                    variant.reasoning_mode,
+                    variant.reasoning_effort,
+                    variant.reasoning_max_tokens,
+                    1 if variant.vision_enabled else 0,
+                    1 if variant.structured_enabled else 0,
+                    variant.variant_signature,
+                ),
+            )
+            conn.commit()
+            return variant
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_id(self, variant_id: str) -> Optional[ModelVariant]:
+        """Retrieve a model variant by its ID."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
+                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       variant_signature, created_at
+                FROM model_variants WHERE variant_id = ?
+                """,
+                (variant_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return ModelVariant(
+                variant_id=row["variant_id"],
+                model_id=row["model_id"],
+                reasoning_mode=row["reasoning_mode"],
+                reasoning_effort=row["reasoning_effort"],
+                reasoning_max_tokens=row["reasoning_max_tokens"],
+                vision_enabled=bool(row["vision_enabled"]),
+                structured_enabled=bool(row["structured_enabled"]),
+                variant_signature=row["variant_signature"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_signature(self, model_id: str, variant_signature: str) -> Optional[ModelVariant]:
+        """Retrieve a model variant by model_id and variant_signature."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
+                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       variant_signature, created_at
+                FROM model_variants WHERE model_id = ? AND variant_signature = ?
+                """,
+                (model_id, variant_signature),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return ModelVariant(
+                variant_id=row["variant_id"],
+                model_id=row["model_id"],
+                reasoning_mode=row["reasoning_mode"],
+                reasoning_effort=row["reasoning_effort"],
+                reasoning_max_tokens=row["reasoning_max_tokens"],
+                vision_enabled=bool(row["vision_enabled"]),
+                structured_enabled=bool(row["structured_enabled"]),
+                variant_signature=row["variant_signature"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_all(self) -> list[ModelVariant]:
+        """Retrieve all model variants."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
+                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       variant_signature, created_at
+                FROM model_variants ORDER BY model_id, variant_signature
+                """
+            )
+            variants = []
+            for row in cursor.fetchall():
+                variants.append(
+                    ModelVariant(
+                        variant_id=row["variant_id"],
+                        model_id=row["model_id"],
+                        reasoning_mode=row["reasoning_mode"],
+                        reasoning_effort=row["reasoning_effort"],
+                        reasoning_max_tokens=row["reasoning_max_tokens"],
+                        vision_enabled=bool(row["vision_enabled"]),
+                        structured_enabled=bool(row["structured_enabled"]),
+                        variant_signature=row["variant_signature"],
+                        created_at=datetime.fromisoformat(row["created_at"]),
+                    )
+                )
+            return variants
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_model(self, model_id: str) -> list[ModelVariant]:
+        """Retrieve all variants for a base model."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
+                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       variant_signature, created_at
+                FROM model_variants WHERE model_id = ?
+                ORDER BY variant_signature
+                """,
+                (model_id,),
+            )
+            variants = []
+            for row in cursor.fetchall():
+                variants.append(
+                    ModelVariant(
+                        variant_id=row["variant_id"],
+                        model_id=row["model_id"],
+                        reasoning_mode=row["reasoning_mode"],
+                        reasoning_effort=row["reasoning_effort"],
+                        reasoning_max_tokens=row["reasoning_max_tokens"],
+                        vision_enabled=bool(row["vision_enabled"]),
+                        structured_enabled=bool(row["structured_enabled"]),
+                        variant_signature=row["variant_signature"],
+                        created_at=datetime.fromisoformat(row["created_at"]),
+                    )
+                )
+            return variants
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def delete(self, variant_id: str) -> bool:
+        """Delete a model variant record."""
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM model_variants WHERE variant_id = ?", (variant_id,))
             conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error:

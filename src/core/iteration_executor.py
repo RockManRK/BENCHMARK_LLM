@@ -16,7 +16,8 @@ from typing import Any, Optional
 from src.api.client import OpenRouterClient
 from src.core.question_executor import QuestionExecutor
 from src.core.randomizer import AnswerRandomizer
-from src.db.repository import ResponseRepository
+from src.core.variant_config import VariantConfig
+from src.db.repository import ModelVariantRepository, ResponseRepository
 from src.db.schema import DatabaseManager
 from src.utils.config import Settings
 from src.utils.progress import ProgressTracker
@@ -236,12 +237,68 @@ class IterationExecutor:
         # Create question executor
         from src.db.repository import QuestionSnapshotRepository
 
+        # Generate variant_id from current configuration
+        variant_repository = ModelVariantRepository(self.db_manager)
+        
+        # Build variant config from settings
+        reasoning_mode = "unspecified"
+        reasoning_effort = None
+        reasoning_max_tokens = None
+
+        if self.settings:
+            if self.settings.reasoning_enabled is False:
+                reasoning_mode = "off"
+            elif self.settings.reasoning_effort:
+                reasoning_mode = "effort"
+                reasoning_effort = self.settings.reasoning_effort
+            elif self.settings.reasoning_max_tokens is not None:
+                reasoning_mode = "budget"
+                reasoning_max_tokens = self.settings.reasoning_max_tokens
+            elif self.settings.reasoning_enabled is True:
+                reasoning_mode = "auto"
+
+        variant_config = VariantConfig(
+            reasoning_mode=reasoning_mode,
+            reasoning_effort=reasoning_effort,
+            reasoning_max_tokens=reasoning_max_tokens,
+            vision_enabled=self.settings.enable_vision if self.settings else False,
+            structured_enabled=self.settings.use_structured_outputs if self.settings else False,
+        )
+
+        variant_signature = variant_config.build_signature(self.model_id)
+        variant_id = variant_config.build_variant_id(self.model_id)
+
+        # Check if variant exists, if not create it
+        existing_variant = variant_repository.get_by_id(variant_id)
+        if not existing_variant:
+            from src.db.models import ModelVariant
+            variant = ModelVariant(
+                variant_id=variant_id,
+                model_id=self.model_id,
+                reasoning_mode=variant_config.reasoning_mode,
+                reasoning_effort=variant_config.reasoning_effort,
+                reasoning_max_tokens=variant_config.reasoning_max_tokens,
+                vision_enabled=variant_config.vision_enabled,
+                structured_enabled=variant_config.structured_enabled,
+                variant_signature=variant_signature,
+            )
+            try:
+                variant_repository.create(variant)
+                logger.info(
+                    f"Registered model variant: {variant_id} | "
+                    f"model={self.model_id} | signature={variant_signature}"
+                )
+            except Exception:
+                # Variant might have been created concurrently
+                existing_variant = variant_repository.get_by_id(variant_id)
+
         snapshot_repository = QuestionSnapshotRepository(self.db_manager)
         question_executor = QuestionExecutor(
             db_manager=self.db_manager,
             api_client=self._api_client,
             randomizer=self._randomizer,
             run_id=self.run_id,
+            variant_id=variant_id,
             model_id=self.model_id,
             iteration_number=self.iteration_number,
             experiment_id=self.experiment_id,
@@ -253,6 +310,7 @@ class IterationExecutor:
             snapshot_repository=snapshot_repository,
             system_prompt_template=self._system_prompt_template,
             user_prompt_template=self._user_prompt_template,
+            variant_repository=variant_repository,
         )
 
         # Execute question and await result
