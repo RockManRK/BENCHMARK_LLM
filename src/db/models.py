@@ -166,6 +166,38 @@ class ModelVariant:
 
 
 @dataclass
+class RunModel:
+    """Represents the association between a run and a model variant.
+
+    This dataclass tracks which model variants are associated with a run
+    and their execution status. It allows models to be added to runs
+    dynamically after the run has been created.
+
+    Attributes:
+        run_id: ID of the run.
+        variant_id: ID of the model variant.
+        status: Execution status ('pending', 'running', 'completed', 'removed').
+        added_at: Timestamp when model was added to run.
+        completed_at: Timestamp when all iterations completed (if applicable).
+
+    Example:
+        >>> run_model = RunModel(
+        ...     run_id="run-20260313-abc123",
+        ...     variant_id="var-abc123",
+        ...     status="running"
+        ... )
+        >>> print(run_model.status)
+        running
+    """
+
+    run_id: str
+    variant_id: str
+    status: str = "pending"
+    added_at: datetime = field(default_factory=datetime.now)
+    completed_at: Optional[datetime] = None
+
+
+@dataclass
 class Question:
     """Represents a question from the benchmark questionnaire.
 

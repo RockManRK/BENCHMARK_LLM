@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional
 
-from src.db.models import Error, Experiment, Model, ModelVariant, Question, QuestionSnapshot, Response, Run
+from src.db.models import Error, Experiment, Model, ModelVariant, Run, RunModel, Question, QuestionSnapshot, Response
 from src.db.schema import DatabaseManager
 
 
@@ -746,6 +746,227 @@ class ModelVariantRepository:
                 conn.close()
 
 
+class RunModelRepository:
+    """Repository for RunModel entity CRUD operations.
+
+    RunModel tracks the association between runs and model variants,
+    allowing models to be added to runs dynamically.
+    """
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize the RunModelRepository."""
+        self.db_manager = db_manager
+
+    def create(self, run_model: RunModel) -> RunModel:
+        """Create a new run-model association.
+
+        Args:
+            run_model: RunModel object to create.
+
+        Returns:
+            The created RunModel object.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO run_models (run_id, variant_id, status, added_at, completed_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    run_model.run_id,
+                    run_model.variant_id,
+                    run_model.status,
+                    run_model.added_at.isoformat(),
+                    run_model.completed_at.isoformat() if run_model.completed_at else None,
+                ),
+            )
+            conn.commit()
+            return run_model
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_run(self, run_id: str) -> list[RunModel]:
+        """Retrieve all model variants for a run.
+
+        Args:
+            run_id: ID of the run.
+
+        Returns:
+            List of RunModel objects for the run.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT run_id, variant_id, status, added_at, completed_at
+                FROM run_models WHERE run_id = ?
+                ORDER BY added_at
+                """,
+                (run_id,),
+            )
+            run_models = []
+            for row in cursor.fetchall():
+                run_models.append(
+                    RunModel(
+                        run_id=row["run_id"],
+                        variant_id=row["variant_id"],
+                        status=row["status"],
+                        added_at=datetime.fromisoformat(row["added_at"]),
+                        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+                    )
+                )
+            return run_models
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_variant(self, variant_id: str) -> list[RunModel]:
+        """Retrieve all runs for a model variant.
+
+        Args:
+            variant_id: ID of the model variant.
+
+        Returns:
+            List of RunModel objects for the variant.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT run_id, variant_id, status, added_at, completed_at
+                FROM run_models WHERE variant_id = ?
+                ORDER BY added_at
+                """,
+                (variant_id,),
+            )
+            run_models = []
+            for row in cursor.fetchall():
+                run_models.append(
+                    RunModel(
+                        run_id=row["run_id"],
+                        variant_id=row["variant_id"],
+                        status=row["status"],
+                        added_at=datetime.fromisoformat(row["added_at"]),
+                        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+                    )
+                )
+            return run_models
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_run_and_variant(self, run_id: str, variant_id: str) -> Optional[RunModel]:
+        """Retrieve a run-model association by run and variant.
+
+        Args:
+            run_id: ID of the run.
+            variant_id: ID of the model variant.
+
+        Returns:
+            RunModel object if found, None otherwise.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT run_id, variant_id, status, added_at, completed_at
+                FROM run_models WHERE run_id = ? AND variant_id = ?
+                """,
+                (run_id, variant_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return RunModel(
+                run_id=row["run_id"],
+                variant_id=row["variant_id"],
+                status=row["status"],
+                added_at=datetime.fromisoformat(row["added_at"]),
+                completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            )
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def update_status(self, run_id: str, variant_id: str, status: str) -> bool:
+        """Update the status of a run-model association.
+
+        Args:
+            run_id: ID of the run.
+            variant_id: ID of the model variant.
+            status: New status ('pending', 'running', 'completed', 'removed').
+
+        Returns:
+            True if updated successfully, False if not found.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Set completed_at when status changes to 'completed'
+            if status == 'completed':
+                cursor.execute(
+                    """
+                    UPDATE run_models 
+                    SET status = ?, completed_at = ?
+                    WHERE run_id = ? AND variant_id = ?
+                    """,
+                    (status, datetime.now().isoformat(), run_id, variant_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE run_models SET status = ?
+                    WHERE run_id = ? AND variant_id = ?
+                    """,
+                    (status, run_id, variant_id),
+                )
+            
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def delete(self, run_id: str, variant_id: str) -> bool:
+        """Delete a run-model association.
+
+        Args:
+            run_id: ID of the run.
+            variant_id: ID of the model variant.
+
+        Returns:
+            True if deleted successfully, False if not found.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM run_models WHERE run_id = ? AND variant_id = ?",
+                (run_id, variant_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+
 class QuestionRepository:
     """Repository for Question entity CRUD operations.
 
@@ -1130,12 +1351,12 @@ class ResponseRepository:
             cursor = conn.cursor()
             logger.info(
                 f"Saving response: run_id={response.run_id}, snapshot_id={response.snapshot_id}, "
-                f"question_id={response.question_id}, model_id={response.model_id}"
+                f"question_id={response.question_id}, variant_id={response.variant_id}"
             )
             cursor.execute(
                 """
                 INSERT INTO responses (
-                    run_id, snapshot_id, question_id, model_id, iteration,
+                    run_id, snapshot_id, question_id, variant_id, iteration,
                     selected_answer, response_text, is_correct,
                     status, finish_reason, error_details, latency_ms,
                     input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
@@ -1147,7 +1368,7 @@ class ResponseRepository:
                     response.run_id,
                     response.snapshot_id,
                     response.question_id,
-                    response.model_id,
+                    response.variant_id,
                     response.iteration,
                     response.selected_answer,
                     response.response_text,
@@ -1175,16 +1396,16 @@ class ResponseRepository:
             logger.error(f"Failed to save response: {e}")
             logger.error(
                 f"Response data: run_id={response.run_id}, snapshot_id={response.snapshot_id}, "
-                f"question_id={response.question_id}, model_id={response.model_id}"
+                f"question_id={response.question_id}, variant_id={response.variant_id}"
             )
             # Check which FK is failing
             run_exists = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (response.run_id,)).fetchone() is not None
             snapshot_exists = conn.execute("SELECT 1 FROM question_snapshots WHERE snapshot_id = ?", (response.snapshot_id,)).fetchone() is not None
             question_exists = conn.execute("SELECT 1 FROM questions WHERE question_id = ?", (response.question_id,)).fetchone() is not None
-            model_exists = conn.execute("SELECT 1 FROM models WHERE model_id = ?", (response.model_id,)).fetchone() is not None
+            variant_exists = conn.execute("SELECT 1 FROM model_variants WHERE variant_id = ?", (response.variant_id,)).fetchone() is not None
             logger.error(
                 f"FK check: run_exists={run_exists}, snapshot_exists={snapshot_exists}, "
-                f"question_exists={question_exists}, model_exists={model_exists}"
+                f"question_exists={question_exists}, variant_exists={variant_exists}"
             )
             conn.rollback()
             raise
@@ -1199,7 +1420,7 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, question_id, variant_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
@@ -1217,7 +1438,7 @@ class ResponseRepository:
                 run_id=row["run_id"],
                 snapshot_id=row["snapshot_id"],
                 question_id=row["question_id"],
-                model_id=row["model_id"],
+                variant_id=row["variant_id"],
                 iteration=row["iteration"],
                 selected_answer=row["selected_answer"],
                 response_text=row["response_text"],
@@ -1517,7 +1738,7 @@ class ResponseRepository:
             cursor.execute(
                 """
                 UPDATE responses SET
-                    run_id = ?, snapshot_id = ?, question_id = ?, model_id = ?, iteration = ?,
+                    run_id = ?, snapshot_id = ?, question_id = ?, variant_id = ?, iteration = ?,
                     selected_answer = ?, response_text = ?, is_correct = ?,
                     status = ?, finish_reason = ?, error_details = ?, latency_ms = ?,
                     input_tokens = ?, response_tokens = ?,
@@ -1530,7 +1751,7 @@ class ResponseRepository:
                     response.run_id,
                     response.snapshot_id,
                     response.question_id,
-                    response.model_id,
+                    response.variant_id,
                     response.iteration,
                     response.selected_answer,
                     response.response_text,
@@ -1595,13 +1816,13 @@ class ErrorRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO errors (run_id, question_id, model_id, error_type, error_message, stack_trace)
+                INSERT INTO errors (run_id, question_id, variant_id, error_type, error_message, stack_trace)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     error.run_id,
                     error.question_id,
-                    error.model_id,
+                    error.variant_id,
                     error.error_type,
                     error.error_message,
                     error.stack_trace,
@@ -1624,7 +1845,7 @@ class ErrorRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT error_id, run_id, question_id, model_id, error_type, error_message, stack_trace, timestamp
+                SELECT error_id, run_id, question_id, variant_id, error_type, error_message, stack_trace, timestamp
                 FROM errors WHERE error_id = ?
                 """,
                 (error_id,),
@@ -1636,7 +1857,7 @@ class ErrorRepository:
                 error_id=row["error_id"],
                 run_id=row["run_id"],
                 question_id=row["question_id"],
-                model_id=row["model_id"],
+                variant_id=row["variant_id"],
                 error_type=row["error_type"],
                 error_message=row["error_message"],
                 stack_trace=row["stack_trace"],
@@ -1653,7 +1874,7 @@ class ErrorRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT error_id, run_id, question_id, model_id, error_type, error_message, stack_trace, timestamp
+                SELECT error_id, run_id, question_id, variant_id, error_type, error_message, stack_trace, timestamp
                 FROM errors WHERE run_id = ? ORDER BY timestamp
                 """,
                 (run_id,),
@@ -1665,7 +1886,7 @@ class ErrorRepository:
                         error_id=row["error_id"],
                         run_id=row["run_id"],
                         question_id=row["question_id"],
-                        model_id=row["model_id"],
+                        variant_id=row["variant_id"],
                         error_type=row["error_type"],
                         error_message=row["error_message"],
                         stack_trace=row["stack_trace"],

@@ -204,6 +204,39 @@ MODEL_REPEAT_PENALTY=
 python -m src.main --models openai/gpt-4 --iterations 3
 ```
 
+### Incremental Flow (Add Models to Existing Run)
+
+You can add models to an existing run without re-executing already answered questions:
+
+```bash
+# Day 1: Create run with 3 models
+bcllm --models gpt-4 claude-3 gemini --iterations 3
+# → run-20260314-abc123 created
+
+# Day 2: Add 2 more models
+bcllm --add-to-run run-20260314-abc123 --add-models qwen-2.5 llama-3
+# → Models added to run with status 'pending'
+
+# Day 3: Re-execute run (only pending models executed)
+bcllm --run-id run-20260314-abc123 --iterations 3
+# → gpt-4, claude-3, gemini: SKIPPED (completed)
+# → qwen-2.5, llama-3: EXECUTED (pending)
+
+# When finished, complete the run
+bcllm --complete-run run-20260314-abc123
+# → No more models can be added
+```
+
+**How it works:**
+- The system tracks which questions each model has answered using `(question_id, iteration)` as the key
+- When re-executing, only unanswered questions are processed
+- Clear logs show which models are skipped: `⏭️  Skipping model variant {id}: status=completed`
+
+**Benefits:**
+- No wasted API calls on already completed models
+- Flexible workflow: add models as needed
+- Automatic detection of pending questions
+
 ### Command-Line Options
 
 | Option | Description |

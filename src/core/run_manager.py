@@ -13,8 +13,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from src.db.models import Experiment, Model, ModelVariant, Run
-from src.db.repository import ExperimentRepository, ModelRepository, ModelVariantRepository, RunRepository
+from src.db.models import Experiment, Model, ModelVariant, Run, RunModel
+from src.db.repository import ExperimentRepository, ModelRepository, ModelVariantRepository, RunModelRepository, RunRepository
 from src.db.schema import DatabaseManager
 from src.utils.config import Settings
 from src.core.variant_config import VariantConfig
@@ -61,6 +61,7 @@ class RunManager:
         self._experiment_repository = ExperimentRepository(db_manager)
         self._model_repository = ModelRepository(db_manager)
         self._variant_repository = ModelVariantRepository(db_manager)
+        self._run_model_repository = RunModelRepository(db_manager)
         self.current_run: Optional[Run] = None
         self.current_experiment: Optional[Experiment] = None
         logger.info("RunManager initialized")
@@ -141,10 +142,9 @@ class RunManager:
 
         # Register models in database (required for foreign key constraints)
         models = config.get("models", [])
-        logger.info(f"Registering {len(models)} models: {models}")
-        for model_id in models:
-            self._register_model_variant(model_id)
-            logger.info(f"Model variant registered for {model_id}")
+        if models:
+            logger.info(f"Registering {len(models)} models: {models}")
+            self.add_models_to_run(run.run_id, models)
 
         # Set as current run
         self.current_run = run
@@ -153,6 +153,82 @@ class RunManager:
         logger.debug(f"Run configuration: experiment_id={experiment_id}, is_dev={is_dev}")
 
         return run
+
+    def add_models_to_run(self, run_id: str, model_ids: list[str]) -> None:
+        """Add model variants to an existing run.
+
+        This method allows adding new models to a run that has already been
+        created, enabling incremental benchmark execution without recreating
+        the run or re-executing existing models.
+
+        Rules:
+        - Run must exist and be in 'running' status
+        - Seed, dataset, prompts are inherited from run (cannot change)
+        - Models are registered in run_models table with status 'pending'
+        - Existing responses are NOT re-executed
+
+        Args:
+            run_id: ID of the run to add models to.
+            model_ids: List of model IDs to add (e.g., ["openai/gpt-4", "qwen/qwen-2.5"]).
+
+        Raises:
+            ValueError: If run doesn't exist, is not in 'running' status, or
+                        if model is already associated with run.
+
+        Example:
+            >>> run_manager.add_models_to_run(
+            ...     run_id="run-20260313-abc123",
+            ...     model_ids=["qwen/qwen-2.5", "meta/llama-3"]
+            ... )
+        """
+        # Step 1: Verify run exists and is in 'running' status
+        run = self._run_repository.get_by_id(run_id)
+        if run is None:
+            raise ValueError(f"Run {run_id} does not exist")
+        
+        if run.status != "running":
+            raise ValueError(
+                f"Cannot add models to run {run_id}: status is '{run.status}', "
+                f"must be 'running'. Use --complete-run only after all models are done."
+            )
+
+        logger.info(f"Adding {len(model_ids)} models to run {run_id}")
+
+        # Step 2: Register each model variant
+        for model_id in model_ids:
+            # Register base model and variant (creates if not exists)
+            variant_id = self._register_model_variant(model_id)
+            
+            # Check if variant already associated with this run
+            existing = self._run_model_repository.get_by_run_and_variant(run_id, variant_id)
+            if existing:
+                logger.warning(f"Model {model_id} (variant {variant_id}) already in run {run_id}, skipping")
+                continue
+            
+            # Create run-model association with status 'pending'
+            run_model = RunModel(
+                run_id=run_id,
+                variant_id=variant_id,
+                status="pending",
+                added_at=datetime.now(),
+            )
+            
+            self._run_model_repository.create(run_model)
+            logger.info(f"Added model {model_id} (variant {variant_id}) to run {run_id}")
+
+        logger.info(f"Successfully added {len(model_ids)} models to run {run_id}")
+
+    def complete_run_model(self, run_id: str, variant_id: str) -> None:
+        """Mark a model variant as completed in a run.
+
+        Called when all iterations for a model variant are done.
+
+        Args:
+            run_id: ID of the run.
+            variant_id: ID of the model variant.
+        """
+        self._run_model_repository.update_status(run_id, variant_id, "completed")
+        logger.info(f"Marked variant {variant_id} as completed in run {run_id}")
 
     def _determine_seed(self, config: dict[str, Any]) -> Optional[int]:
         """Determine the seed value based on configuration.

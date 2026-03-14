@@ -173,6 +173,29 @@ class TestCLIParser:
         assert args.test_mode is True
         assert args.vary_seed is True
 
+    def test_parse_run_id(self) -> None:
+        """Test parsing --run-id argument."""
+        parser = CLIParser()
+        args = parser.parse([
+            "--run-id", "run-test-123",
+            "--iterations", "2",
+        ])
+        assert args.run_id == "run-test-123"
+        assert args.iterations == 2
+        # --models should be None when using --run-id
+        assert args.models is None
+
+    def test_parse_run_id_with_models_ignored(self) -> None:
+        """Test that --models is ignored when --run-id is provided."""
+        parser = CLIParser()
+        args = parser.parse([
+            "--run-id", "run-test-456",
+            "--models", "gpt-4",  # This should be parsed but ignored by main logic
+            "--iterations", "1",
+        ])
+        assert args.run_id == "run-test-456"
+        assert args.models == ["gpt-4"]  # Parsed but should be ignored by execution logic
+
 
 class TestParseArguments:
     """Test cases for parse_arguments convenience function."""

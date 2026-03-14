@@ -93,6 +93,19 @@ class BenchmarkRunner:
             self.settings.reasoning_exclude = self.args.reasoning_exclude
             logger.info(f"Set reasoning_exclude from CLI: {self.args.reasoning_exclude}")
 
+        # Model variant identity fields
+        if hasattr(self.args, 'reasoning_mode') and self.args.reasoning_mode:
+            self.settings.reasoning_mode = self.args.reasoning_mode
+            logger.info(f"Set reasoning_mode from CLI: {self.args.reasoning_mode}")
+
+        if hasattr(self.args, 'enable_vision') and self.args.enable_vision:
+            self.settings.enable_vision = True
+            logger.info(f"Set enable_vision from CLI: True")
+
+        if hasattr(self.args, 'enable_structured') and self.args.enable_structured:
+            self.settings.enable_structured = True
+            logger.info(f"Set enable_structured from CLI: True")
+
     def _apply_cli_generation_args(self) -> None:
         """Apply CLI generation arguments to settings."""
         if getattr(self.args, "temperature", None) is not None:
@@ -235,6 +248,14 @@ class BenchmarkRunner:
             if self.args.review_all:
                 return self._handle_review_all()
 
+            # Handle add-models-to-run command
+            if self.args.add_to_run:
+                return self._handle_add_models_to_run()
+
+            # Handle complete-run command
+            if self.args.complete_run:
+                return self._handle_complete_run()
+
             # Apply execution mode presets
             self._apply_execution_mode()
 
@@ -273,15 +294,114 @@ class BenchmarkRunner:
         finally:
             self._cleanup()
 
+    def _handle_add_models_to_run(self) -> int:
+        """Handle adding models to an existing run.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            # Validate arguments
+            if not self.args.add_models:
+                print(
+                    "Error: --add-models is required when using --add-to-run",
+                    file=sys.stderr,
+                )
+                return 1
+
+            # Initialize database
+            self._init_database()
+
+            # Create run manager
+            run_manager = RunManager(self.db_manager, self.settings)
+
+            # Add models to run
+            run_id = self.args.add_to_run
+            model_ids = self.args.add_models
+
+            print(f"Adding {len(model_ids)} models to run {run_id}...")
+            logger.info(f"Adding models {model_ids} to run {run_id}")
+
+            run_manager.add_models_to_run(run_id, model_ids)
+
+            print(f"Successfully added {len(model_ids)} models to run {run_id}")
+            print("\nModels added:")
+            for model_id in model_ids:
+                print(f"  - {model_id}")
+
+            print("\nTo execute the new models, run the benchmark again with the same parameters.")
+            print("The system will automatically skip questions already answered by these models.")
+
+            return 0
+
+        except ValueError as e:
+            logger.error(f"Failed to add models: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        except Exception as e:
+            logger.exception(f"Failed to add models: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            self._cleanup()
+
+    def _handle_complete_run(self) -> int:
+        """Handle marking a run as completed.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            # Initialize database
+            self._init_database()
+
+            # Get run manager
+            run_manager = RunManager(self.db_manager, self.settings)
+
+            # Complete the run
+            run_id = self.args.complete_run
+
+            print(f"Marking run {run_id} as completed...")
+            logger.info(f"Completing run {run_id}")
+
+            run = run_manager.get_run_by_id(run_id)
+            if run is None:
+                print(f"Error: Run {run_id} not found", file=sys.stderr)
+                return 1
+
+            # Update run status
+            run_manager.update_run_status(run_id, "completed")
+
+            # Also mark all pending models as completed
+            from src.db.repository import RunModelRepository
+            run_model_repo = RunModelRepository(self.db_manager)
+
+            for run_model in run_model_repo.get_by_run(run_id):
+                if run_model.status == "pending":
+                    run_manager.complete_run_model(run_id, run_model.variant_id)
+
+            print(f"Run {run_id} marked as completed")
+            print("\nNo more models can be added to this run.")
+
+            return 0
+
+        except Exception as e:
+            logger.exception(f"Failed to complete run: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            self._cleanup()
+
     def _validate_config(self) -> bool:
         """Validate the configuration.
 
         Returns:
             True if configuration is valid, False otherwise.
         """
-        # Check if models are specified
-        if not self.args.models:
-            print("Error: At least one model must be specified with --models", file=sys.stderr)
+        # Check if models are specified (--run-id or --models)
+        has_run_id = hasattr(self.args, 'run_id') and self.args.run_id
+        if not self.args.models and not has_run_id:
+            print("Error: At least one model must be specified with --models, or use --run-id to re-execute a run.", file=sys.stderr)
             return False
 
         # Check API key if not in dry-run mode
@@ -650,13 +770,19 @@ class BenchmarkRunner:
         return result
 
     def _execute_all_models_and_iterations(
-        self, 
-        questions: list, 
+        self,
+        questions: list,
         run: Optional
     ) -> list:
         """Orchestrate execution across all models and iterations.
 
         ⚠️ This function is purely orchestrator - delegates all logic to helpers.
+
+        When --run-id is provided:
+        - Models are loaded EXCLUSIVELY from run_models table
+        - Only models with status 'pending' or 'running' are executed
+        - Models with status 'completed' or 'removed' are explicitly skipped
+        - --models CLI argument is IGNORED
 
         Args:
             questions: List of Question objects.
@@ -666,6 +792,7 @@ class BenchmarkRunner:
             List of iteration results.
         """
         from src.api.client import OpenRouterClient
+        from src.db.repository import RunModelRepository
 
         all_results = []
         client = OpenRouterClient(
@@ -673,16 +800,48 @@ class BenchmarkRunner:
             base_url=self.settings.openrouter_base_url,
         )
 
-        for model_id in self.args.models:
+        # Determine which models to execute
+        if hasattr(self.args, 'run_id') and self.args.run_id:
+            # Load models from run_models table (single source of truth)
+            run_model_repo = RunModelRepository(self.db_manager)
+            run_models = run_model_repo.get_by_run(self.args.run_id)
+            
+            # Filter: only execute pending or running models
+            models_to_execute = [
+                rm for rm in run_models 
+                if rm.status in ('pending', 'running')
+            ]
+            
+            # Log skipped models
+            for rm in run_models:
+                if rm.status in ('completed', 'removed'):
+                    logger.info(f"⏭️  Skipping model variant {rm.variant_id}: status={rm.status}")
+            
+            # Convert to model_id format for execution
+            # Note: variant_id contains the full model signature, we need to extract model_id
+            # For now, we'll use variant_id as the identifier
+            model_ids = [rm.variant_id for rm in models_to_execute]
+            
+            if not model_ids:
+                logger.info(f"No pending/running models found for run {self.args.run_id}")
+                print(f"⏭️  No models to execute in run {self.args.run_id} (all completed or removed)")
+                return all_results
+                
+            logger.info(f"Executing {len(model_ids)} model(s) from run {self.args.run_id}")
+        else:
+            # Original behavior: use --models from CLI
+            if not self.args.models:
+                logger.error("No models specified. Use --models or --run-id.")
+                print("Error: No models specified. Use --models or --run-id.", file=sys.stderr)
+                return all_results
+            model_ids = self.args.models
+            logger.info(f"Executing {len(model_ids)} model(s) from CLI arguments")
+
+        for model_id in model_ids:
             logger.info(f"Starting benchmark for model: {model_id}")
 
             # Fetch model info
             actual_model_id, model_info = asyncio.run(self._fetch_model_info(client, model_id))
-
-            # Register actual model if different
-            if self.run_manager and getattr(self.run_manager, '_register_model', None) and actual_model_id != model_id:
-                self.run_manager._register_model(actual_model_id)
-                logger.debug(f"Registered actual model: {actual_model_id}")
 
             for iteration_num in range(1, self.args.iterations + 1):
                 logger.info(f"  Starting iteration {iteration_num} for {model_id}")
@@ -774,7 +933,7 @@ class BenchmarkRunner:
         # Convert to format expected by StatisticsCalculator
         responses_data = [
             {
-                "model_id": r.model_id,
+                "model_id": r.variant_id,
                 "is_correct": r.is_correct,
                 "latency_ms": r.latency_ms,
                 "input_tokens": r.input_tokens,
@@ -783,15 +942,15 @@ class BenchmarkRunner:
             }
             for r in responses
         ]
-        
+
         # Get errors for this run
         from src.db.repository import ErrorRepository
         error_repo = ErrorRepository(self.db_manager)
         errors = error_repo.get_by_run(run_id) if run_id else []
-        
+
         errors_data = [
             {
-                "model_id": e.model_id,
+                "model_id": e.variant_id,
                 "error_type": e.error_type,
                 "error_message": e.error_message
             }

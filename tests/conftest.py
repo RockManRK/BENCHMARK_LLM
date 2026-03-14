@@ -1,6 +1,59 @@
 """Pytest configuration for benchmark_llm project."""
 
 import pytest
+from pathlib import Path
+
+
+@pytest.fixture
+def db_manager():
+    """Create an in-memory database manager for testing.
+    
+    Returns:
+        DatabaseManager instance with in-memory database.
+    """
+    from src.db.schema import DatabaseManager
+    
+    db_manager = DatabaseManager(Path(":memory:"))
+    
+    # Create all tables by reading and executing schema
+    schema_path = Path("src/db/schema.sql")
+    if not schema_path.exists():
+        raise FileNotFoundError(f"Schema file not found: {schema_path}")
+    
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema = f.read()
+    
+    conn = db_manager.get_connection()
+    conn.executescript(schema)
+    conn.commit()
+    
+    # Verify tables were created
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    tables = [row[0] for row in cursor.fetchall()]
+    
+    if not tables:
+        raise RuntimeError("No tables created - schema execution failed")
+    
+    yield db_manager
+    
+    # Cleanup
+    try:
+        conn.close()
+    except:
+        pass
+
+
+@pytest.fixture
+def settings():
+    """Create default settings for testing.
+    
+    Returns:
+        Settings instance with default values.
+    """
+    from src.utils.config import Settings
+    
+    return Settings()
 
 
 def pytest_configure(config: pytest.Config) -> None:

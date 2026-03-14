@@ -46,6 +46,188 @@ bcllm --questions Q001-Q100 --exclude status=annulled
 bcllm --questions Q001-Q100 --where status=valid has_image=false --exclude has_audio=true
 ```
 
+### Execução Incremental (NOVO)
+
+Adicione modelos a um run existente sem refazer questões já respondidas.
+
+#### Conceito
+
+Um run pode ter modelos adicionados incrementalmente. O sistema detecta automaticamente quais questões cada modelo ainda não respondeu usando a chave `(question_id, iteration)`.
+
+**Fluxo típico:**
+
+```bash
+# Dia 1: Criar run com 3 modelos
+bcllm --models gpt-4 claude-3 gemini --iterations 3
+# → run-20260314-abc123 criado
+
+# Dia 2: Adicionar 2 modelos
+bcllm --add-to-run run-20260314-abc123 --add-models qwen-2.5 llama-3
+# → Modelos adicionados com status 'pending'
+
+# Dia 3: Reexecutar (apenas modelos pendentes)
+bcllm --run-id run-20260314-abc123 --iterations 3
+# → gpt-4, claude-3, gemini: SKIP (completed)
+# → qwen-2.5, llama-3: EXECUTAR (pending)
+
+# Quando terminar todos os modelos
+bcllm --complete-run run-20260314-abc123
+# → Run marcado como completo, nenhum modelo pode ser adicionado
+```
+
+#### Comandos
+
+##### `--run-id` - Reexecutar run existente
+
+Carrega modelos automaticamente do banco de dados.
+
+```bash
+bcllm --run-id run-20260314-abc123 --iterations 3
+```
+
+**Quando usar:**
+- Reexecutar um run após adicionar modelos
+- Completar modelos pendentes
+- Não precisa lembrar quais modelos estão no run
+
+**Comportamento:**
+- Ignora `--models` da CLI
+- Carrega TODOS os modelos do run da tabela `run_models`
+- Executa apenas modelos com status `pending` ou `running`
+- Pula modelos com status `completed` ou `removed`
+- Log claro: `⏭️  Skipping model variant {id}: status={status}`
+
+##### `--add-to-run` + `--add-models` - Adicionar modelos
+
+Adiciona novos modelos a um run existente.
+
+```bash
+bcllm --add-to-run run-20260314-abc123 --add-models qwen-2.5 llama-3
+```
+
+**Quando usar:**
+- Depois de criar run inicial
+- Antes de reexecutar benchmark
+- Run deve estar em status `running`
+
+**Validações:**
+- Run deve existir
+- Run deve estar em status `running`
+- Mesmo modelo não pode ser adicionado duas vezes
+
+##### `--complete-run` - Completar run
+
+Marca run como completo, impedindo novos modelos.
+
+```bash
+bcllm --complete-run run-20260314-abc123
+```
+
+**Quando usar:**
+- Após todos os modelos serem executados
+- Antes de análise final dos dados
+- Quando não quer mais adicionar modelos
+
+**Efeito:**
+- Run status muda para `completed`
+- Todos modelos pendentes são marcados como `completed`
+- Nenhum modelo pode ser adicionado depois disso
+
+#### Como Funciona Detecção de Pendentes
+
+O sistema usa a chave `(question_id, iteration)` para detectar questões já respondidas:
+
+1. **Consulta banco**: Quais `(questão, iteração)` este modelo já respondeu?
+2. **Filtra pendentes**: Executa apenas questões não respondidas
+3. **Log claro**: Mostra quantas questões foram puladas
+
+**Exemplo de log:**
+```
+Variant var-abc123: 85/100 questions already answered in iteration 1, executing 15 pending
+Iteration 1 completed: 15/15 pending questions, 85 skipped (already answered), 0 errors
+```
+
+#### Status de Modelos em run_models
+
+| Status | Descrição | Executa? | Pode adicionar? |
+|--------|-----------|-----------|-----------------|
+| `pending` | Adicionado ao run, não executado | ✅ Sim | ✅ Sim |
+| `running` | Em execução (algumas iterações feitas) | ✅ Sim | ✅ Sim |
+| `completed` | Todas iterações completas | ❌ Não (pulado) | ❌ Não |
+| `removed` | Removido do run | ❌ Não (ignorado) | ❌ Não |
+
+#### Exemplos Completos
+
+##### Exemplo 1: Fluxo Básico
+
+```bash
+# Criar run
+bcllm --models gpt-4 claude-3 --iterations 3
+# → run-20260314-abc criado
+
+# Adicionar modelos
+bcllm --add-to-run run-20260314-abc --add-models qwen-2.5
+
+# Reexecutar
+bcllm --run-id run-20260314-abc --iterations 3
+# → gpt-4, claude-3: SKIP (completed)
+# → qwen-2.5: EXECUTAR (pending)
+```
+
+##### Exemplo 2: Múltiplas Adições
+
+```bash
+# Criar run
+bcllm --models gpt-4 --iterations 3
+
+# Adicionar lote 1
+bcllm --add-to-run run-abc --add-models claude-3
+
+# Executar parcial
+bcllm --run-id run-abc --iterations 3
+
+# Adicionar lote 2
+bcllm --add-to-run run-abc --add-models gemini
+
+# Executar novamente
+bcllm --run-id run-abc --iterations 3
+# → gpt-4, claude-3: SKIP
+# → gemini: EXECUTAR
+```
+
+##### Exemplo 3: Adicionar e Completar
+
+```bash
+# Criar run
+bcllm --models gpt-4 --iterations 3
+
+# Adicionar modelos
+bcllm --add-to-run run-abc --add-models claude-3 gemini
+
+# Executar todos
+bcllm --run-id run-abc --iterations 3
+
+# Completar run
+bcllm --complete-run run-abc
+# → Run completo, análise pode começar
+```
+
+#### Troubleshooting
+
+**Problema:** `"Cannot add models to run: status is 'completed'"`
+
+**Solução:** Run já foi completado. Se precisa adicionar mais modelos, crie um novo run ou entre em contato com o administrador para remover status `completed`.
+
+**Problema:** `"No models to execute - all completed"`
+
+**Solução:** Todos modelos já foram executados. Use `--add-to-run` com `--add-models` para adicionar novos modelos, ou use `--complete-run` se terminou.
+
+**Problema:** `"Model already in run"`
+
+**Solução:** Modelo já foi adicionado anteriormente. Verifique os modelos existentes com uma query no banco ou adicione apenas modelos novos.
+
+---
+
 ### Filtros de Metadata (--where e --exclude)
 
 **`--where`**: Filtra questões que correspondem a TODOS os critérios (lógica AND)

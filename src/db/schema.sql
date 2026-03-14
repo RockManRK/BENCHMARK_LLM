@@ -56,6 +56,51 @@ CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_is_dev ON runs(is_dev);
 
 -- ============================================================================
+-- TABLE: run_models
+-- Purpose: Associate model variants with runs. Allows adding models to
+--          existing runs dynamically. Each entry tracks the execution status
+--          of a specific model variant within a specific run.
+--
+-- Status values:
+--   - pending: Model added to run but execution not started
+--   - running: Model is currently being executed (some iterations done)
+--   - completed: All iterations completed for this model in this run
+--   - removed: Model removed from run (no responses yet)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS run_models (
+    -- Composite primary key: one entry per (run, variant) pair
+    run_id TEXT NOT NULL,
+    variant_id TEXT NOT NULL,
+    
+    -- Status tracks execution progress for this model in this run
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'running', 'completed', 'removed')),
+    
+    -- Timestamp when model was added to run
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Timestamp when model completed (all iterations done)
+    completed_at TIMESTAMP,
+    
+    -- Primary key
+    PRIMARY KEY (run_id, variant_id),
+    
+    -- Foreign keys
+    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE RESTRICT
+);
+
+-- Index for fast lookups by run
+CREATE INDEX IF NOT EXISTS idx_run_models_run ON run_models(run_id);
+
+-- Index for fast lookups by variant
+CREATE INDEX IF NOT EXISTS idx_run_models_variant ON run_models(variant_id);
+
+-- Index for fast lookups by status
+CREATE INDEX IF NOT EXISTS idx_run_models_status ON run_models(status);
+
+-- ============================================================================
 -- TABLE: models
 -- Purpose: Registry of LLM models used in benchmarks.
 --          Each unique model (provider + model_name combination) is stored once.

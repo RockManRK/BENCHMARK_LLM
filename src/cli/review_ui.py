@@ -144,7 +144,7 @@ class ReviewUI:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT r.response_id, r.run_id, r.snapshot_id, r.question_id, r.model_id,
+                SELECT r.response_id, r.run_id, r.snapshot_id, r.question_id, r.variant_id,
                        r.iteration, r.selected_answer, r.response_text, r.is_correct,
                        r.status, r.finish_reason, r.error_details, r.latency_ms,
                        r.input_tokens, r.response_tokens, r.total_tokens, r.reasoning_tokens, r.effective_tokens,
@@ -176,7 +176,7 @@ class ReviewUI:
                     run_id=row["run_id"],
                     snapshot_id=row["snapshot_id"],
                     question_id=row["question_id"],
-                    model_id=row["model_id"],
+                    variant_id=row["variant_id"],
                     iteration=row["iteration"],
                     selected_answer=row["selected_answer"],
                     response_text=row["response_text"],
@@ -231,7 +231,7 @@ class ReviewUI:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT r.response_id, r.run_id, r.snapshot_id, r.question_id, r.model_id,
+                SELECT r.response_id, r.run_id, r.snapshot_id, r.question_id, r.variant_id,
                        r.iteration, r.selected_answer, r.response_text, r.is_correct,
                        r.status, r.finish_reason, r.error_details, r.latency_ms,
                        r.input_tokens, r.response_tokens, r.total_tokens, r.reasoning_tokens, r.effective_tokens,
@@ -263,7 +263,7 @@ class ReviewUI:
                     run_id=row["run_id"],
                     snapshot_id=row["snapshot_id"],
                     question_id=row["question_id"],
-                    model_id=row["model_id"],
+                    variant_id=row["variant_id"],
                     iteration=row["iteration"],
                     selected_answer=row["selected_answer"],
                     response_text=row["response_text"],
@@ -316,7 +316,7 @@ class ReviewUI:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT r.response_id, r.run_id, r.snapshot_id, r.question_id, r.model_id,
+                SELECT r.response_id, r.run_id, r.snapshot_id, r.question_id, r.variant_id,
                        r.iteration, r.selected_answer, r.response_text, r.is_correct,
                        r.status, r.finish_reason, r.error_details, r.latency_ms,
                        r.input_tokens, r.response_tokens, r.total_tokens, r.reasoning_tokens, r.effective_tokens,
@@ -346,7 +346,7 @@ class ReviewUI:
                     run_id=row["run_id"],
                     snapshot_id=row["snapshot_id"],
                     question_id=row["question_id"],
-                    model_id=row["model_id"],
+                    variant_id=row["variant_id"],
                     iteration=row["iteration"],
                     selected_answer=row["selected_answer"],
                     response_text=row["response_text"],
@@ -398,8 +398,8 @@ class ReviewUI:
             stats.by_question[item.response.question_id] = question_count + 1
 
             # Group by model
-            model_count = stats.by_model.get(item.response.model_id, 0)
-            stats.by_model[item.response.model_id] = model_count + 1
+            model_count = stats.by_model.get(item.response.variant_id, 0)
+            stats.by_model[item.response.variant_id] = model_count + 1
 
             # Group by confidence
             conf_count = stats.by_confidence.get(item.response.parse_confidence, 0)
@@ -426,7 +426,7 @@ class ReviewUI:
         # Progress and statistics
         print(f"Pendentes: {self._statistics.total_pending - self._statistics.total_processed}  |  "
               f"Processadas: {self._statistics.total_processed}")
-        print(f"Pergunta: {item.response.question_id} (Iteração {item.response.iteration}, Modelo: {item.response.model_id})")
+        print(f"Pergunta: {item.response.question_id} (Iteração {item.response.iteration}, Modelo: {item.response.variant_id})")
         print(f"Resposta: {item.correct_answer}")
         print(f"Status: {item.response.parse_confidence.upper()}")
         print("=" * 80)

@@ -72,6 +72,20 @@ Examples:
 
   # Structured outputs (set USE_STRUCTURED_OUTPUTS=true in .env)
   %(prog)s --models gpt-4o --questions Q001
+
+Incremental Flow (add models to existing run):
+  # Day 1: Create run with 3 models
+  %(prog)s --models gpt-4 claude-3 gemini --iterations 3
+
+  # Day 2: Add 2 more models
+  %(prog)s --add-to-run run-20260314-abc --add-models qwen-2.5 llama-3
+
+  # Day 3: Re-execute run (only pending models)
+  %(prog)s --run-id run-20260314-abc --iterations 3
+  # → Completed models are automatically skipped
+
+  # Complete run (no more models can be added)
+  %(prog)s --complete-run run-20260314-abc
             """,
         )
 
@@ -83,6 +97,14 @@ Examples:
             type=str,
             required=False,
             help="List of model IDs to benchmark (e.g., gpt-4 claude-3 gemini-pro)",
+        )
+
+        # Run ID for re-execution
+        parser.add_argument(
+            "--run-id",
+            type=str,
+            metavar="RUN_ID",
+            help="Re-execute a specific run by ID. When provided, models are loaded from the run_models table instead of --models. Only models with status 'pending' or 'running' will be executed.",
         )
 
         # Iteration count
@@ -299,6 +321,32 @@ Examples:
             default=None,
             help="Enable structured outputs (JSON schema) for model variant. "
                  "Part of variant identity. Falls back to traditional if not supported.",
+        )
+
+        # Add models to existing run
+        parser.add_argument(
+            "--add-to-run",
+            type=str,
+            metavar="RUN_ID",
+            help="Add models to an existing run (run must be in 'running' status). "
+                 "Use with --add-models to specify which models to add.",
+        )
+
+        parser.add_argument(
+            "--add-models",
+            "-a",
+            nargs="+",
+            type=str,
+            required=False,
+            help="Models to add to an existing run (use with --add-to-run). "
+                 "Example: --add-to-run run-123 --add-models qwen/2.5 llama-3",
+        )
+
+        parser.add_argument(
+            "--complete-run",
+            type=str,
+            metavar="RUN_ID",
+            help="Mark a run as completed. No more models can be added after this.",
         )
 
         # Manual review commands
