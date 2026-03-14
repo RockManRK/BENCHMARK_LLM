@@ -262,7 +262,7 @@ class IterationExecutor:
             reasoning_effort=reasoning_effort,
             reasoning_max_tokens=reasoning_max_tokens,
             vision_enabled=self.settings.enable_vision if self.settings else False,
-            structured_enabled=self.settings.use_structured_outputs if self.settings else False,
+            structured_enabled=self.settings.enable_structured if self.settings else False,
         )
 
         variant_signature = variant_config.build_signature(self.model_id)

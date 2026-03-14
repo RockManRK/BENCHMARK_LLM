@@ -40,15 +40,31 @@ class VariantConfig:
 
     This class encapsulates the identity parameters that define a model variant.
     It provides methods to generate:
-    - variant_signature: Human-readable string identifying the variant
-    - variant_id: Short stable hash-based identifier
+    - variant_signature: Human-readable string identifying the variant (INFORMATIVE ONLY)
+    - variant_id: Short stable hash-based identifier (TRUE IDENTITY)
 
-    Attributes:
-        reasoning_mode: Reasoning mode ('off', 'auto', 'effort', 'budget', 'unspecified').
-        reasoning_effort: Reasoning effort level (when mode='effort').
-        reasoning_max_tokens: Maximum reasoning tokens (when mode='budget').
-        vision_enabled: Whether vision is enabled.
-        structured_enabled: Whether structured outputs are enabled.
+    IMPORTANT: variant_id is the authoritative identifier. variant_signature is
+    human-readable metadata but should NOT be used for lookups or comparisons.
+
+    Identity Parameters:
+    - reasoning_mode: 'off', 'auto', 'effort', 'budget', 'unspecified'
+    - reasoning_effort: 'xhigh', 'high', 'medium', 'low', 'minimal' (when mode='effort')
+    - reasoning_max_tokens: integer (when mode='budget')
+    - vision_enabled: boolean
+    - structured_enabled: boolean
+
+    Non-Identity Parameters (NOT part of variant identity):
+    - temperature, top_p, top_k, max_tokens, repeat_penalty
+    These are execution parameters that do NOT define variant identity.
+
+    Reasoning Mode Semantics:
+    - 'unspecified': DO NOT SEND reasoning field to API. Let the model use its
+      default behavior. This is NOT synonymous with 'auto', 'off', or 'effort'.
+      It means "do not interfere with the model's built-in reasoning behavior."
+    - 'auto': Explicitly use model's default reasoning (may send empty reasoning dict).
+    - 'off': Explicitly disable reasoning (sends {"enabled": False}).
+    - 'effort': Use specific reasoning effort level (sends {"effort": "..."}).
+    - 'budget': Limit reasoning to specific token count (sends {"max_tokens": N}).
 
     Example:
         >>> config = VariantConfig(
@@ -59,6 +75,9 @@ class VariantConfig:
         >>> signature = config.build_signature("anthropic/claude-3")
         >>> print(signature)
         anthropic/claude-3::reasoning=auto::vision=false::structured=false
+        >>> variant_id = config.build_variant_id("anthropic/claude-3")
+        >>> print(variant_id)
+        var-a1b2c3d4
     """
 
     reasoning_mode: str = "unspecified"

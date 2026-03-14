@@ -1,7 +1,7 @@
 -- Migration 003: Model Variants System
 -- Purpose: Implement model variant tracking for reasoning, vision, and structured outputs
 -- Date: 2026-03-13
--- 
+--
 -- This migration replaces the simple models table with a variant-based system.
 -- Each model variant represents a unique combination of:
 --   - Base model (provider/model_name)
@@ -10,6 +10,18 @@
 --   - Structured outputs enabled (true/false)
 --
 -- IMPORTANT: This is a BREAKING migration. Not backward compatible.
+--
+-- NOTE: If you are creating a new database from scratch (e.g., for development
+-- or testing), this migration file is NOT needed. Simply use the schema defined
+-- in src/db/schema.sql which already includes the model_variants table.
+-- This migration is only for converting EXISTING databases that use the old
+-- schema (with models.model_id directly referenced in responses).
+--
+-- To create a fresh database, run:
+--   sqlite3 data/benchmark.db < src/db/schema.sql
+--
+-- To migrate an existing database, run:
+--   sqlite3 data/benchmark.db < migrations/003_model_variants.sql
 
 -- Enable foreign key support
 PRAGMA foreign_keys = ON;

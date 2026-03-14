@@ -271,6 +271,36 @@ Examples:
                  "but only returns the final answer. Useful for cleaner output.",
         )
 
+        # Model variant parameters (identity-defining)
+        parser.add_argument(
+            "--reasoning-mode",
+            type=str,
+            choices=["off", "auto", "effort", "budget", "unspecified"],
+            default=None,
+            help="Reasoning mode for model variant identity. "
+                 "'unspecified' = do not send reasoning field (use model default, NOT synonymous with auto/off). "
+                 "'auto' = use model's default reasoning behavior. "
+                 "'off' = explicitly disable reasoning. "
+                 "'effort' = use specific reasoning effort (requires --reasoning-effort). "
+                 "'budget' = limit reasoning tokens (requires --reasoning-tokens).",
+        )
+
+        parser.add_argument(
+            "--enable-vision",
+            action="store_true",
+            default=None,
+            help="Enable vision for model variant (send images with questions). "
+                 "Part of variant identity.",
+        )
+
+        parser.add_argument(
+            "--enable-structured",
+            action="store_true",
+            default=None,
+            help="Enable structured outputs (JSON schema) for model variant. "
+                 "Part of variant identity. Falls back to traditional if not supported.",
+        )
+
         # Manual review commands
         parser.add_argument(
             "--review-run",

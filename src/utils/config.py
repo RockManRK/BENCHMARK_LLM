@@ -231,6 +231,21 @@ class Settings(BaseSettings):
         description="Enable reasoning with default parameters. Leave blank to not send.",
     )
 
+    # Model Variant Identity (defines variant_id)
+    reasoning_mode: Optional[str] = Field(
+        default="unspecified",
+        description="Reasoning mode for variant identity: unspecified, auto, off, effort, budget. "
+                    "'unspecified' means DO NOT SEND reasoning field (use model default).",
+    )
+    enable_vision: bool = Field(
+        default=False,
+        description="Enable vision for variant identity (send images with questions)",
+    )
+    enable_structured: bool = Field(
+        default=False,
+        description="Enable structured outputs for variant identity (JSON schema)",
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, value: str) -> str:
@@ -374,6 +389,23 @@ class Settings(BaseSettings):
                 return False
             raise ValueError(f"Value must be true/false, got '{value}'")
         return bool(value)
+
+    @field_validator("reasoning_mode", mode="before")
+    @classmethod
+    def validate_reasoning_mode(cls, value: Optional[str]) -> str:
+        """Validate reasoning_mode is a valid mode."""
+        if value is None or value == "":
+            return "unspecified"
+        
+        value_lower = value.lower().strip()
+        valid_modes = {"unspecified", "auto", "off", "effort", "budget"}
+        
+        if value_lower not in valid_modes:
+            raise ValueError(
+                f"reasoning_mode must be one of {valid_modes}, got '{value}'"
+            )
+        
+        return value_lower
 
     @field_validator("experiment_name", mode="before")
     @classmethod

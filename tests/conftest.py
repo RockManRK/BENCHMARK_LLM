@@ -125,7 +125,7 @@ def mock_chat_completion_error(httpx_mock):
 @pytest.fixture
 def mock_models_endpoint(httpx_mock):
     """Fixture to mock models endpoint.
-    
+
     Usage:
         def test_model_info(mock_models_endpoint):
             mock_models_endpoint()
@@ -151,5 +151,76 @@ def mock_models_endpoint(httpx_mock):
             },
             status_code=200,
         )
-    
+
     return _mock
+
+
+# =============================================================================
+# Model Variant Test Utilities
+# =============================================================================
+
+@pytest.fixture
+def default_variant_id() -> str:
+    """Default variant_id for tests (unspecified reasoning, no vision, no structured).
+    
+    Returns:
+        Deterministic variant_id for default configuration.
+    """
+    from src.core.variant_config import VariantConfig
+    config = VariantConfig(
+        reasoning_mode="unspecified",
+        vision_enabled=False,
+        structured_enabled=False,
+    )
+    return config.build_variant_id("test-model")
+
+
+@pytest.fixture
+def variant_configs() -> dict:
+    """Pre-built variant configurations for common test scenarios.
+    
+    Returns:
+        Dictionary with variant configurations:
+        - auto: Unspecified reasoning (default)
+        - off: Reasoning disabled
+        - high_effort: High reasoning effort
+        - budget_8k: 8000 token reasoning budget
+        - vision: Vision enabled
+        - structured: Structured outputs enabled
+    """
+    from src.core.variant_config import VariantConfig
+    
+    return {
+        "auto": VariantConfig(
+            reasoning_mode="unspecified",
+            vision_enabled=False,
+            structured_enabled=False,
+        ),
+        "off": VariantConfig(
+            reasoning_mode="off",
+            vision_enabled=False,
+            structured_enabled=False,
+        ),
+        "high_effort": VariantConfig(
+            reasoning_mode="effort",
+            reasoning_effort="high",
+            vision_enabled=False,
+            structured_enabled=False,
+        ),
+        "budget_8k": VariantConfig(
+            reasoning_mode="budget",
+            reasoning_max_tokens=8000,
+            vision_enabled=False,
+            structured_enabled=False,
+        ),
+        "vision": VariantConfig(
+            reasoning_mode="unspecified",
+            vision_enabled=True,
+            structured_enabled=False,
+        ),
+        "structured": VariantConfig(
+            reasoning_mode="unspecified",
+            vision_enabled=False,
+            structured_enabled=True,
+        ),
+    }

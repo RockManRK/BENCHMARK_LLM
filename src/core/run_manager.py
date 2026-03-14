@@ -387,30 +387,43 @@ class RunManager:
                 logger.debug(f"Base model registration conflict (ignored): {model_id}")
 
         # Step 2: Build variant config from settings
+        # Priority: 1) reasoning_mode from Settings (explicit), 2) legacy reasoning_enabled/effort/max_tokens
         reasoning_mode = "unspecified"
         reasoning_effort = None
         reasoning_max_tokens = None
 
         if self.settings:
-            # Determine reasoning mode from settings
-            if self.settings.reasoning_enabled is False:
-                reasoning_mode = "off"
-            elif self.settings.reasoning_effort:
-                reasoning_mode = "effort"
-                reasoning_effort = self.settings.reasoning_effort
-            elif self.settings.reasoning_max_tokens is not None:
-                reasoning_mode = "budget"
-                reasoning_max_tokens = self.settings.reasoning_max_tokens
-            elif self.settings.reasoning_enabled is True:
-                # reasoning_enabled=True without effort/tokens → use "auto"
-                reasoning_mode = "auto"
+            # Check for explicit reasoning_mode first (new system)
+            if hasattr(self.settings, 'reasoning_mode') and self.settings.reasoning_mode:
+                reasoning_mode = self.settings.reasoning_mode
+                
+                # If mode is 'effort', get effort level
+                if reasoning_mode == "effort" and self.settings.reasoning_effort:
+                    reasoning_effort = self.settings.reasoning_effort
+                
+                # If mode is 'budget', get max tokens
+                if reasoning_mode == "budget" and self.settings.reasoning_max_tokens is not None:
+                    reasoning_max_tokens = self.settings.reasoning_max_tokens
+            else:
+                # Fallback to legacy reasoning configuration
+                if self.settings.reasoning_enabled is False:
+                    reasoning_mode = "off"
+                elif self.settings.reasoning_effort:
+                    reasoning_mode = "effort"
+                    reasoning_effort = self.settings.reasoning_effort
+                elif self.settings.reasoning_max_tokens is not None:
+                    reasoning_mode = "budget"
+                    reasoning_max_tokens = self.settings.reasoning_max_tokens
+                elif self.settings.reasoning_enabled is True:
+                    # reasoning_enabled=True without effort/tokens → use "auto"
+                    reasoning_mode = "auto"
 
         variant_config = VariantConfig(
             reasoning_mode=reasoning_mode,
             reasoning_effort=reasoning_effort,
             reasoning_max_tokens=reasoning_max_tokens,
             vision_enabled=self.settings.enable_vision if self.settings else False,
-            structured_enabled=self.settings.use_structured_outputs if self.settings else False,
+            structured_enabled=self.settings.enable_structured if self.settings else False,
         )
 
         # Step 3: Generate variant_id and variant_signature
