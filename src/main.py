@@ -240,6 +240,10 @@ class BenchmarkRunner:
             >>> exit_code = runner.run()
         """
         try:
+            # Handle hierarchical commands (experiment, run)
+            if hasattr(self.args, 'command') and self.args.command in ('experiment', 'run'):
+                return self._handle_hierarchical_commands()
+
             # Handle manual review commands
             if self.args.review_experiment:
                 return self._handle_review_experiment()
@@ -293,6 +297,49 @@ class BenchmarkRunner:
             return 1
         finally:
             self._cleanup()
+
+    def _handle_hierarchical_commands(self) -> int:
+        """Handle hierarchical commands (experiment, run).
+
+        Routes to appropriate handler based on command type.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            if self.args.command == 'experiment':
+                return self._handle_experiment_command()
+            elif self.args.command == 'run':
+                return self._handle_run_command()
+            else:
+                print(f"Error: Unknown command '{self.args.command}'", file=sys.stderr)
+                return 1
+        except Exception as e:
+            logger.exception(f"Hierarchical command failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    def _handle_experiment_command(self) -> int:
+        """Handle experiment subcommand.
+
+        Delegates to experiment_commands module.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        from src.cli.experiment_commands import handle_experiment_command
+        return handle_experiment_command(self.args)
+
+    def _handle_run_command(self) -> int:
+        """Handle run subcommand.
+
+        Delegates to experiment_commands module.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        from src.cli.experiment_commands import handle_run_command
+        return handle_run_command(self.args)
 
     def _handle_add_models_to_run(self) -> int:
         """Handle adding models to an existing run.

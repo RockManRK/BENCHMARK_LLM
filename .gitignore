@@ -69,7 +69,6 @@ venv.bak/
 # Project specific
 logs/
 *.log
-data/*.db
 data/*.sqlite
 
 # OS
