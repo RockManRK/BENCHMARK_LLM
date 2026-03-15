@@ -167,6 +167,18 @@ class Settings(BaseSettings):
         description="Default prompt instruction for all questions (with or without images). If None, uses built-in default.",
     )
 
+    # Default Questions (optional, can be set in .env)
+    default_questions: Optional[str] = Field(
+        default=None,
+        description="Default questions to use when --questions is not specified. Can be set in .env.",
+    )
+
+    # Questions Dataset Path (CRITICAL - source of truth for questions)
+    questions_dataset_path: Path = Field(
+        default=Path("./data/enamed_questions.json"),
+        description="Path to the JSON questions dataset. This is the SOURCE OF TRUTH for all questions. Can be set via QUESTIONS_DATASET_PATH in .env.",
+    )
+
     # Questionnaire Configuration
     questionnaire_path: Path = Field(
         default=Path("./data/enamed_questions.json"),

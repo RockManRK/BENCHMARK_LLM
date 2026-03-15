@@ -500,12 +500,10 @@ Incremental Flow (add models to existing run):
                         f"Example: --experiment my_exp {flag_name}"
                     )
 
-        # Rule 3: --create-experiment requires --questions (cannot create empty experiment)
-        if args.create_experiment and not args.questions:
-            self.parser.error(
-                "--create-experiment requires --questions <ids>. "
-                "Example: --create-experiment my_exp --questions Q001-Q010"
-            )
+        # Rule 3: --create-experiment does NOT require --questions
+        # Default behavior: use ALL questions if not specified
+        # This follows the principle: "What would a user expect if they don't set anything?"
+        # Answer: All questions, in original order (no randomization)
 
     def _normalize_execution_mode(
         self, args: argparse.Namespace

@@ -155,7 +155,30 @@ class ExperimentManager:
         logger.info(f"Created experiment: {created.name} (hash={config_hash})")
 
         # Create question snapshots
-        question_ids = self._expand_question_filters(questions_filter)
+        # CRITICAL: Load questions from JSON dataset (SOURCE OF TRUTH), not from database
+        # If questions_filter is empty, use ALL questions from JSON
+        from src.core.loader import QuestionLoader
+        import sqlite3
+        
+        if not questions_filter:
+            # Load ALL questions from JSON dataset
+            loader = QuestionLoader(str(settings.questionnaire_path))
+            all_questions = loader.load()
+            question_ids = [q.question_id for q in all_questions]
+            
+            # Persist questions to database (idempotent - won't duplicate)
+            question_repo = QuestionRepository(self.db_manager)
+            for q in all_questions:
+                try:
+                    question_repo.create(q)
+                except sqlite3.IntegrityError:
+                    # Question already exists
+                    pass
+            
+            logger.info(f"No questions specified, using all {len(question_ids)} available questions from {settings.questionnaire_path}")
+        else:
+            question_ids = self._expand_question_filters(questions_filter)
+        
         snapshots_created = 0
 
         for question_id in question_ids:
@@ -959,8 +982,8 @@ class RunManager:
         unique_id = uuid.uuid4().hex[:8]
         run_id = f"run-{timestamp}-{unique_id}"
 
-        # Determine seed value
-        seed_value = self._determine_seed_value(seed)
+        # Determine seed value with source information
+        seed_value, seed_source = self._determine_seed_value(seed)
 
         # Create run object
         run = Run(
@@ -978,7 +1001,7 @@ class RunManager:
 
         # Associate model variants from experiment (NEW - copy from experiment_models)
         experiment_models = self.exp_model_repo.get_by_experiment(experiment.experiment_id)
-        
+
         for variant in experiment_models:
             try:
                 self.run_model_repo.add(
@@ -991,7 +1014,7 @@ class RunManager:
                 logger.debug(f"Variant {variant.variant_id} already associated with run")
 
         # Display success message
-        self._show_run_creation_summary(run, experiment_name, seed_value)
+        self._show_run_creation_summary(run, experiment_name, seed_value, seed_source)
 
         return run
 
@@ -1140,7 +1163,7 @@ class RunManager:
         # Display success message
         self._show_models_added_to_run_summary(run_id, added_variants)
 
-    def _determine_seed_value(self, seed: Optional[str | int]) -> Optional[int]:
+    def _determine_seed_value(self, seed: Optional[str | int]) -> tuple[Optional[int], str]:
         """Determine the seed value based on input.
 
         Rules:
@@ -1152,25 +1175,25 @@ class RunManager:
             seed: Seed specification from user.
 
         Returns:
-            Integer seed value or None.
+            Tuple of (integer seed value or None, source description).
         """
         import random
 
         if seed is None:
             logger.info("No seed specified, using original order (A,B,C,D)")
-            return None
+            return None, "using default (off)"
 
         if isinstance(seed, str) and seed.upper() == "AUTO":
             auto_seed = random.randint(0, 2**31 - 1)
             logger.info(f"Auto-generated seed: {auto_seed}")
-            return auto_seed
+            return auto_seed, "auto-generated"
 
         if isinstance(seed, int):
             logger.info(f"Using fixed seed: {seed}")
-            return seed
+            return seed, f"fixed ({seed})"
 
         logger.warning(f"Invalid seed value: {seed}, using None")
-        return None
+        return None, "using default (off)"
 
     def _register_base_model(self, model_id: str) -> None:
         """Register base model if it doesn't exist.
@@ -1271,6 +1294,7 @@ class RunManager:
         run: Run,
         experiment_name: str,
         seed_value: Optional[int],
+        seed_source: str = "",
     ) -> None:
         """Display run creation summary.
 
@@ -1278,13 +1302,16 @@ class RunManager:
             run: Created run object.
             experiment_name: Name of the experiment.
             seed_value: Seed value used.
+            seed_source: Source of the seed value (for feedback).
         """
+        seed_display = f"{seed_value} ({seed_source})" if seed_value else f"None ({seed_source})"
+        
         console.print()
         console.print(Panel(
             f"[bold green]✓ Run created successfully![/bold green]\n\n"
             f"[bold]Run ID:[/bold] {run.run_id}\n"
             f"[bold]Experiment:[/bold] {experiment_name}\n"
-            f"[bold]Seed:[/bold] {seed_value if seed_value else 'None (original order)'}\n"
+            f"[bold]Seed:[/bold] {seed_display}\n"
             f"[bold]Status:[/bold] {run.status}\n\n"
             f"[dim]Next steps:[/dim]\n"
             f"  1. Add models: [cyan]bcllm.py run execute {experiment_name}[/cyan]\n"

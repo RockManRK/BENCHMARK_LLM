@@ -303,6 +303,7 @@ class BenchmarkRunner:
         """
         try:
             from src.cli.experiment_commands import ExperimentManager
+            from src.utils.config_hierarchy import format_config_summary, resolve_with_feedback, ConfigSource
 
             # Initialize database
             settings = get_settings()
@@ -314,8 +315,61 @@ class BenchmarkRunner:
 
             # Get arguments
             name = self.args.create_experiment
-            questions = self.args.questions if self.args.questions else []
-            seed = self.args.seed if hasattr(self.args, 'seed') and self.args.seed else None
+            
+            # CRITICAL: Validate questions dataset path
+            # The JSON dataset is the SOURCE OF TRUTH for questions
+            if not settings.questions_dataset_path.exists():
+                console = Console()
+                console.print(f"[yellow]⚠ WARNING: Questions dataset not found at {settings.questions_dataset_path}[/yellow]")
+                console.print("[dim]Set QUESTIONS_DATASET_PATH in .env to specify the correct path.[/dim]")
+            
+            # Resolve questions with hierarchy: CLI > .env > default (all from JSON)
+            cli_questions = self.args.questions if self.args.questions else None
+            
+            # If CLI questions not provided, check for DEFAULT_QUESTIONS in .env
+            if cli_questions is None:
+                env_questions = settings.default_questions if hasattr(settings, 'default_questions') and settings.default_questions else None
+            else:
+                env_questions = None
+                
+            default_questions = None  # None means "all questions from JSON"
+            
+            questions, questions_msg = resolve_with_feedback(
+                cli_value=cli_questions,
+                env_value=env_questions,
+                default_value=default_questions,
+                config_name="Questions",
+                cli_flag_name="--questions",
+            )
+            
+            # Convert questions string to list (handle ranges like "Q001-Q005")
+            if questions and isinstance(questions, str):
+                # Parse questions string (could be "Q001,Q002" or "Q001-Q005")
+                from src.cli.cli import CLIParser
+                parser = CLIParser()
+                questions = parser._expand_question_ranges([questions])
+            
+            # Convert None to empty list (means "all questions from JSON")
+            # This is the default behavior: use ALL questions from JSON if nothing specified
+            if questions is None:
+                questions = []
+                # Only show feedback if not already set by resolve_with_feedback
+                if questions_msg is None:
+                    questions_msg = "Questions: using all available questions from dataset (default)"
+            
+            # Resolve seed with hierarchy: CLI > .env > default (None)
+            cli_seed = self.args.seed if hasattr(self.args, 'seed') and self.args.seed else None
+            env_seed = settings.random_seed if hasattr(settings, 'random_seed') else None
+            default_seed = None
+            
+            seed, seed_msg = resolve_with_feedback(
+                cli_value=cli_seed,
+                env_value=env_seed,
+                default_value=default_seed,
+                config_name="Seed",
+                cli_flag_name="--seed",
+            )
+            
             description = self.args.description if hasattr(self.args, 'description') else None
 
             # Create experiment
@@ -325,6 +379,10 @@ class BenchmarkRunner:
                 seed=seed,
                 description=description,
             )
+
+            # Show configuration summary (feedback for assumed values)
+            config_messages = [questions_msg, seed_msg]
+            format_config_summary(config_messages, title="Configuration")
 
             return 0
 
@@ -525,6 +583,7 @@ class BenchmarkRunner:
         """
         try:
             from src.cli.experiment_commands import RunManager as ExRunManager
+            from src.utils.config_hierarchy import format_config_summary, resolve_with_feedback
 
             # Initialize database
             settings = get_settings()
@@ -536,7 +595,19 @@ class BenchmarkRunner:
 
             # Get parameters
             iterations = getattr(self.args, 'iterations', 1)
-            seed = getattr(self.args, 'seed', None)
+            
+            # Resolve seed with hierarchy: CLI > .env > default (None)
+            cli_seed = getattr(self.args, 'seed', None)
+            env_seed = settings.random_seed if hasattr(settings, 'random_seed') else None
+            default_seed = None
+            
+            seed, seed_msg = resolve_with_feedback(
+                cli_value=cli_seed,
+                env_value=env_seed,
+                default_value=default_seed,
+                config_name="Seed",
+                cli_flag_name="--seed",
+            )
 
             # Create run
             run_manager.create_run(
@@ -544,6 +615,10 @@ class BenchmarkRunner:
                 iterations=iterations,
                 seed=seed,
             )
+
+            # Show configuration summary (feedback for assumed values)
+            config_messages = [seed_msg]
+            format_config_summary(config_messages, title="Configuration")
 
             return 0
 
