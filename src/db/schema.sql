@@ -1,7 +1,7 @@
 -- Benchmark LLM Database Schema
 -- This schema defines the structure for storing benchmark experiments, runs, and responses.
--- Generated: 2026-03-13
--- Version: 3 (Model Variants System)
+-- Generated: 2026-03-14
+-- Version: 4 (Model Variants System - Fixed Order)
 
 -- Enable foreign key support
 PRAGMA foreign_keys = ON;
@@ -56,51 +56,6 @@ CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_is_dev ON runs(is_dev);
 
 -- ============================================================================
--- TABLE: run_models
--- Purpose: Associate model variants with runs. Allows adding models to
---          existing runs dynamically. Each entry tracks the execution status
---          of a specific model variant within a specific run.
---
--- Status values:
---   - pending: Model added to run but execution not started
---   - running: Model is currently being executed (some iterations done)
---   - completed: All iterations completed for this model in this run
---   - removed: Model removed from run (no responses yet)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS run_models (
-    -- Composite primary key: one entry per (run, variant) pair
-    run_id TEXT NOT NULL,
-    variant_id TEXT NOT NULL,
-    
-    -- Status tracks execution progress for this model in this run
-    status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'running', 'completed', 'removed')),
-    
-    -- Timestamp when model was added to run
-    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Timestamp when model completed (all iterations done)
-    completed_at TIMESTAMP,
-    
-    -- Primary key
-    PRIMARY KEY (run_id, variant_id),
-    
-    -- Foreign keys
-    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
-    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE RESTRICT
-);
-
--- Index for fast lookups by run
-CREATE INDEX IF NOT EXISTS idx_run_models_run ON run_models(run_id);
-
--- Index for fast lookups by variant
-CREATE INDEX IF NOT EXISTS idx_run_models_variant ON run_models(variant_id);
-
--- Index for fast lookups by status
-CREATE INDEX IF NOT EXISTS idx_run_models_status ON run_models(status);
-
--- ============================================================================
 -- TABLE: models
 -- Purpose: Registry of LLM models used in benchmarks.
 --          Each unique model (provider + model_name combination) is stored once.
@@ -110,6 +65,8 @@ CREATE TABLE IF NOT EXISTS models (
     model_id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
     model_name TEXT NOT NULL,
+    supports_multimodal BOOLEAN NOT NULL DEFAULT 0,
+    metadata_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -143,25 +100,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_unique ON models(provider, model_na
 CREATE TABLE IF NOT EXISTS model_variants (
     -- Short stable identifier (hash-based)
     variant_id TEXT PRIMARY KEY,
-    
+
     -- Base model reference
     model_id TEXT NOT NULL,
-    
+
     -- Identity fields (define variant_signature)
-    reasoning_mode TEXT NOT NULL DEFAULT 'unspecified' 
+    reasoning_mode TEXT NOT NULL DEFAULT 'unspecified'
         CHECK (reasoning_mode IN ('off', 'auto', 'effort', 'budget', 'unspecified')),
-    reasoning_effort TEXT 
+    reasoning_effort TEXT
         CHECK (reasoning_effort IN ('xhigh', 'high', 'medium', 'low', 'minimal')),
     reasoning_max_tokens INTEGER,
     vision_enabled BOOLEAN NOT NULL DEFAULT 0,
     structured_enabled BOOLEAN NOT NULL DEFAULT 0,
-    
+
     -- Human-readable signature (unique per model_id + identity)
     variant_signature TEXT NOT NULL,
-    
+
     -- Metadata
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Foreign keys
     FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE CASCADE
 );
@@ -173,15 +130,83 @@ CREATE INDEX IF NOT EXISTS idx_model_variants_model ON model_variants(model_id);
 CREATE INDEX IF NOT EXISTS idx_model_variants_reasoning ON model_variants(reasoning_mode);
 
 -- Unique index: one variant per (model_id + identity combination)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_model_variants_unique 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_model_variants_unique
 ON model_variants(
-    model_id, 
-    reasoning_mode, 
-    COALESCE(reasoning_effort, ''), 
+    model_id,
+    reasoning_mode,
+    COALESCE(reasoning_effort, ''),
     COALESCE(reasoning_max_tokens, 0),
-    vision_enabled, 
+    vision_enabled,
     structured_enabled
 );
+
+-- ============================================================================
+-- TABLE: run_models
+-- Purpose: Associate model variants with runs. Allows adding models to
+--          existing runs dynamically. Each entry tracks the execution status
+--          of a specific model variant within a specific run.
+--
+-- Status values:
+--   - pending: Model added to run but execution not started
+--   - running: Model is currently being executed (some iterations done)
+--   - completed: All iterations completed for this model in this run
+--   - removed: Model removed from run (no responses yet)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS run_models (
+    -- Composite primary key: one entry per (run, variant) pair
+    run_id TEXT NOT NULL,
+    variant_id TEXT NOT NULL,
+
+    -- Status tracks execution progress for this model in this run
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'running', 'completed', 'removed')),
+
+    -- Timestamp when model was added to run
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Timestamp when model completed (all iterations done)
+    completed_at TIMESTAMP,
+
+    -- Primary key
+    PRIMARY KEY (run_id, variant_id),
+
+    -- Foreign keys
+    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE RESTRICT
+);
+
+-- Index for fast lookups by run
+CREATE INDEX IF NOT EXISTS idx_run_models_run ON run_models(run_id);
+
+-- Index for fast lookups by variant
+CREATE INDEX IF NOT EXISTS idx_run_models_variant ON run_models(variant_id);
+
+-- Index for fast lookups by status
+CREATE INDEX IF NOT EXISTS idx_run_models_status ON run_models(status);
+
+-- ============================================================================
+-- TABLE: experiment_models
+-- Purpose: Associate model variants with experiments. This table defines
+--          which models belong to an experiment. Runs reference these models.
+--          Simple association: no status field, removal is physical (DELETE).
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS experiment_models (
+    experiment_id TEXT NOT NULL,
+    variant_id TEXT NOT NULL,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (experiment_id, variant_id),
+    FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id) ON DELETE CASCADE,
+    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE RESTRICT
+);
+
+-- Index for fast lookups by experiment
+CREATE INDEX IF NOT EXISTS idx_experiment_models_exp ON experiment_models(experiment_id);
+
+-- Index for fast lookups by variant
+CREATE INDEX IF NOT EXISTS idx_experiment_models_variant ON experiment_models(variant_id);
 
 -- ============================================================================
 -- TABLE: questions
@@ -240,7 +265,7 @@ ON question_snapshots(experiment_id, question_id);
 -- Purpose: Store individual model responses to questions.
 --          This is the core data table for benchmark analysis.
 --          Each row represents one model's answer to one question in one iteration.
---          Responses reference model_variants (NOT base models) for accurate tracking.
+--          Responses reference model_id (base models) for tracking.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS responses (
@@ -249,7 +274,7 @@ CREATE TABLE IF NOT EXISTS responses (
     run_id TEXT NOT NULL,
     snapshot_id INTEGER NOT NULL,
     question_id TEXT NOT NULL,
-    variant_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
     iteration INTEGER NOT NULL DEFAULT 1,
 
     -- RESPONSE DATA (4 columns)
@@ -289,7 +314,7 @@ CREATE TABLE IF NOT EXISTS responses (
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,
     FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT,
-    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE RESTRICT
+    FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE RESTRICT
 );
 
 -- Index for fast lookups by run
@@ -301,40 +326,40 @@ CREATE INDEX IF NOT EXISTS idx_responses_snapshot ON responses(snapshot_id);
 -- Index for fast lookups by question
 CREATE INDEX IF NOT EXISTS idx_responses_question ON responses(question_id);
 
--- Index for fast lookups by variant (replaces model index)
-CREATE INDEX IF NOT EXISTS idx_responses_variant ON responses(variant_id);
+-- Index for fast lookups by model
+CREATE INDEX IF NOT EXISTS idx_responses_model ON responses(model_id);
 
 -- Composite index for run + iteration
 CREATE INDEX IF NOT EXISTS idx_responses_run_iteration ON responses(run_id, iteration);
 
--- Composite index for accuracy analysis by variant
-CREATE INDEX IF NOT EXISTS idx_responses_variant_correct ON responses(variant_id, is_correct);
+-- Composite index for accuracy analysis by model
+CREATE INDEX IF NOT EXISTS idx_responses_model_correct ON responses(model_id, is_correct);
 
 -- ============================================================================
 -- TABLE: errors
 -- Purpose: Track errors that occur during benchmark execution.
---          Errors are associated with a specific run, question, and model variant.
+--          Errors are associated with a specific run, question, and model.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS errors (
     error_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT,
     question_id TEXT,
-    variant_id TEXT,
+    model_id TEXT,
     error_type TEXT NOT NULL,
     error_message TEXT NOT NULL,
     stack_trace TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE SET NULL,
-    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE SET NULL
+    FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE SET NULL
 );
 
 -- Index for fast lookups by run
 CREATE INDEX IF NOT EXISTS idx_errors_run ON errors(run_id);
 
--- Index for fast lookups by variant
-CREATE INDEX IF NOT EXISTS idx_errors_variant ON errors(variant_id);
+-- Index for fast lookups by model
+CREATE INDEX IF NOT EXISTS idx_errors_model ON errors(model_id);
 
 -- Index for fast lookups by error type
 CREATE INDEX IF NOT EXISTS idx_errors_type ON errors(error_type);
@@ -347,14 +372,14 @@ CREATE INDEX IF NOT EXISTS idx_errors_timestamp ON errors(timestamp);
 -- ============================================================================
 
 -- VIEW: responses_with_model
--- Purpose: Join responses with variant and base model info for easy querying
+-- Purpose: Join responses with base model info for easy querying
 CREATE VIEW IF NOT EXISTS responses_with_model AS
-SELECT 
+SELECT
     r.response_id,
     r.run_id,
     r.snapshot_id,
     r.question_id,
-    r.variant_id,
+    r.model_id,
     r.iteration,
     r.selected_answer,
     r.response_text,
@@ -375,38 +400,26 @@ SELECT
     r.review_status,
     r.reviewed_at,
     r.manual_answer,
-    -- Variant identity fields
-    mv.model_id,
-    mv.reasoning_mode,
-    mv.reasoning_effort,
-    mv.reasoning_max_tokens,
-    mv.vision_enabled,
-    mv.structured_enabled,
-    mv.variant_signature,
     -- Base model info
     m.provider,
     m.model_name
 FROM responses r
-JOIN model_variants mv ON r.variant_id = mv.variant_id
-JOIN models m ON mv.model_id = m.model_id;
+JOIN models m ON r.model_id = m.model_id;
 
--- VIEW: variant_stats
--- Purpose: Pre-aggregated statistics per model variant
-CREATE VIEW IF NOT EXISTS variant_stats AS
-SELECT 
-    mv.variant_id,
-    mv.model_id,
-    mv.variant_signature,
-    mv.reasoning_mode,
-    mv.vision_enabled,
-    mv.structured_enabled,
+-- VIEW: model_stats
+-- Purpose: Pre-aggregated statistics per model
+CREATE VIEW IF NOT EXISTS model_stats AS
+SELECT
+    m.model_id,
+    m.provider,
+    m.model_name,
     COUNT(r.response_id) AS total_responses,
     SUM(CASE WHEN r.is_correct = 1 THEN 1 ELSE 0 END) AS correct_answers,
     SUM(CASE WHEN r.is_correct = 0 THEN 1 ELSE 0 END) AS incorrect_answers,
     SUM(CASE WHEN r.status = 'error' THEN 1 ELSE 0 END) AS error_count,
     ROUND(
-        100.0 * SUM(CASE WHEN r.is_correct = 1 THEN 1 ELSE 0 END) / 
-        NULLIF(COUNT(r.response_id), 0), 
+        100.0 * SUM(CASE WHEN r.is_correct = 1 THEN 1 ELSE 0 END) /
+        NULLIF(COUNT(r.response_id), 0),
         2
     ) AS accuracy_percent,
     ROUND(AVG(r.latency_ms), 2) AS avg_latency_ms,
@@ -415,10 +428,9 @@ SELECT
     SUM(r.reasoning_tokens) AS total_reasoning_tokens,
     SUM(r.effective_tokens) AS total_effective_tokens,
     ROUND(SUM(r.cost), 6) AS total_cost
-FROM model_variants mv
-LEFT JOIN responses r ON mv.variant_id = r.variant_id
-GROUP BY mv.variant_id, mv.model_id, mv.variant_signature, 
-         mv.reasoning_mode, mv.vision_enabled, mv.structured_enabled;
+FROM models m
+LEFT JOIN responses r ON m.model_id = r.model_id
+GROUP BY m.model_id, m.provider, m.model_name;
 
 -- ============================================================================
 -- End of Schema

@@ -52,7 +52,26 @@ class CLIParser:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
-  # Basic benchmark
+  # Create experiment (freeze config, create snapshots)
+  %(prog)s --create-experiment my_exp --questions Q001-Q010 --seed AUTO
+
+  # View experiment details
+  %(prog)s --experiment my_exp
+
+  # Add models to experiment
+  %(prog)s --experiment my_exp --add-model openai/gpt-4 --add-model anthropic/claude-3
+
+  # Remove model from experiment
+  %(prog)s --experiment my_exp --remove-model openai/gpt-4
+
+  # Create run (without executing)
+  %(prog)s --experiment my_exp --create-run --iterations 3 --seed 42
+
+  # Execute run (only pending items)
+  %(prog)s --experiment my_exp --run
+  %(prog)s --experiment my_exp --run --models openai/gpt-4 --questions Q001-Q50
+
+  # Basic benchmark (fast flow)
   %(prog)s --models gpt-4 claude-3 --iterations 3
 
   # With question filtering
@@ -60,9 +79,6 @@ Examples:
 
   # With random seed (3 modes: empty=A,B,C,D order, AUTO=unique per run, 42=fixed)
   %(prog)s --models Qwen --questions Q001 --seed 42
-
-  # Create frozen experiment (immutable config)
-  %(prog)s --experiment my-experiment --models Qwen --questions Q001
 
   # With metadata filtering
   %(prog)s --models gpt-4 --where status=valid has_image=false
@@ -86,40 +102,46 @@ Incremental Flow (add models to existing run):
 
   # Complete run (no more models can be added)
   %(prog)s --complete-run run-20260314-abc
-
-Hierarchical Commands (NEW):
-  # Create experiment (freeze config, create snapshots)
-  %(prog)s experiment create my_exp --questions Q001-Q100 --seed AUTO
-
-  # View experiment details
-  %(prog)s experiment my_exp
-  %(prog)s experiment show my_exp
-
-  # Add models to experiment
-  %(prog)s experiment my_exp add-model openai/gpt-4 anthropic/claude-3
-
-  # Create run (without executing)
-  %(prog)s run create my_exp --iterations 3 --seed 42
-
-  # Execute run (only pending items)
-  %(prog)s run execute my_exp
-  %(prog)s run execute my_exp --models openai/gpt-4 --questions Q001-Q50
             """,
         )
 
-        # Create subparsers for hierarchical commands
-        subparsers = parser.add_subparsers(
-            dest="command",
-            title="commands",
-            description="Available commands",
-            help="Command to execute",
+        # Experiment management flags (NEW CLI paradigm)
+        # Note: --experiment flag already exists below for backward compatibility
+
+        parser.add_argument(
+            "--create-experiment",
+            type=str,
+            metavar="NAME",
+            help="Create a new experiment with the specified name. Use with --questions and --seed.",
         )
 
-        # Experiment subcommand
-        self._add_experiment_subparser(subparsers)
+        parser.add_argument(
+            "--add-model",
+            action="append",
+            dest="add_models",
+            metavar="MODEL",
+            help="Add a model to the experiment. Can be specified multiple times. Use with --experiment.",
+        )
 
-        # Run subcommand
-        self._add_run_subparser(subparsers)
+        parser.add_argument(
+            "--remove-model",
+            type=str,
+            metavar="MODEL_ID",
+            help="Remove a model from the experiment. Use with --experiment. Use '?' for interactive mode.",
+        )
+
+        parser.add_argument(
+            "--create-run",
+            action="store_true",
+            help="Create a new run for the experiment. Use with --experiment, --iterations, and --seed.",
+        )
+
+        parser.add_argument(
+            "--run",
+            action="store_true",
+            dest="execute_run",
+            help="Execute the experiment run. Use with --experiment. Supports --models and --questions for filtering.",
+        )
 
         # Model selection
         parser.add_argument(
@@ -206,10 +228,19 @@ Hierarchical Commands (NEW):
         )
 
         # Random seed
+        def seed_type(value: str) -> int | str:
+            """Convert seed argument to int or string."""
+            if value.upper() == "AUTO":
+                return "AUTO"
+            try:
+                return int(value)
+            except ValueError:
+                raise argparse.ArgumentTypeError(f"Invalid seed value: {value}. Use integer or AUTO.")
+
         parser.add_argument(
             "--seed",
             "-s",
-            type=int,
+            type=seed_type,
             required=False,
             help="Random seed for reproducible answer randomization. "
                  "Three modes: (1) Empty/None = no randomization (A,B,C,D order), "
@@ -302,42 +333,30 @@ Hierarchical Commands (NEW):
         )
 
         # Reasoning parameters (OpenRouter standard)
+        # Simplified: Only --reasoning-effort is exposed to users
+        def reasoning_effort_type(value: str) -> str:
+            """Validate reasoning effort parameter with human-readable error."""
+            valid = {"xhigh", "high", "medium", "low", "minimal", "none"}
+            if value.lower() not in valid:
+                raise argparse.ArgumentTypeError(
+                    f"Invalid reasoning effort. Use one of: {', '.join(valid)}"
+                )
+            return value.lower()
+
         parser.add_argument(
             "--reasoning-effort",
-            type=str,
-            choices=["xhigh", "high", "medium", "low", "minimal", "none"],
+            type=reasoning_effort_type,
+            default=None,
             help="Reasoning effort level for models that support reasoning (o1, o3, "
                  "Claude, Gemini, etc.). Higher effort = more thorough reasoning but "
-                 "more tokens and time.",
+                 "more tokens and time. Use 'none' to explicitly disable reasoning. "
+                 "If not specified, the system does NOT send any reasoning configuration, "
+                 "allowing the model to use its default behavior.",
         )
 
-        parser.add_argument(
-            "--reasoning-tokens",
-            type=int,
-            help="Maximum tokens for reasoning. Controls how much the model can "
-                 "'think' before answering. Leave blank in .env for model default.",
-        )
-
-        parser.add_argument(
-            "--reasoning-exclude",
-            action="store_true",
-            help="Exclude reasoning from response text. Model uses reasoning internally "
-                 "but only returns the final answer. Useful for cleaner output.",
-        )
-
-        # Model variant parameters (identity-defining)
-        parser.add_argument(
-            "--reasoning-mode",
-            type=str,
-            choices=["off", "auto", "effort", "budget", "unspecified"],
-            default=None,
-            help="Reasoning mode for model variant identity. "
-                 "'unspecified' = do not send reasoning field (use model default, NOT synonymous with auto/off). "
-                 "'auto' = use model's default reasoning behavior. "
-                 "'off' = explicitly disable reasoning. "
-                 "'effort' = use specific reasoning effort (requires --reasoning-effort). "
-                 "'budget' = limit reasoning tokens (requires --reasoning-tokens).",
-        )
+        # Note: --reasoning-mode, --reasoning-tokens, and --reasoning-exclude
+        # have been removed to simplify the CLI. Reasoning is now configured
+        # exclusively via --reasoning-effort.
 
         parser.add_argument(
             "--enable-vision",
@@ -431,6 +450,9 @@ Hierarchical Commands (NEW):
         if parsed_args.iterations < 1:
             self.parser.error("--iterations must be at least 1")
 
+        # Validate conceptual conflicts (creation vs operation)
+        self._validate_conceptual_conflicts(parsed_args)
+
         # Post-process execution mode
         # --test-mode is an alias for --mode test (backward compatibility)
         parsed_args = self._normalize_execution_mode(parsed_args)
@@ -440,6 +462,50 @@ Hierarchical Commands (NEW):
             parsed_args.questions = self._expand_question_ranges(parsed_args.questions)
 
         return parsed_args
+
+    def _validate_conceptual_conflicts(self, args: argparse.Namespace) -> None:
+        """Validate that creation and operation commands are not mixed.
+
+        Conceptual model:
+        - Creation commands (--create-experiment) are OUTSIDE context
+        - Operation commands (--add-model, --create-run, etc.) require --experiment context
+        - Cannot be in a context that doesn't exist yet
+
+        Args:
+            args: Parsed arguments namespace.
+
+        Raises:
+            SystemExit: If conceptual conflict is detected.
+        """
+        # Rule 1: --create-experiment cannot be used with --experiment
+        if args.create_experiment and args.experiment:
+            self.parser.error(
+                "--create-experiment cannot be used with --experiment. "
+                "First create the experiment, then use --experiment for operations."
+            )
+
+        # Rule 2: Operation commands require --experiment context
+        operation_flags = [
+            ('add_models', '--add-model'),
+            ('remove_model', '--remove-model'),
+            ('create_run', '--create-run'),
+            ('execute_run', '--run'),
+        ]
+
+        for attr, flag_name in operation_flags:
+            if hasattr(args, attr) and getattr(args, attr):
+                if not args.experiment:
+                    self.parser.error(
+                        f"{flag_name} requires --experiment <name>. "
+                        f"Example: --experiment my_exp {flag_name}"
+                    )
+
+        # Rule 3: --create-experiment requires --questions (cannot create empty experiment)
+        if args.create_experiment and not args.questions:
+            self.parser.error(
+                "--create-experiment requires --questions <ids>. "
+                "Example: --create-experiment my_exp --questions Q001-Q010"
+            )
 
     def _normalize_execution_mode(
         self, args: argparse.Namespace
@@ -567,282 +633,6 @@ Hierarchical Commands (NEW):
                 expanded.append(question)
 
         return expanded
-
-    def _add_experiment_subparser(
-        self, subparsers: argparse._SubParsersAction
-    ) -> None:
-        """Add experiment subcommand parser.
-
-        Args:
-            subparsers: Subparsers action to add the experiment parser to.
-        """
-        # Experiment parser
-        exp_parser = subparsers.add_parser(
-            "experiment",
-            help="Manage experiments (create, view, add models)",
-            description="Manage experiments for reproducible benchmark studies.",
-        )
-
-        exp_subparsers = exp_parser.add_subparsers(
-            dest="experiment_command",
-            title="experiment commands",
-            description="Experiment management commands",
-        )
-
-        # Create command
-        create_parser = exp_subparsers.add_parser(
-            "create",
-            help="Create a new experiment",
-            description="Create a new experiment with frozen configuration and question snapshots.",
-        )
-        create_parser.add_argument(
-            "name",
-            type=str,
-            help="Unique experiment name",
-        )
-        create_parser.add_argument(
-            "--questions",
-            "-q",
-            nargs="+",
-            type=str,
-            required=True,
-            help="Question IDs or ranges to include (e.g., Q001-Q100)",
-        )
-        create_parser.add_argument(
-            "--seed",
-            "-s",
-            type=str,
-            default=None,
-            help="Seed policy: AUTO (auto-generate), integer (fixed), or empty (original order)",
-        )
-        create_parser.add_argument(
-            "--description",
-            "-d",
-            type=str,
-            default=None,
-            help="Optional experiment description",
-        )
-        create_parser.set_defaults(command="experiment", exp_command="create")
-
-        # Show command (default when no subcommand)
-        show_parser = exp_subparsers.add_parser(
-            "show",
-            help="Show experiment details",
-            description="Display experiment details including questions, models, runs, and status.",
-        )
-        show_parser.add_argument(
-            "name",
-            type=str,
-            help="Experiment name to display",
-        )
-        show_parser.set_defaults(command="experiment", exp_command="show")
-
-        # Add-model command
-        add_model_parser = exp_subparsers.add_parser(
-            "add-model",
-            help="Add models to an experiment",
-            description="Register model variants to an experiment without creating a run.",
-        )
-        add_model_parser.add_argument(
-            "experiment_name",
-            type=str,
-            help="Name of the experiment",
-        )
-        add_model_parser.add_argument(
-            "models",
-            nargs="+",
-            type=str,
-            help="Model IDs to add (e.g., openai/gpt-4 anthropic/claude-3)",
-        )
-        add_model_parser.add_argument(
-            "--reasoning-mode",
-            type=str,
-            choices=["off", "auto", "effort", "budget", "unspecified"],
-            default=None,
-            help="Reasoning mode for variant identity",
-        )
-        add_model_parser.add_argument(
-            "--reasoning-effort",
-            type=str,
-            choices=["xhigh", "high", "medium", "low", "minimal"],
-            default=None,
-            help="Reasoning effort level (when mode=effort)",
-        )
-        add_model_parser.add_argument(
-            "--reasoning-tokens",
-            type=int,
-            default=None,
-            help="Maximum reasoning tokens (when mode=budget)",
-        )
-        add_model_parser.add_argument(
-            "--enable-vision",
-            action="store_true",
-            default=False,
-            help="Enable vision for model variants",
-        )
-        add_model_parser.add_argument(
-            "--enable-structured",
-            action="store_true",
-            default=False,
-            help="Enable structured outputs for model variants",
-        )
-        add_model_parser.set_defaults(command="experiment", exp_command="add-model")
-
-        # Remove-model command
-        remove_model_parser = exp_subparsers.add_parser(
-            "remove-model",
-            help="Remove model from an experiment",
-            description="Remove a model variant from an experiment.",
-        )
-        remove_model_parser.add_argument(
-            "experiment_name",
-            type=str,
-            help="Name of the experiment",
-        )
-        remove_model_parser.add_argument(
-            "model_id",
-            type=str,
-            help="Model ID to remove",
-        )
-        remove_model_parser.set_defaults(command="experiment", exp_command="remove-model")
-
-        # Default to show when no subcommand
-        exp_parser.add_argument(
-            "name",
-            type=str,
-            nargs="?",
-            default=None,
-            help="Experiment name (alias for show)",
-        )
-        exp_parser.set_defaults(command="experiment", exp_command="show")
-
-    def _add_run_subparser(
-        self, subparsers: argparse._SubParsersAction
-    ) -> None:
-        """Add run subcommand parser.
-
-        Args:
-            subparsers: Subparsers action to add the run parser to.
-        """
-        # Run parser
-        run_parser = subparsers.add_parser(
-            "run",
-            help="Manage runs (create, execute, add models)",
-            description="Manage benchmark runs within experiments.",
-        )
-
-        run_subparsers = run_parser.add_subparsers(
-            dest="run_command",
-            title="run commands",
-            description="Run management commands",
-        )
-
-        # Create command
-        create_parser = run_subparsers.add_parser(
-            "create",
-            help="Create a new run",
-            description="Create a new run for an experiment without executing.",
-        )
-        create_parser.add_argument(
-            "experiment_name",
-            type=str,
-            help="Name of the experiment",
-        )
-        create_parser.add_argument(
-            "--iterations",
-            "-i",
-            type=int,
-            default=1,
-            help="Number of iterations per model (default: 1)",
-        )
-        create_parser.add_argument(
-            "--seed",
-            "-s",
-            type=str,
-            default=None,
-            help="Seed policy: AUTO (auto-generate), integer (fixed), or empty (original order)",
-        )
-        create_parser.set_defaults(command="run", run_command="create")
-
-        # Execute command
-        execute_parser = run_subparsers.add_parser(
-            "execute",
-            help="Execute a run",
-            description="Execute pending items in a run. Supports filtering by models and questions.",
-        )
-        execute_parser.add_argument(
-            "experiment_name",
-            type=str,
-            help="Name of the experiment",
-        )
-        execute_parser.add_argument(
-            "--models",
-            "-m",
-            nargs="+",
-            type=str,
-            default=None,
-            help="Filter by specific model IDs",
-        )
-        execute_parser.add_argument(
-            "--questions",
-            "-q",
-            nargs="+",
-            type=str,
-            default=None,
-            help="Filter by specific question IDs or ranges",
-        )
-        execute_parser.set_defaults(command="run", run_command="execute")
-
-        # Add-models command
-        add_models_parser = run_subparsers.add_parser(
-            "add-models",
-            help="Add models to a run",
-            description="Add model variants to an existing run.",
-        )
-        add_models_parser.add_argument(
-            "run_id",
-            type=str,
-            help="ID of the run",
-        )
-        add_models_parser.add_argument(
-            "models",
-            nargs="+",
-            type=str,
-            help="Model IDs to add",
-        )
-        add_models_parser.add_argument(
-            "--reasoning-mode",
-            type=str,
-            choices=["off", "auto", "effort", "budget", "unspecified"],
-            default=None,
-            help="Reasoning mode for variant identity",
-        )
-        add_models_parser.add_argument(
-            "--reasoning-effort",
-            type=str,
-            choices=["xhigh", "high", "medium", "low", "minimal"],
-            default=None,
-            help="Reasoning effort level",
-        )
-        add_models_parser.add_argument(
-            "--reasoning-tokens",
-            type=int,
-            default=None,
-            help="Maximum reasoning tokens",
-        )
-        add_models_parser.add_argument(
-            "--enable-vision",
-            action="store_true",
-            default=False,
-            help="Enable vision for model variants",
-        )
-        add_models_parser.add_argument(
-            "--enable-structured",
-            action="store_true",
-            default=False,
-            help="Enable structured outputs",
-        )
-        add_models_parser.set_defaults(command="run", run_command="add-models")
 
 
 def parse_arguments(args: Optional[list[str]] = None) -> argparse.Namespace:

@@ -36,6 +36,7 @@ from rich.text import Text
 from src.db.models import Experiment, ModelVariant, Run, RunModel
 from src.db.repository import (
     ExperimentRepository,
+    ExperimentModelRepository,
     ModelRepository,
     ModelVariantRepository,
     QuestionRepository,
@@ -61,6 +62,7 @@ class ExperimentManager:
         experiment_repo: ExperimentRepository for experiment CRUD.
         model_repo: ModelRepository for model registry.
         variant_repo: ModelVariantRepository for variant management.
+        exp_model_repo: ExperimentModelRepository for experiment-model association.
         snapshot_repo: QuestionSnapshotRepository for snapshot creation.
         question_repo: QuestionRepository for question access.
 
@@ -87,6 +89,7 @@ class ExperimentManager:
         self.experiment_repo = ExperimentRepository(db_manager)
         self.model_repo = ModelRepository(db_manager)
         self.variant_repo = ModelVariantRepository(db_manager)
+        self.exp_model_repo = ExperimentModelRepository(db_manager)
         self.snapshot_repo = QuestionSnapshotRepository(db_manager)
         self.question_repo = QuestionRepository(db_manager)
         logger.info("ExperimentManager initialized")
@@ -293,6 +296,68 @@ class ExperimentManager:
         completed_runs = sum(1 for r in runs if r.status == 'completed')
         console.print(f"  Completed Runs: {completed_runs}")
 
+        # Display configured models
+        self._show_experiment_models(experiment.experiment_id)
+
+    def _show_experiment_models(self, experiment_id: str) -> None:
+        """Display models configured in an experiment.
+
+        Args:
+            experiment_id: ID of the experiment.
+        """
+        console.print("\n[bold]Models:[/bold]")
+
+        # Get all models from experiment_models (NEW - direct association)
+        variants = self.exp_model_repo.get_by_experiment(experiment_id)
+
+        if not variants:
+            console.print("  [dim]No models configured[/dim]")
+            return
+
+        # Display models with index
+        console.print(f"  {len(variants)} model variant(s) configured:\n")
+
+        for idx, variant in enumerate(variants, start=1):
+            # Build model info string
+            info_parts = []
+            if variant.reasoning_effort:
+                info_parts.append(f"reasoning={variant.reasoning_effort}")
+            elif variant.reasoning_mode == "off":
+                info_parts.append("reasoning=off")
+            if variant.vision_enabled:
+                info_parts.append("vision")
+            if variant.structured_enabled:
+                info_parts.append("structured")
+
+            info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+            console.print(f"  [cyan][{idx}][/cyan] {variant.model_id}{info_str}")
+
+    def _show_all_experiment_models(self, experiment_id: str) -> None:
+        """Display all models configured in an experiment (for UX after add-model).
+
+        Args:
+            experiment_id: ID of the experiment.
+        """
+        variants = self.exp_model_repo.get_by_experiment(experiment_id)
+
+        if not variants:
+            return
+
+        console.print("\n[bold]Models configured:[/bold]")
+        for idx, variant in enumerate(variants, start=1):
+            info_parts = []
+            if variant.reasoning_effort:
+                info_parts.append(f"reasoning={variant.reasoning_effort}")
+            elif variant.reasoning_mode == "off":
+                info_parts.append("reasoning=off")
+            if variant.vision_enabled:
+                info_parts.append("vision")
+            if variant.structured_enabled:
+                info_parts.append("structured")
+
+            info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+            console.print(f"  [cyan][{idx}][/cyan] {variant.model_id}{info_str}")
+
     def add_models_to_experiment(
         self,
         experiment_name: str,
@@ -352,11 +417,19 @@ class ExperimentManager:
                 structured_enabled=structured_enabled,
             )
 
+            # Associate variant with experiment (NEW - conceptual fix)
+            try:
+                self.exp_model_repo.add_variant(experiment.experiment_id, variant.variant_id)
+            except Exception:
+                # Association might already exist
+                logger.debug(f"Variant {variant.variant_id} already associated with experiment")
+
             added_variants.append(variant)
             logger.info(f"Registered variant: {variant.variant_id} for model {model_id}")
 
-        # Display success message
+        # Display success message with full model list (NEW UX)
         self._show_models_added_summary(experiment_name, added_variants)
+        self._show_all_experiment_models(experiment.experiment_id)
 
     def remove_model_from_experiment(
         self,
@@ -367,11 +440,13 @@ class ExperimentManager:
 
         This method removes a model variant from the experiment if:
         - The variant exists
-        - No responses have been recorded for this variant in any run
+        - The variant is associated with the experiment
 
         Args:
             experiment_name: Name of the experiment.
-            model_id: Model ID to remove.
+            model_id: Model ID to remove. Can be:
+                     - Single ID: "openai/gpt-4"
+                     - Interactive: "?" to enter interactive mode
 
         Raises:
             ValueError: If experiment not found or model cannot be removed.
@@ -387,18 +462,152 @@ class ExperimentManager:
         if not experiment:
             raise ValueError(f"Experiment '{experiment_name}' not found")
 
+        # Check for interactive mode
+        if model_id == "?":
+            self._remove_model_interactive(experiment_name, experiment.experiment_id)
+            return
+
         # Find variant by model_id (may have multiple variants)
         variants = self.variant_repo.get_by_model(model_id)
         if not variants:
             raise ValueError(f"No variants found for model '{model_id}'")
 
-        # Check if variants have responses
-        # TODO: Implement response check when ResponseRepository is available
-        # For now, just log a warning
-        logger.warning(f"Removing {len(variants)} variant(s) for model {model_id}")
+        # Remove all variants of this model from experiment
+        removed_count = 0
+        for variant in variants:
+            if self.exp_model_repo.remove_variant(experiment.experiment_id, variant.variant_id):
+                removed_count += 1
+
+        if removed_count == 0:
+            raise ValueError(f"Model '{model_id}' is not associated with experiment '{experiment_name}'")
 
         # Display removal message
-        console.print(f"\n[yellow]⚠ Removed {len(variants)} variant(s) for model {model_id} from experiment {experiment_name}[/yellow]")
+        console.print(f"\n[yellow]⚠ Removed {removed_count} variant(s) for model {model_id} from experiment {experiment_name}[/yellow]")
+
+    def _remove_model_interactive(self, experiment_name: str, experiment_id: str) -> None:
+        """Interactive mode for removing models.
+
+        Args:
+            experiment_name: Name of the experiment.
+            experiment_id: ID of the experiment.
+        """
+        # Get all models from experiment_models (NEW - direct association)
+        variants = self.exp_model_repo.get_by_experiment(experiment_id)
+
+        if not variants:
+            console.print("\n[yellow]⚠ No models configured.[/yellow]")
+            return
+
+        # Display models with index
+        console.print()
+        console.print(Panel(
+            "[bold]Select models to remove:[/bold]\n\n"
+            + "\n".join([
+                f"  [cyan][{idx}][/cyan] {variant.model_id}" +
+                (f" [dim](reasoning={variant.reasoning_effort})[/dim]" if variant.reasoning_effort else "") +
+                (f" [dim](reasoning=off)[/dim]" if variant.reasoning_mode == "off" and not variant.reasoning_effort else "")
+                for idx, variant in enumerate(variants, start=1)
+            ])
+            + "\n\n[dim]Select models to remove:[/dim]\n"
+            "  [bold]Single:[/bold] 3\n"
+            "  [bold]Multiple:[/bold] 1,3,4\n"
+            "  [bold]Range:[/bold] 1-4\n"
+            "  [bold]Cancel:[/bold] q or Ctrl+C",
+            title="🗑️  Remove Models",
+            border_style="yellow",
+        ))
+
+        # Read user input
+        try:
+            user_input = input("\nSelect models to remove: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[dim]Cancelled.[/dim]")
+            return
+
+        # Handle cancel
+        if user_input.lower() in ('q', 'quit', 'cancel', 'c'):
+            console.print("\n[dim]Cancelled.[/dim]")
+            return
+
+        # Parse input
+        indices_to_remove = self._parse_model_indices(user_input, len(variants))
+
+        if not indices_to_remove:
+            console.print("\n[red]✗ No valid models selected.[/red]")
+            return
+
+        # Get variants to remove
+        variants_to_remove = [variants[i - 1] for i in indices_to_remove]
+
+        # Show what will be removed
+        console.print(f"\n[yellow]⚠ About to remove {len(variants_to_remove)} variant(s):[/yellow]")
+        for variant in variants_to_remove:
+            console.print(f"  • {variant.model_id}")
+
+        # Confirm
+        try:
+            confirm = input("\nConfirm removal? (y/N): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[dim]Cancelled.[/dim]")
+            return
+
+        if confirm != 'y':
+            console.print("\n[dim]Cancelled.[/dim]")
+            return
+
+        # Remove variants from experiment
+        removed_count = 0
+        for variant in variants_to_remove:
+            if self.exp_model_repo.remove_variant(experiment_id, variant.variant_id):
+                removed_count += 1
+
+        console.print(f"\n[green]✓ Removed {removed_count} model variant(s) from experiment.[/green]")
+
+    def _parse_model_indices(self, user_input: str, total_count: int) -> list[int]:
+        """Parse user input for model selection (returns indices).
+
+        Args:
+            user_input: User's selection input (e.g., "1,3,4" or "1-4").
+            total_count: Total number of models available.
+
+        Returns:
+            List of indices (1-based) to remove.
+        """
+        selected_indices = []
+
+        # Split by comma
+        parts = user_input.replace(' ', '').split(',')
+
+        for part in parts:
+            if '-' in part and part.count('-') == 1:
+                # Range: 1-4
+                try:
+                    start, end = part.split('-')
+                    start_num = int(start)
+                    end_num = int(end)
+                    for num in range(start_num, min(end_num + 1, total_count + 1)):
+                        if 1 <= num <= total_count:
+                            selected_indices.append(num)
+                except ValueError:
+                    continue
+            else:
+                # Single number
+                try:
+                    num = int(part)
+                    if 1 <= num <= total_count:
+                        selected_indices.append(num)
+                except ValueError:
+                    continue
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_indices = []
+        for idx in selected_indices:
+            if idx not in seen:
+                seen.add(idx)
+                unique_indices.append(idx)
+
+        return unique_indices
 
     def _build_config_json(self, settings: Settings, seed: Optional[str | int]) -> str:
         """Build frozen configuration JSON for experiment.
@@ -554,7 +763,7 @@ class ExperimentManager:
         Args:
             model_id: Base model identifier.
             reasoning_mode: Reasoning mode for variant identity.
-            reasoning_effort: Reasoning effort level.
+            reasoning_effort: Reasoning effort level ('none' means disable reasoning).
             reasoning_max_tokens: Maximum reasoning tokens.
             vision_enabled: Whether vision is enabled.
             structured_enabled: Whether structured outputs are enabled.
@@ -563,6 +772,11 @@ class ExperimentManager:
             Created ModelVariant object.
         """
         from src.core.variant_config import VariantConfig
+
+        # Normalize reasoning_effort: 'none' means disable reasoning (mode='off')
+        if reasoning_effort == 'none':
+            reasoning_mode = "off"
+            reasoning_effort = None
 
         # Build variant config
         variant_config = VariantConfig(
@@ -625,12 +839,12 @@ class ExperimentManager:
             f"[bold]Name:[/bold] {experiment.name}\n"
             f"[bold]ID:[/bold] {experiment.experiment_id}\n"
             f"[bold]Config Hash:[/bold] {experiment.config_hash}\n"
-            f"[bold]Questions:[/bold] {len(question_ids)} selected, {snapshots_created} snapshots created\n"
+            f"[bold]Questions:[/bold] {f'{len(question_ids)} selected, {snapshots_created} snapshots created' if question_ids else 'Will be resolved when creating a run'}\n"
             f"[bold]Seed Policy:[/bold] {seed if seed else 'None (original order)'}\n\n"
             f"[dim]Next steps:[/dim]\n"
-            f"  1. Add models: [cyan]bcllm.py experiment {experiment.name} add-model <models>[/cyan]\n"
-            f"  2. Create run: [cyan]bcllm.py run create {experiment.name} --iterations N[/cyan]\n"
-            f"  3. Execute: [cyan]bcllm.py run execute {experiment.name}[/cyan]",
+            f"  1. Add models: [cyan]bcllm.py --experiment {experiment.name} --add-model <model>[/cyan]\n"
+            f"  2. Create run: [cyan]bcllm.py --experiment {experiment.name} --create-run --iterations N[/cyan]\n"
+            f"  3. Execute: [cyan]bcllm.py --experiment {experiment.name} --run[/cyan]",
             title="🎉 Success",
             border_style="green",
         ))
@@ -696,6 +910,7 @@ class RunManager:
         self.run_repo = RunRepository(db_manager)
         self.run_model_repo = RunModelRepository(db_manager)
         self.experiment_repo = ExperimentRepository(db_manager)
+        self.exp_model_repo = ExperimentModelRepository(db_manager)
         logger.info("RunManager initialized")
 
     def create_run(
@@ -761,10 +976,19 @@ class RunManager:
         self.run_repo.create(run)
         logger.info(f"Created run {run_id} for experiment {experiment_name}")
 
-        # Associate model variants from experiment
-        # Note: In this implementation, we don't track models at experiment level
-        # Models are added directly to runs. This is a design decision.
-        # Users should use add_models_to_run to add models after creating the run.
+        # Associate model variants from experiment (NEW - copy from experiment_models)
+        experiment_models = self.exp_model_repo.get_by_experiment(experiment.experiment_id)
+        
+        for variant in experiment_models:
+            try:
+                self.run_model_repo.add(
+                    run_id=run.run_id,
+                    variant_id=variant.variant_id,
+                )
+                logger.debug(f"Associated variant {variant.variant_id} with run {run.run_id}")
+            except Exception:
+                # Association might already exist
+                logger.debug(f"Variant {variant.variant_id} already associated with run")
 
         # Display success message
         self._show_run_creation_summary(run, experiment_name, seed_value)
@@ -1126,9 +1350,9 @@ def handle_experiment_command(args: argparse.Namespace) -> int:
         exp_manager = ExperimentManager(db_manager)
 
         # Route to appropriate handler
-        command = getattr(args, 'command', None) or 'show'
+        exp_command = getattr(args, 'exp_command', None) or 'show'
 
-        if command == 'create':
+        if exp_command == 'create':
             name = getattr(args, 'name', None)
             if not name:
                 console.print("[red]Error: Experiment name required for create command[/red]")
@@ -1145,7 +1369,7 @@ def handle_experiment_command(args: argparse.Namespace) -> int:
                 description=description,
             )
 
-        elif command == 'show' or command is None:
+        elif exp_command == 'show' or exp_command is None:
             # Default to show when no command specified
             name = getattr(args, 'name', None) or getattr(args, 'experiment_name', None)
             if not name:
@@ -1154,7 +1378,7 @@ def handle_experiment_command(args: argparse.Namespace) -> int:
 
             exp_manager.show_experiment(name)
 
-        elif command == 'add-model':
+        elif exp_command == 'add-model':
             experiment_name = getattr(args, 'experiment_name', None)
             if not experiment_name:
                 console.print("[red]Error: Experiment name required[/red]")
@@ -1181,7 +1405,7 @@ def handle_experiment_command(args: argparse.Namespace) -> int:
                 structured_enabled=structured_enabled,
             )
 
-        elif command == 'remove-model':
+        elif exp_command == 'remove-model':
             experiment_name = getattr(args, 'experiment_name', None)
             model_id = getattr(args, 'model_id', None)
 
@@ -1195,7 +1419,7 @@ def handle_experiment_command(args: argparse.Namespace) -> int:
             )
 
         else:
-            console.print(f"[red]Unknown experiment command: {command}[/red]")
+            console.print(f"[red]Unknown experiment command: {exp_command}[/red]")
             return 1
 
         return 0
@@ -1241,9 +1465,9 @@ def handle_run_command(args: argparse.Namespace) -> int:
         run_manager = RunManager(db_manager)
 
         # Route to appropriate handler
-        command = getattr(args, 'command', None)
+        run_command = getattr(args, 'run_command', None)
 
-        if command == 'create':
+        if run_command == 'create':
             experiment_name = getattr(args, 'experiment_name', None)
             if not experiment_name:
                 console.print("[red]Error: Experiment name required[/red]")
@@ -1258,7 +1482,7 @@ def handle_run_command(args: argparse.Namespace) -> int:
                 seed=seed,
             )
 
-        elif command == 'execute':
+        elif run_command == 'execute':
             experiment_name = getattr(args, 'experiment_name', None)
             if not experiment_name:
                 console.print("[red]Error: Experiment name required[/red]")
@@ -1273,7 +1497,7 @@ def handle_run_command(args: argparse.Namespace) -> int:
                 questions_filter=questions_filter,
             )
 
-        elif command == 'add-models':
+        elif run_command == 'add-models':
             run_id = getattr(args, 'run_id', None)
             if not run_id:
                 console.print("[red]Error: Run ID required[/red]")
@@ -1301,7 +1525,7 @@ def handle_run_command(args: argparse.Namespace) -> int:
             )
 
         else:
-            console.print(f"[red]Unknown run command: {command}[/red]")
+            console.print(f"[red]Unknown run command: {run_command}[/red]")
             console.print("[dim]Available commands: create, execute, add-models[/dim]")
             return 1
 

@@ -967,6 +967,143 @@ class RunModelRepository:
                 conn.close()
 
 
+class ExperimentModelRepository:
+    """Repository for Experiment-Model association.
+
+    This table defines which model variants belong to an experiment.
+    Simple association: no status field, removal is physical (DELETE).
+    """
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize the ExperimentModelRepository."""
+        self.db_manager = db_manager
+
+    def add_variant(self, experiment_id: str, variant_id: str) -> None:
+        """Associate a model variant with an experiment.
+
+        Args:
+            experiment_id: ID of the experiment.
+            variant_id: ID of the model variant.
+
+        Raises:
+            sqlite3.IntegrityError: If association already exists.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO experiment_models (experiment_id, variant_id)
+                VALUES (?, ?)
+                """,
+                (experiment_id, variant_id),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def get_by_experiment(self, experiment_id: str) -> list["ModelVariant"]:
+        """Retrieve all model variants associated with an experiment.
+
+        Args:
+            experiment_id: ID of the experiment.
+
+        Returns:
+            List of ModelVariant objects.
+        """
+        from src.db.models import ModelVariant
+
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT mv.variant_id, mv.model_id, mv.reasoning_mode, mv.reasoning_effort,
+                       mv.reasoning_max_tokens, mv.vision_enabled, mv.structured_enabled,
+                       mv.variant_signature, mv.created_at
+                FROM experiment_models em
+                JOIN model_variants mv ON em.variant_id = mv.variant_id
+                WHERE em.experiment_id = ?
+                ORDER BY em.added_at
+                """,
+                (experiment_id,),
+            )
+            variants = []
+            for row in cursor.fetchall():
+                variants.append(
+                    ModelVariant(
+                        variant_id=row["variant_id"],
+                        model_id=row["model_id"],
+                        reasoning_mode=row["reasoning_mode"],
+                        reasoning_effort=row["reasoning_effort"],
+                        reasoning_max_tokens=row["reasoning_max_tokens"],
+                        vision_enabled=bool(row["vision_enabled"]),
+                        structured_enabled=bool(row["structured_enabled"]),
+                        variant_signature=row["variant_signature"],
+                        created_at=datetime.fromisoformat(row["created_at"]),
+                    )
+                )
+            return variants
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def remove_variant(self, experiment_id: str, variant_id: str) -> bool:
+        """Remove a model variant from an experiment.
+
+        Args:
+            experiment_id: ID of the experiment.
+            variant_id: ID of the model variant.
+
+        Returns:
+            True if removed successfully, False if not found.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM experiment_models WHERE experiment_id = ? AND variant_id = ?",
+                (experiment_id, variant_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+    def exists(self, experiment_id: str, variant_id: str) -> bool:
+        """Check if a model variant is associated with an experiment.
+
+        Args:
+            experiment_id: ID of the experiment.
+            variant_id: ID of the model variant.
+
+        Returns:
+            True if association exists, False otherwise.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT 1 FROM experiment_models
+                WHERE experiment_id = ? AND variant_id = ?
+                """,
+                (experiment_id, variant_id),
+            )
+            return cursor.fetchone() is not None
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
+
 class QuestionRepository:
     """Repository for Question entity CRUD operations.
 

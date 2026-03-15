@@ -23,6 +23,7 @@ from src.core.run_manager import RunManager
 from src.db.schema import DatabaseManager
 from src.utils.config import get_settings
 from src.utils.logging_config import LoggingConfig, setup_logging, log_initialization_summary
+from rich.console import Console
 
 logger = logging.getLogger(__name__)
 
@@ -80,23 +81,15 @@ class BenchmarkRunner:
         self._apply_cli_generation_args()
 
     def _apply_cli_reasoning_args(self) -> None:
-        """Apply CLI reasoning arguments to settings."""
+        """Apply CLI reasoning arguments to settings.
+        
+        Simplified: Only --reasoning-effort is now supported.
+        - reasoning_effort: Set directly; 'none' means disable reasoning
+        - If not specified, no reasoning config is sent to API (model default)
+        """
         if self.args.reasoning_effort:
             self.settings.reasoning_effort = self.args.reasoning_effort
             logger.info(f"Set reasoning_effort from CLI: {self.args.reasoning_effort}")
-
-        if self.args.reasoning_tokens:
-            self.settings.reasoning_max_tokens = self.args.reasoning_tokens
-            logger.info(f"Set reasoning_max_tokens from CLI: {self.args.reasoning_tokens}")
-
-        if self.args.reasoning_exclude:
-            self.settings.reasoning_exclude = self.args.reasoning_exclude
-            logger.info(f"Set reasoning_exclude from CLI: {self.args.reasoning_exclude}")
-
-        # Model variant identity fields
-        if hasattr(self.args, 'reasoning_mode') and self.args.reasoning_mode:
-            self.settings.reasoning_mode = self.args.reasoning_mode
-            logger.info(f"Set reasoning_mode from CLI: {self.args.reasoning_mode}")
 
         if hasattr(self.args, 'enable_vision') and self.args.enable_vision:
             self.settings.enable_vision = True
@@ -240,9 +233,11 @@ class BenchmarkRunner:
             >>> exit_code = runner.run()
         """
         try:
-            # Handle hierarchical commands (experiment, run)
-            if hasattr(self.args, 'command') and self.args.command in ('experiment', 'run'):
-                return self._handle_hierarchical_commands()
+            # Handle experiment management flags (NEW CLI paradigm)
+            if hasattr(self.args, 'create_experiment') and self.args.create_experiment:
+                return self._handle_create_experiment()
+            if hasattr(self.args, 'experiment') and self.args.experiment:
+                return self._handle_experiment_context()
 
             # Handle manual review commands
             if self.args.review_experiment:
@@ -298,48 +293,316 @@ class BenchmarkRunner:
         finally:
             self._cleanup()
 
-    def _handle_hierarchical_commands(self) -> int:
-        """Handle hierarchical commands (experiment, run).
+    def _handle_create_experiment(self) -> int:
+        """Handle --create-experiment flag.
 
-        Routes to appropriate handler based on command type.
+        Creates a new experiment with frozen configuration and question snapshots.
 
         Returns:
             Exit code (0 for success, non-zero for errors).
         """
         try:
-            if self.args.command == 'experiment':
-                return self._handle_experiment_command()
-            elif self.args.command == 'run':
-                return self._handle_run_command()
-            else:
-                print(f"Error: Unknown command '{self.args.command}'", file=sys.stderr)
-                return 1
+            from src.cli.experiment_commands import ExperimentManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create experiment manager
+            exp_manager = ExperimentManager(db_manager)
+
+            # Get arguments
+            name = self.args.create_experiment
+            questions = self.args.questions if self.args.questions else []
+            seed = self.args.seed if hasattr(self.args, 'seed') and self.args.seed else None
+            description = self.args.description if hasattr(self.args, 'description') else None
+
+            # Create experiment
+            exp_manager.create_experiment(
+                name=name,
+                questions_filter=questions,
+                seed=seed,
+                description=description,
+            )
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
         except Exception as e:
-            logger.exception(f"Hierarchical command failed: {e}")
+            logger.exception(f"Create experiment failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
+    def _handle_experiment_context(self) -> int:
+        """Handle --experiment flag (context for other operations).
+
+        Routes to appropriate handler based on additional flags:
+        - --experiment NAME (alone) → show experiment
+        - --experiment NAME --add-model → add models
+        - --experiment NAME --remove-model → remove model
+        - --experiment NAME --create-run → create run
+        - --experiment NAME --run → execute run
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            experiment_name = self.args.experiment
+
+            # Route based on action flags
+            if hasattr(self.args, 'add_models') and self.args.add_models:
+                return self._handle_add_models_to_experiment(experiment_name)
+            elif hasattr(self.args, 'remove_model') and self.args.remove_model:
+                return self._handle_remove_model_from_experiment(experiment_name)
+            elif hasattr(self.args, 'create_run') and self.args.create_run:
+                return self._handle_create_run(experiment_name)
+            elif hasattr(self.args, 'execute_run') and self.args.execute_run:
+                return self._handle_execute_run(experiment_name)
+            else:
+                # Default: show experiment details
+                return self._handle_show_experiment(experiment_name)
+
+        except Exception as e:
+            logger.exception(f"Experiment context handler failed: {e}")
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-    def _handle_experiment_command(self) -> int:
-        """Handle experiment subcommand.
+    def _handle_show_experiment(self, experiment_name: str) -> int:
+        """Show experiment details.
 
-        Delegates to experiment_commands module.
-
-        Returns:
-            Exit code (0 for success, non-zero for errors).
-        """
-        from src.cli.experiment_commands import handle_experiment_command
-        return handle_experiment_command(self.args)
-
-    def _handle_run_command(self) -> int:
-        """Handle run subcommand.
-
-        Delegates to experiment_commands module.
+        Args:
+            experiment_name: Name of the experiment to show.
 
         Returns:
             Exit code (0 for success, non-zero for errors).
         """
-        from src.cli.experiment_commands import handle_run_command
-        return handle_run_command(self.args)
+        try:
+            from src.cli.experiment_commands import ExperimentManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create experiment manager
+            exp_manager = ExperimentManager(db_manager)
+
+            # Show experiment
+            exp_manager.show_experiment(experiment_name)
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+        except Exception as e:
+            logger.exception(f"Show experiment failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
+    def _handle_add_models_to_experiment(self, experiment_name: str) -> int:
+        """Add models to experiment.
+
+        Args:
+            experiment_name: Name of the experiment.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.experiment_commands import ExperimentManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create experiment manager
+            exp_manager = ExperimentManager(db_manager)
+
+            # Get models from --add-model flags
+            models = self.args.add_models
+
+            # Get variant parameters
+            # Simplified: Only reasoning_effort is now supported
+            reasoning_effort = getattr(self.args, 'reasoning_effort', None)
+            vision_enabled = getattr(self.args, 'enable_vision', False)
+            structured_enabled = getattr(self.args, 'enable_structured', False)
+
+            # Add models
+            exp_manager.add_models_to_experiment(
+                experiment_name=experiment_name,
+                models=models,
+                reasoning_mode=None,  # Removed - use reasoning_effort only
+                reasoning_effort=reasoning_effort,
+                reasoning_max_tokens=None,  # Removed
+                vision_enabled=vision_enabled,
+                structured_enabled=structured_enabled,
+            )
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+        except Exception as e:
+            logger.exception(f"Add models to experiment failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
+    def _handle_remove_model_from_experiment(self, experiment_name: str) -> int:
+        """Remove model from experiment.
+
+        Args:
+            experiment_name: Name of the experiment.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.experiment_commands import ExperimentManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create experiment manager
+            exp_manager = ExperimentManager(db_manager)
+
+            # Remove model
+            model_id = self.args.remove_model
+            
+            # Handle missing argument
+            if not model_id:
+                console = Console()
+                console.print("[red]Error: --remove-model requires an argument.[/red]")
+                console.print("[dim]Use --remove-model <ids> or --remove-model ? for assisted mode.[/dim]")
+                return 1
+            
+            exp_manager.remove_model_from_experiment(
+                experiment_name=experiment_name,
+                model_id=model_id,
+            )
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+        except Exception as e:
+            logger.exception(f"Remove model from experiment failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
+    def _handle_create_run(self, experiment_name: str) -> int:
+        """Create a new run for experiment.
+
+        Args:
+            experiment_name: Name of the experiment.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.experiment_commands import RunManager as ExRunManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create run manager
+            run_manager = ExRunManager(db_manager)
+
+            # Get parameters
+            iterations = getattr(self.args, 'iterations', 1)
+            seed = getattr(self.args, 'seed', None)
+
+            # Create run
+            run_manager.create_run(
+                experiment_name=experiment_name,
+                iterations=iterations,
+                seed=seed,
+            )
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+        except Exception as e:
+            logger.exception(f"Create run failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
+    def _handle_execute_run(self, experiment_name: str) -> int:
+        """Execute experiment run.
+
+        Args:
+            experiment_name: Name of the experiment.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.experiment_commands import RunManager as ExRunManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create run manager
+            run_manager = ExRunManager(db_manager)
+
+            # Get filters
+            models_filter = getattr(self.args, 'models', None)
+            questions_filter = getattr(self.args, 'questions', None)
+
+            # Execute run
+            run_manager.execute_run(
+                experiment_name=experiment_name,
+                models_filter=models_filter,
+                questions_filter=questions_filter,
+            )
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+        except Exception as e:
+            logger.exception(f"Execute run failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
 
     def _handle_add_models_to_run(self) -> int:
         """Handle adding models to an existing run.
@@ -738,7 +1001,8 @@ class BenchmarkRunner:
         if self.settings.model_repeat_penalty is not None:
             model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
 
-        # Build reasoning config
+        # Build reasoning config (OpenRouter standard)
+        # https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
         reasoning_config = None
         if any([
             self.settings.reasoning_effort is not None,
@@ -749,7 +1013,11 @@ class BenchmarkRunner:
             reasoning_config = {}
 
             if self.settings.reasoning_effort is not None:
-                reasoning_config["effort"] = self.settings.reasoning_effort
+                # Special case: 'none' effort means disable reasoning
+                if self.settings.reasoning_effort == 'none':
+                    reasoning_config["enabled"] = False
+                else:
+                    reasoning_config["effort"] = self.settings.reasoning_effort
             if self.settings.reasoning_max_tokens is not None:
                 reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
             if self.settings.reasoning_exclude is not None:

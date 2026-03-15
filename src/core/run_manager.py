@@ -472,11 +472,11 @@ class RunManager:
             # Check for explicit reasoning_mode first (new system)
             if hasattr(self.settings, 'reasoning_mode') and self.settings.reasoning_mode:
                 reasoning_mode = self.settings.reasoning_mode
-                
+
                 # If mode is 'effort', get effort level
                 if reasoning_mode == "effort" and self.settings.reasoning_effort:
                     reasoning_effort = self.settings.reasoning_effort
-                
+
                 # If mode is 'budget', get max tokens
                 if reasoning_mode == "budget" and self.settings.reasoning_max_tokens is not None:
                     reasoning_max_tokens = self.settings.reasoning_max_tokens
@@ -493,6 +493,11 @@ class RunManager:
                 elif self.settings.reasoning_enabled is True:
                     # reasoning_enabled=True without effort/tokens → use "auto"
                     reasoning_mode = "auto"
+
+        # Normalize reasoning_effort: 'none' means disable reasoning (mode='off')
+        if reasoning_effort == 'none':
+            reasoning_mode = "off"
+            reasoning_effort = None
 
         variant_config = VariantConfig(
             reasoning_mode=reasoning_mode,
