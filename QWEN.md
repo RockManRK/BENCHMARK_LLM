@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-**Benchmark LLM** is a Python-based benchmark tool for evaluating Large Language Model (LLM) performance by administering a 100-question medical questionnaire through the OpenRouter API. The tool enables researchers and developers to test multiple LLM models against a standardized questionnaire, configure test iterations for consistency analysis, and collect comprehensive metrics stored in SQLite for analysis.
+**Benchmark LLM** is a Python-based benchmark tool for evaluating Large Language Model (LLM) performance by administering questions through the OpenRouter API or local models. The tool enables researchers and developers to test multiple LLM models against a standardized questionnaire, configure test iterations for consistency analysis, and collect comprehensive metrics stored in SQLite for analysis.
 
 ### Core Purpose
 - Evaluate and compare LLM models via OpenRouter's unified API
-- Support both text-only and image-based questions (3 image questions in the questionnaire)
+- Support both text-only and image-based questions
 - Collect comprehensive metrics: response time, token usage, accuracy, error tracking
 - Enable reproducibility through random seed configuration
 - Store all experimental data in SQLite with operational logs in `.log` files
@@ -125,7 +125,7 @@ copy .env.example .env    # Windows
 cp .env.example .env      # Linux/macOS
 ```
 
-Edit `.env` with your settings:
+Edit `.env` with your settings: (Outdated)
 ```env
 OPENROUTER_API_KEY=your_api_key_here
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
@@ -144,7 +144,7 @@ MODEL_TOP_K=              # Leave blank for default
 MODEL_REPEAT_PENALTY=     # Leave blank for default
 ```
 
-### Running the Benchmark
+### Running the Benchmark (Outdated)
 
 ```bash
 # Basic usage
@@ -163,7 +163,7 @@ python -m src.main --models openai/gpt-4 --dry-run
 python -m src.main --models openai/gpt-4 --output json
 ```
 
-### Command-Line Options
+### Command-Line Options (Partially Outdated)
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -176,7 +176,7 @@ python -m src.main --models openai/gpt-4 --output json
 | `--verbose`, `-v` | Enable verbose output | False |
 | `--dry-run` | Validate configuration only | False |
 
-### Running Tests
+### Running Tests (Partially Outdated)
 
 ```bash
 # Run all tests
@@ -208,9 +208,7 @@ pytest tests/ -v -m integration  # Run integration tests only
 - **Fixtures**: Use `conftest.py` for shared test fixtures
 - **Mocking**: Use `pytest-mock` for external dependencies
 
-### Project Workflow (Conductor)
-
-This project uses the **Conductor extension** for task management. Key principles:
+### Project Workflow
 
 1. **Plan is Source of Truth**: All work tracked in `conductor/tracks/<track_id>/plan.md`
 2. **Test-Driven Development**: Write unit tests before implementation
@@ -261,7 +259,7 @@ git commit -m "test(cli): Add tests for argument parsing"
 - [ ] No linting errors
 - [ ] Documentation updated if needed
 
-## Key Components
+## Key Components (Probably outdated, needs verification)
 
 ### BenchmarkRunner (`src/main.py`)
 Main orchestrator that coordinates:
@@ -290,7 +288,7 @@ Command-line argument parsing:
 - Question range expansion (e.g., `Q001-Q010`)
 - Validation for iterations and other arguments
 
-## Data Collection
+## Data Collection (Probably outdated, needs verification)
 
 The benchmark collects comprehensive metrics:
 
@@ -307,16 +305,6 @@ The benchmark collects comprehensive metrics:
 - **Operational Logs** → `.log` files (progress, errors, status)
 - **Experimental Data** → SQLite database (input, output, complete metrics)
 
-## Supported Models
-
-Via OpenRouter API, the tool supports:
-- **OpenAI**: GPT-4, GPT-4 Turbo, GPT-3.5 Turbo
-- **Anthropic**: Claude 3 (Opus, Sonnet, Haiku), Claude 2
-- **Google**: Gemini Pro, Gemini Ultra, Gemini 1.5
-- **Meta**: Llama 2, Llama 3, Llama 3.1
-- **Mistral**: Mistral Large, Mistral Medium, Mixtral
-- And many more via OpenRouter
-
 ## Troubleshooting
 
 ### Common Issues
@@ -327,19 +315,7 @@ Error: OpenRouter API key not configured
 ```
 **Solution**: Set `OPENROUTER_API_KEY` in `.env` or environment.
 
-**Rate Limit Exceeded**
-```
-HTTPError_429: Rate limit exceeded
-```
-**Solution**: Wait and retry, reduce iterations, or check account limits.
-
-**Database Permission Error**
-```
-sqlite3.OperationalError: unable to open database file
-```
-**Solution**: Ensure `data/` directory exists and is writable.
-
-## Documentation References
+## Documentation References (Probably outdated, needs verification)
 
 - **[README.md](README.md)**: User-facing documentation with installation and usage
 - **[docs/USAGE.md](docs/USAGE.md)**: Comprehensive usage guide
@@ -350,7 +326,7 @@ sqlite3.OperationalError: unable to open database file
 
 ## Environment Variables
 
-### Core Configuration
+### Core Configuration (Outdated)
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
@@ -362,7 +338,7 @@ sqlite3.OperationalError: unable to open database file
 | `DEFAULT_ITERATIONS` | Default iterations | `1` | No |
 | `RANDOM_SEED` | Random seed | `None` | No |
 
-### Model Generation Parameters (Optional)
+### Model Generation Parameters (Optional) (Outdated)
 
 **Important:** If left blank, these parameters are NOT sent to the API, allowing the model/server to use its own defaults.
 
@@ -373,3 +349,6 @@ sqlite3.OperationalError: unable to open database file
 | `MODEL_TOP_P` | Nucleus sampling | Model default | Alternative to temperature |
 | `MODEL_TOP_K` | Top-k sampling | Model default | Limits token selection |
 | `MODEL_REPEAT_PENALTY` | Repetition penalty | Model default | Reduces repetitive output |
+
+## Important:
+- The system is being developed in a Windows environment. Therefore, when necessary, use Windows commands in the terminal.
