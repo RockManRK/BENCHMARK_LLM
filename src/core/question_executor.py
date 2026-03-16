@@ -56,7 +56,7 @@ class QuestionExecutor:
 
     def __init__(
         self,
-        db_manager: DatabaseManager,
+        db_manager: Optional[DatabaseManager],
         api_client: OpenRouterClient,
         randomizer: Optional[AnswerRandomizer],
         run_id: str,
@@ -78,6 +78,7 @@ class QuestionExecutor:
 
         Args:
             db_manager: DatabaseManager instance for database connections.
+                       Can be None for execution-only mode (no persistence).
             api_client: OpenRouterClient instance for API calls.
             randomizer: AnswerRandomizer instance for answer shuffling, or None to disable randomization.
             run_id: ID of the current benchmark run.
@@ -122,9 +123,9 @@ class QuestionExecutor:
         self._enable_vision = enable_vision
         self._settings = settings
         self._snapshot_repository = snapshot_repository
-        self._variant_repository = variant_repository or ModelVariantRepository(db_manager)
-        self._response_repository = ResponseRepository(db_manager)
-        self._error_repository = ErrorRepository(db_manager)
+        self._variant_repository = variant_repository or (ModelVariantRepository(db_manager) if db_manager else None)
+        self._response_repository = ResponseRepository(db_manager) if db_manager else None
+        self._error_repository = ErrorRepository(db_manager) if db_manager else None
         self._system_prompt_template = system_prompt_template
         self._user_prompt_template = user_prompt_template
         logger.debug(
@@ -183,10 +184,17 @@ class QuestionExecutor:
         try:
             logger.debug(f"Executing question {question.question_id}")
 
-            # Step 0: Create snapshot if repository is available
+            # Step 0: Use provided snapshot_id or create if repository is available
             # This ensures we have an immutable copy of the question for this experiment
             snapshot_id: Optional[int] = None
-            if self._snapshot_repository is not None:
+            
+            # Check if snapshot_id was provided via model_kwargs (from ExecutionEngine)
+            if "_snapshot_ids" in self._model_kwargs:
+                snapshot_id = self._model_kwargs["_snapshot_ids"].get(question.question_id)
+                logger.debug(f"Using provided snapshot_id {snapshot_id} for question {question.question_id}")
+            
+            # If no snapshot_id provided and repository is available, create one
+            if snapshot_id is None and self._snapshot_repository is not None:
                 # Build complete question JSON for snapshot
                 question_json = json.dumps({
                     "id": question.question_id,
@@ -202,9 +210,10 @@ class QuestionExecutor:
                     question_id=question.question_id,
                     question_json=question_json,
                 )
-                logger.debug(f"Snapshot ID {snapshot_id} for question {question.question_id} in experiment {self._experiment_id}")
-                
-                # Store snapshot_id as instance variable for error handling
+                logger.debug(f"Created snapshot ID {snapshot_id} for question {question.question_id} in experiment {self._experiment_id}")
+
+            # Store snapshot_id as instance variable for error handling
+            if snapshot_id is not None:
                 self._current_snapshot_id = snapshot_id
 
             # Step 1: Apply answer randomization (if enabled)
@@ -284,8 +293,11 @@ class QuestionExecutor:
                 tokens=tokens,  # Pass consolidated token data
             )
             logger.debug(f"Response object created, saving to DB")
-            self._response_repository.create(response)
-            logger.info(f"Response saved successfully")
+            if self._response_repository:
+                self._response_repository.create(response)
+                logger.info(f"Response saved successfully")
+            else:
+                logger.debug(f"Response not persisted (execution-only mode)")
 
             # Populate result
             result.update(
@@ -912,6 +924,7 @@ class QuestionExecutor:
             run_id=self._run_id,
             snapshot_id=snapshot_id,
             question_id=question.question_id,
+            model_id=self._model_id,  # Base model ID
             variant_id=self._variant_id,
             iteration=self._iteration_number,
             selected_answer=parsed["selected_answer"],
@@ -1178,6 +1191,7 @@ class QuestionExecutor:
                 run_id=self._run_id,
                 snapshot_id=self._current_snapshot_id,
                 question_id=question.question_id,
+                model_id=self._model_id,  # Base model ID
                 variant_id=self._variant_id,
                 iteration=self._iteration_number,
                 selected_answer=None,
@@ -1193,7 +1207,8 @@ class QuestionExecutor:
                 raw_response_json=raw_response_json,
                 timestamp=datetime.now(),
             )
-            self._response_repository.create(response)
+            if self._response_repository:
+                self._response_repository.create(response)
 
             # Then create the error record
             error = Error(
@@ -1205,7 +1220,8 @@ class QuestionExecutor:
                 stack_trace=stack_trace,
                 timestamp=datetime.now(),
             )
-            self._error_repository.create(error)
+            if self._error_repository:
+                self._error_repository.create(error)
 
     def _get_stack_trace(self) -> str:
         """Get the current stack trace as a string.

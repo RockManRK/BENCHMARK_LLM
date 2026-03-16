@@ -383,6 +383,32 @@ class RunRepository:
             if self.db_manager.should_close_connection():
                 conn.close()
 
+    def update_status(self, run_id: str, status: str) -> bool:
+        """Update the status of a run.
+
+        Args:
+            run_id: ID of the run.
+            status: New status to set.
+
+        Returns:
+            True if updated successfully, False if not found.
+        """
+        conn = self.db_manager.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE runs SET status = ? WHERE run_id = ?",
+                (status, run_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            if self.db_manager.should_close_connection():
+                conn.close()
+
     def update(self, run: Run) -> Optional[Run]:
         """Update an existing run record."""
         conn = self.db_manager.get_connection()
@@ -756,6 +782,28 @@ class RunModelRepository:
     def __init__(self, db_manager: DatabaseManager) -> None:
         """Initialize the RunModelRepository."""
         self.db_manager = db_manager
+
+    def add(self, run_id: str, variant_id: str, status: str = "pending") -> None:
+        """Add a model variant to a run.
+
+        Convenience method for creating run-model associations.
+
+        Args:
+            run_id: ID of the run.
+            variant_id: ID of the model variant.
+            status: Initial status (default: "pending").
+        """
+        from datetime import datetime
+        from src.db.models import RunModel
+        
+        run_model = RunModel(
+            run_id=run_id,
+            variant_id=variant_id,
+            status=status,
+            added_at=datetime.now(),
+            completed_at=None,
+        )
+        self.create(run_model)
 
     def create(self, run_model: RunModel) -> RunModel:
         """Create a new run-model association.
@@ -1493,18 +1541,19 @@ class ResponseRepository:
             cursor.execute(
                 """
                 INSERT INTO responses (
-                    run_id, snapshot_id, question_id, variant_id, iteration,
+                    run_id, snapshot_id, question_id, model_id, variant_id, iteration,
                     selected_answer, response_text, is_correct,
                     status, finish_reason, error_details, latency_ms,
                     input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                     cost, raw_response_json,
                     parse_confidence, review_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
                     response.snapshot_id,
                     response.question_id,
+                    response.model_id,
                     response.variant_id,
                     response.iteration,
                     response.selected_answer,
@@ -1608,7 +1657,7 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, question_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, question_id, model_id, variant_id, iteration,
                        selected_answer, response_text, is_correct,
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
@@ -1627,6 +1676,7 @@ class ResponseRepository:
                         snapshot_id=row["snapshot_id"],
                         question_id=row["question_id"],
                         model_id=row["model_id"],
+                        variant_id=row["variant_id"],
                         iteration=row["iteration"],
                         selected_answer=row["selected_answer"],
                         response_text=row["response_text"],

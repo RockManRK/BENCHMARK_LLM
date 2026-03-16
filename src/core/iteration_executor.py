@@ -54,7 +54,7 @@ class IterationExecutor:
 
     def __init__(
         self,
-        db_manager: DatabaseManager,
+        db_manager: Optional[DatabaseManager],
         api_client: OpenRouterClient,
         randomizer: Optional[AnswerRandomizer],
         run_id: str,
@@ -72,6 +72,7 @@ class IterationExecutor:
 
         Args:
             db_manager: DatabaseManager instance for database connections.
+                       Can be None for execution-only mode (no persistence).
             api_client: OpenRouterClient instance for API calls.
             randomizer: AnswerRandomizer instance for answer shuffling, or None to disable randomization.
             run_id: ID of the current benchmark run.
@@ -102,7 +103,7 @@ class IterationExecutor:
         self.model_id = model_id
         self.iteration_number = iteration_number
         self.experiment_id = experiment_id
-        self._response_repository = ResponseRepository(db_manager)
+        self._response_repository = ResponseRepository(db_manager) if db_manager else None
         self._model_kwargs = model_kwargs or {}
         self._use_structured_outputs = use_structured_outputs
         self._reasoning_config = reasoning_config
@@ -150,8 +151,12 @@ class IterationExecutor:
         self._progress_tracker = progress_tracker
 
         # Get variant_id for this model/configuration
-        variant_repository = RunModelRepository(self.db_manager)
-        
+        # If db_manager is None, build variant_id locally (no persistence check)
+        if self.db_manager:
+            variant_repository = RunModelRepository(self.db_manager)
+        else:
+            variant_repository = None
+
         # Build variant config from settings to get variant_id
         reasoning_mode = "unspecified"
         reasoning_effort = None
@@ -186,7 +191,12 @@ class IterationExecutor:
         variant_id = variant_config.build_variant_id(self.model_id)
 
         # Get pending questions (filter out already answered)
-        pending_questions = self.get_pending_questions(variant_id, questions, self.iteration_number)
+        # If db_manager is None, execute ALL questions (no skip)
+        if self.db_manager and variant_repository:
+            pending_questions = self.get_pending_questions(variant_id, questions, self.iteration_number)
+        else:
+            # Execution-only mode: execute all questions
+            pending_questions = questions
 
         if not pending_questions:
             logger.info(
@@ -357,8 +367,12 @@ class IterationExecutor:
         from src.db.repository import QuestionSnapshotRepository
 
         # Generate variant_id from current configuration
-        variant_repository = ModelVariantRepository(self.db_manager)
-        
+        # If db_manager is None, create in-memory variant (no persistence)
+        if self.db_manager:
+            variant_repository = ModelVariantRepository(self.db_manager)
+        else:
+            variant_repository = None
+
         # Build variant config from settings
         reasoning_mode = "unspecified"
         reasoning_effort = None
@@ -387,31 +401,35 @@ class IterationExecutor:
         variant_signature = variant_config.build_signature(self.model_id)
         variant_id = variant_config.build_variant_id(self.model_id)
 
-        # Check if variant exists, if not create it
-        existing_variant = variant_repository.get_by_id(variant_id)
-        if not existing_variant:
-            from src.db.models import ModelVariant
-            variant = ModelVariant(
-                variant_id=variant_id,
-                model_id=self.model_id,
-                reasoning_mode=variant_config.reasoning_mode,
-                reasoning_effort=variant_config.reasoning_effort,
-                reasoning_max_tokens=variant_config.reasoning_max_tokens,
-                vision_enabled=variant_config.vision_enabled,
-                structured_enabled=variant_config.structured_enabled,
-                variant_signature=variant_signature,
-            )
-            try:
-                variant_repository.create(variant)
-                logger.info(
-                    f"Registered model variant: {variant_id} | "
-                    f"model={self.model_id} | signature={variant_signature}"
+        # Check if variant exists, if not create it (only if db_manager is available)
+        existing_variant = None
+        if variant_repository:
+            existing_variant = variant_repository.get_by_id(variant_id)
+            if not existing_variant:
+                from src.db.models import ModelVariant
+                variant = ModelVariant(
+                    variant_id=variant_id,
+                    model_id=self.model_id,
+                    reasoning_mode=variant_config.reasoning_mode,
+                    reasoning_effort=variant_config.reasoning_effort,
+                    reasoning_max_tokens=variant_config.reasoning_max_tokens,
+                    vision_enabled=variant_config.vision_enabled,
+                    structured_enabled=variant_config.structured_enabled,
+                    variant_signature=variant_signature,
                 )
-            except Exception:
-                # Variant might have been created concurrently
-                existing_variant = variant_repository.get_by_id(variant_id)
+                try:
+                    variant_repository.create(variant)
+                    logger.info(
+                        f"Registered model variant: {variant_id} | "
+                        f"model={self.model_id} | signature={variant_signature}"
+                    )
+                except Exception:
+                    # Variant might have been created concurrently
+                    existing_variant = variant_repository.get_by_id(variant_id)
 
-        snapshot_repository = QuestionSnapshotRepository(self.db_manager)
+        # Create snapshot repository (only if db_manager is available)
+        snapshot_repository = QuestionSnapshotRepository(self.db_manager) if self.db_manager else None
+        
         question_executor = QuestionExecutor(
             db_manager=self.db_manager,
             api_client=self._api_client,

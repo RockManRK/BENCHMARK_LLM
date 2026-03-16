@@ -131,6 +131,13 @@ Incremental Flow (add models to existing run):
         )
 
         parser.add_argument(
+            "--add-questions",
+            type=str,
+            metavar="QUESTIONS",
+            help="Add questions to an existing experiment (evolution). Use with --experiment. Example: Q021-Q040 or Q021,Q022,Q023. Existing snapshots are preserved, only new questions are added. Existing runs are NOT affected.",
+        )
+
+        parser.add_argument(
             "--create-run",
             action="store_true",
             help="Create a new run for the experiment. Use with --experiment, --iterations, and --seed.",

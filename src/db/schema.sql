@@ -269,12 +269,13 @@ ON question_snapshots(experiment_id, question_id);
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS responses (
-    -- IDENTIFICATION (6 columns)
+    -- IDENTIFICATION (7 columns)
     response_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
     snapshot_id INTEGER NOT NULL,
     question_id TEXT NOT NULL,
     model_id TEXT NOT NULL,
+    variant_id TEXT,
     iteration INTEGER NOT NULL DEFAULT 1,
 
     -- RESPONSE DATA (4 columns)
@@ -314,7 +315,8 @@ CREATE TABLE IF NOT EXISTS responses (
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES question_snapshots(snapshot_id) ON DELETE RESTRICT,
     FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE RESTRICT,
-    FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE RESTRICT
+    FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE RESTRICT,
+    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE SET NULL
 );
 
 -- Index for fast lookups by run
@@ -346,13 +348,15 @@ CREATE TABLE IF NOT EXISTS errors (
     run_id TEXT,
     question_id TEXT,
     model_id TEXT,
+    variant_id TEXT,
     error_type TEXT NOT NULL,
     error_message TEXT NOT NULL,
     stack_trace TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE SET NULL,
-    FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE SET NULL
+    FOREIGN KEY (model_id) REFERENCES models(model_id) ON DELETE SET NULL,
+    FOREIGN KEY (variant_id) REFERENCES model_variants(variant_id) ON DELETE SET NULL
 );
 
 -- Index for fast lookups by run

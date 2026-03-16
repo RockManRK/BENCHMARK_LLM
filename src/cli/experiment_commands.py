@@ -205,6 +205,89 @@ class ExperimentManager:
 
         return created
 
+    def add_questions_to_experiment(
+        self,
+        experiment_name: str,
+        questions: list[str],
+    ) -> None:
+        """Add questions to an existing experiment (experiment evolution).
+
+        This method creates snapshots for NEW questions only.
+        Existing snapshots are NEVER recreated (immutability principle).
+
+        PRINCIPLES:
+        - Experiments can EVOLVE
+        - Runs are IMMUTABLE
+        - Past is NEVER altered
+        - Snapshots are created only once per (experiment_id, question_id)
+
+        Args:
+            experiment_name: Name of the experiment.
+            questions: List of question IDs or ranges to add (e.g., ["Q021-Q040"]).
+
+        Raises:
+            ValueError: If experiment not found.
+
+        Example:
+            >>> manager.add_questions_to_experiment(
+            ...     experiment_name="my_exp",
+            ...     questions=["Q021-Q040"]
+            ... )
+        """
+        # Verify experiment exists
+        experiment = self.experiment_repo.get_by_name(experiment_name)
+        if not experiment:
+            raise ValueError(f"Experiment '{experiment_name}' not found")
+
+        # Expand question filters
+        question_ids = self._expand_question_filters([questions] if isinstance(questions, str) else questions)
+        logger.info(f"Adding {len(question_ids)} questions to experiment {experiment_name}")
+
+        # Get settings for snapshot creation
+        settings = get_settings()
+
+        # Create question snapshots (only for NEW questions)
+        # The create_if_not_exists method ensures existing snapshots are NOT recreated
+        existing_snapshot_count = len(self.snapshot_repo.get_by_experiment(experiment.experiment_id))
+
+        for question_id in question_ids:
+            question = self.question_repo.get_by_id(question_id)
+            if not question:
+                logger.warning(f"Question {question_id} not found, skipping")
+                continue
+
+            # Build question JSON for snapshot
+            question_json = self._build_question_json(question)
+
+            # Create snapshot (idempotent - won't duplicate)
+            # If snapshot already exists, returns existing snapshot_id
+            self.snapshot_repo.create_if_not_exists(
+                experiment_id=experiment.experiment_id,
+                question_id=question_id,
+                question_json=question_json,
+            )
+
+        # Get total snapshots after operation
+        all_snapshots = self.snapshot_repo.get_by_experiment(experiment.experiment_id)
+        new_snapshots_count = len(all_snapshots) - existing_snapshot_count
+        
+        logger.info(f"Snapshot operation completed for experiment {experiment_name}: {new_snapshots_count} new snapshots created")
+
+        # Display success message
+        console.print()
+        console.print(Panel(
+            f"[bold green]✓ Questions added to experiment[/bold green]\n\n"
+            f"[bold]Experiment:[/bold] {experiment_name}\n"
+            f"[bold]Questions requested:[/bold] {len(question_ids)}\n"
+            f"[bold]New snapshots created:[/bold] {new_snapshots_count}\n"
+            f"[bold]Total snapshots in experiment:[/bold] {len(all_snapshots)}\n\n"
+            f"[dim]Principle: Experiments can evolve, runs are immutable.[/dim]\n"
+            f"[dim]Existing runs continue using their original question set.[/dim]\n"
+            f"[dim]Future runs will use the updated question set.[/dim]",
+            title="📈 Experiment Evolution",
+            border_style="green",
+        ))
+
     def show_experiment(self, name: str) -> None:
         """Display experiment details including questions, models, runs, and status.
 
@@ -442,9 +525,12 @@ class ExperimentManager:
 
             # Associate variant with experiment (NEW - conceptual fix)
             try:
+                logger.info(f"Associating variant {variant.variant_id} with experiment {experiment.experiment_id}")
                 self.exp_model_repo.add_variant(experiment.experiment_id, variant.variant_id)
-            except Exception:
+                logger.info(f"Association successful")
+            except Exception as e:
                 # Association might already exist
+                logger.error(f"Failed to associate variant {variant.variant_id} with experiment: {e}")
                 logger.debug(f"Variant {variant.variant_id} already associated with experiment")
 
             added_variants.append(variant)
@@ -800,6 +886,9 @@ class ExperimentManager:
         if reasoning_effort == 'none':
             reasoning_mode = "off"
             reasoning_effort = None
+        elif reasoning_effort is not None:
+            # If reasoning_effort is specified, mode should be 'effort'
+            reasoning_mode = "effort"
 
         # Build variant config
         variant_config = VariantConfig(
@@ -814,10 +903,10 @@ class ExperimentManager:
         variant_signature = variant_config.build_signature(model_id)
         variant_id = variant_config.build_variant_id(model_id)
 
-        # Check if variant already exists
+        # Check if variant already exists BEFORE trying to create
         existing = self.variant_repo.get_by_id(variant_id)
         if existing:
-            logger.debug(f"Variant already exists: {variant_id}")
+            logger.info(f"Variant already exists: {variant_id}")
             return existing
 
         # Create variant record
@@ -832,12 +921,8 @@ class ExperimentManager:
             variant_signature=variant_signature,
         )
 
-        try:
-            self.variant_repo.create(variant)
-            logger.info(f"Created variant: {variant_id}")
-        except Exception:
-            # Variant might have been registered concurrently
-            logger.debug(f"Variant registration conflict (ignored): {variant_id}")
+        self.variant_repo.create(variant)
+        logger.info(f"Created variant: {variant_id}")
 
         return variant
 
@@ -934,6 +1019,7 @@ class RunManager:
         self.run_model_repo = RunModelRepository(db_manager)
         self.experiment_repo = ExperimentRepository(db_manager)
         self.exp_model_repo = ExperimentModelRepository(db_manager)
+        self.variant_repo = ModelVariantRepository(db_manager)
         logger.info("RunManager initialized")
 
     def create_run(
@@ -1028,9 +1114,10 @@ class RunManager:
 
         This method:
         1. Finds the latest run for the experiment
-        2. Identifies pending model variants
-        3. Executes only pending items
-        4. Supports filtering by models and questions
+        2. Gets model variants from run_models
+        3. Gets questions from experiment snapshots
+        4. Uses ExecutionEngine to execute (no re-implementation)
+        5. Updates run status based on results
 
         Args:
             experiment_name: Name of the experiment.
@@ -1047,6 +1134,11 @@ class RunManager:
             ...     models_filter=["openai/gpt-4"]
             ... )
         """
+        from src.api.client import OpenRouterClient
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.randomizer import AnswerRandomizer
+        from src.utils.config import get_settings
+
         # Verify experiment exists
         experiment = self.experiment_repo.get_by_name(experiment_name)
         if not experiment:
@@ -1060,19 +1152,105 @@ class RunManager:
         # Get latest run
         latest_run = runs[0]  # Runs are ordered by created_at DESC
 
+        # Get model variants for this run
+        run_models = self.run_model_repo.get_by_run(latest_run.run_id)
+        if not run_models:
+            raise ValueError(f"No models configured for run {latest_run.run_id}")
+
+        # Filter by models if specified
+        if models_filter:
+            # Get variant IDs for filtered models
+            all_variants = self.variant_repo.get_all()
+            variant_ids = [v.variant_id for v in all_variants if v.model_id in models_filter]
+            run_models = [rm for rm in run_models if rm.variant_id in variant_ids]
+
+        # Get questions for this experiment
+        snapshot_repo = QuestionSnapshotRepository(self.db_manager)
+        snapshots = snapshot_repo.get_by_experiment(experiment.experiment_id)
+
+        # Filter by questions if specified
+        if questions_filter:
+            snapshots = [s for s in snapshots if s.question_id in questions_filter]
+
+        if not snapshots:
+            raise ValueError(f"No questions found for experiment {experiment_name}")
+
+        # Load questions from snapshots with context
+        from src.core.execution_engine import QuestionWithContext
+        
+        questions = []
+        for snapshot in snapshots:
+            import json
+            question_data = json.loads(snapshot.question_json)
+            from src.db.models import Question
+            question = Question(
+                question_id=question_data.get('id', snapshot.question_id),
+                stem=question_data.get('stem', ''),
+                options_json=json.dumps(question_data.get('options', {})),
+                correct_answer=question_data.get('correct_answer', ''),
+                has_image=bool(question_data.get('has_image', False)),
+                image_path=question_data.get('image_path'),
+                status=question_data.get('status', 'active'),
+            )
+            # Wrap question with snapshot_id context
+            questions.append(QuestionWithContext(question=question, snapshot_id=snapshot.snapshot_id))
+
         console.print()
         console.print(Panel(
             f"[bold]Experiment:[/bold] {experiment_name}\n"
             f"[bold]Run:[/bold] {latest_run.run_id}\n"
             f"[bold]Status:[/bold] {latest_run.status}\n"
-            f"[bold]Seed:[/bold] {latest_run.seed if latest_run.seed else 'None'}\n\n"
-            f"[yellow]⚠ Execution logic not yet implemented in this module.[/yellow]\n"
-            f"[dim]Use the main execution flow to run the benchmark.[/dim]",
+            f"[bold]Seed:[/bold] {latest_run.seed if latest_run.seed else 'None'}\n"
+            f"[bold]Models:[/bold] {len(run_models)}\n"
+            f"[bold]Questions:[/bold] {len(questions)}",
             title="🚀 Run Execution",
-            border_style="yellow",
+            border_style="green",
         ))
 
-        logger.info(f"Execute run called for {latest_run.run_id}")
+        logger.info(f"Executing run {latest_run.run_id} for experiment {experiment_name}")
+
+        # Get settings and create API client
+        settings = get_settings()
+        api_client = OpenRouterClient(
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+        )
+        randomizer = AnswerRandomizer(settings.random_seed if settings else None)
+
+        # Create ExecutionEngine with db_manager for persistence
+        engine = ExecutionEngine(
+            api_client=api_client,
+            randomizer=randomizer,
+            settings=settings,
+            db_manager=self.db_manager,  # Pass db_manager for persistence
+        )
+
+        # Get model variants (full objects)
+        model_variants = [self.variant_repo.get_by_id(rm.variant_id) for rm in run_models]
+        model_variants = [v for v in model_variants if v]  # Filter out None
+
+        # Execute using ExecutionEngine with context for persistence
+        results = engine.execute(
+            model_variants=model_variants,
+            questions=questions,
+            iterations=1,  # Default for run execution
+            run_id=latest_run.run_id,  # Pass real run_id for persistence
+            experiment_id=experiment.experiment_id,  # Pass real experiment_id for persistence
+        )
+
+        # Update run status based on results
+        total_errors = sum(r.errors for r in results)
+        if total_errors > 0:
+            self.run_repo.update_status(latest_run.run_id, "failed")
+            logger.warning(f"Run {latest_run.run_id} completed with {total_errors} errors")
+        else:
+            self.run_repo.update_status(latest_run.run_id, "completed")
+            logger.info(f"Run {latest_run.run_id} completed successfully")
+
+        # Display results summary
+        console.print(f"\n[green]✓ Run execution completed[/green]")
+        console.print(f"  Total iterations: {len(results)}")
+        console.print(f"  Total errors: {total_errors}")
 
     def add_models_to_run(
         self,

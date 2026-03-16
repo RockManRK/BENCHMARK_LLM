@@ -15,6 +15,74 @@ This tool enables researchers and developers to:
 - **NEW:** Structured outputs (JSON schema) support
 - **NEW:** Simplified CLI with `bcllm` command
 - **NEW:** Cost tracking per request (via OpenRouter `usage.cost`)
+- **NEW:** Unified execution engine (ExecutionEngine)
+- **NEW:** Experiment evolution (--add-questions)
+
+## Architecture
+
+### Unified Execution Engine
+
+The benchmark uses a **single ExecutionEngine** for all execution flows:
+
+```
+┌─────────────────────────────────────┐
+│      ExecutionEngine                │
+│  (Unified, Context-Agnostic)        │
+└──────────────┬──────────────────────┘
+               │
+       ┌───────┴────────┐
+       │                │
+┌──────▼──────┐  ┌─────▼──────────┐
+│ Direct Flow │  │ Hierarchical   │
+│ --models    │  │ --experiment   │
+└─────────────┘  └────────────────┘
+```
+
+### Two Execution Flows
+
+#### 1. Direct Flow (Quick Tests)
+```bash
+bcllm --models openai/gpt-4 --iterations 3 --questions Q001-Q010
+```
+- No experiment tracking
+- Temporary run created automatically
+- Best for: Quick comparisons, testing
+
+#### 2. Hierarchical Flow (Experiments)
+```bash
+# Create experiment
+bcllm --create-experiment my_exp --questions Q001-Q020
+
+# Add models
+bcllm --experiment my_exp --add-model openai/gpt-4
+
+# Create and run
+bcllm --experiment my_exp --create-run --iterations 3
+bcllm --experiment my_exp --run
+```
+- Full experiment tracking
+- Runs are immutable snapshots
+- Best for: Research, reproducibility
+
+### Experiment Evolution
+
+Experiments can **evolve** over time while preserving historical runs:
+
+```bash
+# Add new questions (creates snapshots only for NEW questions)
+bcllm --experiment my_exp --add-questions Q021-Q040
+
+# Add new models
+bcllm --experiment my_exp --add-model anthropic/claude-3
+```
+
+**Principles:**
+- ✅ Experiments CAN evolve
+- ✅ Runs are IMMUTABLE
+- ✅ Snapshots are UNIQUE (never recreated)
+- ✅ Past is NEVER altered
+
+See [`docs/EVOLUCAO_EXPERIMENTOS.md`](docs/EVOLUCAO_EXPERIMENTOS.md) for details.
 
 ## Requirements
 

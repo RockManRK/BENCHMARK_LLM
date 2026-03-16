@@ -404,6 +404,7 @@ class BenchmarkRunner:
         Routes to appropriate handler based on additional flags:
         - --experiment NAME (alone) → show experiment
         - --experiment NAME --add-model → add models
+        - --experiment NAME --add-questions → add questions (evolution)
         - --experiment NAME --remove-model → remove model
         - --experiment NAME --create-run → create run
         - --experiment NAME --run → execute run
@@ -415,7 +416,9 @@ class BenchmarkRunner:
             experiment_name = self.args.experiment
 
             # Route based on action flags
-            if hasattr(self.args, 'add_models') and self.args.add_models:
+            if hasattr(self.args, 'add_questions') and self.args.add_questions:
+                return self._handle_add_questions_to_experiment(experiment_name)
+            elif hasattr(self.args, 'add_models') and self.args.add_models:
                 return self._handle_add_models_to_experiment(experiment_name)
             elif hasattr(self.args, 'remove_model') and self.args.remove_model:
                 return self._handle_remove_model_from_experiment(experiment_name)
@@ -469,6 +472,67 @@ class BenchmarkRunner:
             if 'db_manager' in locals():
                 db_manager.close()
 
+    def _handle_add_questions_to_experiment(self, experiment_name: str) -> int:
+        """Handle --add-questions flag (experiment evolution).
+
+        This command adds new questions to an existing experiment.
+        
+        PRINCIPLES:
+        - Experiments can EVOLVE
+        - Runs are IMMUTABLE
+        - Past is NEVER altered
+        
+        BEHAVIOR:
+        - Existing snapshots are NOT recreated
+        - New snapshots are created ONLY for new questions
+        - Existing runs continue using their original question set
+        - Future runs will use the updated question set
+        
+        Args:
+            experiment_name: Name of the experiment.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.cli.experiment_commands import ExperimentManager
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Create experiment manager
+            exp_manager = ExperimentManager(db_manager)
+
+            # Get questions to add
+            questions_to_add = self.args.add_questions
+            
+            # Add questions to experiment
+            exp_manager.add_questions_to_experiment(
+                experiment_name=experiment_name,
+                questions=questions_to_add,
+            )
+
+            # Show feedback
+            console = Console()
+            console.print(f"\n[green]✓ Questions added to experiment '{experiment_name}'[/green]")
+            console.print("[dim]Note: Existing runs are NOT affected. Only future runs will use the new questions.[/dim]")
+
+            return 0
+
+        except ValueError as e:
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+        except Exception as e:
+            logger.exception(f"Add questions failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
     def _handle_add_models_to_experiment(self, experiment_name: str) -> int:
         """Add models to experiment.
 
@@ -508,6 +572,8 @@ class BenchmarkRunner:
                 vision_enabled=vision_enabled,
                 structured_enabled=structured_enabled,
             )
+            
+            logger.info(f"Models added successfully to experiment {experiment_name}")
 
             return 0
 
@@ -517,6 +583,8 @@ class BenchmarkRunner:
             return 1
         except Exception as e:
             logger.exception(f"Add models to experiment failed: {e}")
+            console = Console()
+            console.print(f"[red]Error: {e}[/red]")
             print(f"Error: {e}", file=sys.stderr)
             return 1
         finally:
@@ -1023,248 +1091,20 @@ class BenchmarkRunner:
 
         return actual_model_id, model_info
 
-    def _build_iteration_config(
-        self,
-        run: Optional,
-        model_id: str,
-        actual_model_id: str,
-        iteration_num: int
-    ) -> dict:
-        """Build configuration for a single iteration.
-
-        Uses run.seed from the database as the single source of truth.
-        No seed derivation or generation happens here.
-
-        Args:
-            run: Run object or None.
-            model_id: Original model ID.
-            actual_model_id: Actual model ID from API.
-            iteration_num: Iteration number (1-based).
-
-        Returns:
-            Dictionary with randomizer, model_kwargs, and reasoning_config.
-        """
-        from src.core.randomizer import AnswerRandomizer
-
-        # Use seed from run (single source of truth)
-        # run.seed is set by RunManager._determine_seed() and saved to database
-        if run and run.seed is not None:
-            randomizer_seed = run.seed
-            logger.debug(f"Iteration {iteration_num} using seed {randomizer_seed} from run")
-        else:
-            randomizer_seed = None
-            logger.debug(f"Iteration {iteration_num} using no seed (original order)")
-
-        # Vary seed per iteration if requested (only for testing consistency)
-        if self.args.vary_seed and randomizer_seed is not None:
-            randomizer_seed = (run.seed + (iteration_num * 1000)) % (2**31)
-            logger.debug(f"Iteration {iteration_num} using varied seed {randomizer_seed} (base: {run.seed})")
-
-        # Create randomizer with seed from run
-        randomizer = AnswerRandomizer(run_id=randomizer_seed) if randomizer_seed is not None else None
-
-        # Build model kwargs
-        model_kwargs = {}
-        if self.settings.model_max_tokens is not None:
-            model_kwargs["max_tokens"] = self.settings.model_max_tokens
-        if self.settings.model_temperature is not None:
-            model_kwargs["temperature"] = self.settings.model_temperature
-        if self.settings.model_top_p is not None:
-            model_kwargs["top_p"] = self.settings.model_top_p
-        if self.settings.model_top_k is not None:
-            model_kwargs["top_k"] = self.settings.model_top_k
-        if self.settings.model_repeat_penalty is not None:
-            model_kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
-
-        # Build reasoning config (OpenRouter standard)
-        # https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
-        reasoning_config = None
-        if any([
-            self.settings.reasoning_effort is not None,
-            self.settings.reasoning_max_tokens is not None,
-            self.settings.reasoning_exclude is not None,
-            self.settings.reasoning_enabled is not None
-        ]):
-            reasoning_config = {}
-
-            if self.settings.reasoning_effort is not None:
-                # Special case: 'none' effort means disable reasoning
-                if self.settings.reasoning_effort == 'none':
-                    reasoning_config["enabled"] = False
-                else:
-                    reasoning_config["effort"] = self.settings.reasoning_effort
-            if self.settings.reasoning_max_tokens is not None:
-                reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
-            if self.settings.reasoning_exclude is not None:
-                reasoning_config["exclude"] = self.settings.reasoning_exclude
-            if self.settings.reasoning_enabled is not None:
-                reasoning_config["enabled"] = self.settings.reasoning_enabled
-
-            logger.info(f"Using reasoning config: {reasoning_config}")
-
-        return {
-            "randomizer": randomizer,
-            "model_kwargs": model_kwargs,
-            "reasoning_config": reasoning_config,
-        }
-
-    def _execute_single_iteration(
-        self,
-        questions: list,
-        run: Optional,
-        model_id: str,
-        actual_model_id: str,
-        iteration_num: int,
-        iteration_config: dict,
-        client,
-    ) -> dict:
-        """Execute a single iteration.
-
-        Args:
-            questions: List of Question objects.
-            run: Run object or None.
-            model_id: Original model ID.
-            actual_model_id: Actual model ID from API.
-            iteration_num: Iteration number (1-based).
-            iteration_config: Configuration from _build_iteration_config().
-            client: OpenRouterClient instance.
-
-        Returns:
-            Dictionary with iteration results.
-        """
-        from src.core.iteration_executor import IterationExecutor
-
-        executor = IterationExecutor(
-            db_manager=self.db_manager,
-            api_client=client,
-            randomizer=iteration_config["randomizer"],
-            run_id=run.run_id if run else "",
-            model_id=actual_model_id,
-            iteration_number=iteration_num,
-            experiment_id=run.experiment_id if run else "",
-            model_kwargs=iteration_config["model_kwargs"],
-            use_structured_outputs=self.settings.use_structured_outputs,
-            reasoning_config=iteration_config["reasoning_config"],
-            settings=self.settings,
-            system_prompt_template=self.settings.system_prompt,
-            user_prompt_template=self.settings.user_prompt_template,
-        )
-
-        result = executor.execute_iteration(questions)
-        logger.info(
-            f"  Iteration {iteration_num} completed: "
-            f"{result['completed_questions']}/{result['total_questions']} questions, "
-            f"{result['errors']} errors"
-        )
-
-        return result
-
-    def _execute_all_models_and_iterations(
-        self,
-        questions: list,
-        run: Optional
-    ) -> list:
-        """Orchestrate execution across all models and iterations.
-
-        ⚠️ This function is purely orchestrator - delegates all logic to helpers.
-
-        When --run-id is provided:
-        - Models are loaded EXCLUSIVELY from run_models table
-        - Only models with status 'pending' or 'running' are executed
-        - Models with status 'completed' or 'removed' are explicitly skipped
-        - --models CLI argument is IGNORED
-
-        Args:
-            questions: List of Question objects.
-            run: Run object or None.
-
-        Returns:
-            List of iteration results.
-        """
-        from src.api.client import OpenRouterClient
-        from src.db.repository import RunModelRepository
-
-        all_results = []
-        client = OpenRouterClient(
-            api_key=self.settings.openrouter_api_key,
-            base_url=self.settings.openrouter_base_url,
-        )
-
-        # Determine which models to execute
-        if hasattr(self.args, 'run_id') and self.args.run_id:
-            # Load models from run_models table (single source of truth)
-            run_model_repo = RunModelRepository(self.db_manager)
-            run_models = run_model_repo.get_by_run(self.args.run_id)
-            
-            # Filter: only execute pending or running models
-            models_to_execute = [
-                rm for rm in run_models 
-                if rm.status in ('pending', 'running')
-            ]
-            
-            # Log skipped models
-            for rm in run_models:
-                if rm.status in ('completed', 'removed'):
-                    logger.info(f"⏭️  Skipping model variant {rm.variant_id}: status={rm.status}")
-            
-            # Convert to model_id format for execution
-            # Note: variant_id contains the full model signature, we need to extract model_id
-            # For now, we'll use variant_id as the identifier
-            model_ids = [rm.variant_id for rm in models_to_execute]
-            
-            if not model_ids:
-                logger.info(f"No pending/running models found for run {self.args.run_id}")
-                print(f"⏭️  No models to execute in run {self.args.run_id} (all completed or removed)")
-                return all_results
-                
-            logger.info(f"Executing {len(model_ids)} model(s) from run {self.args.run_id}")
-        else:
-            # Original behavior: use --models from CLI
-            if not self.args.models:
-                logger.error("No models specified. Use --models or --run-id.")
-                print("Error: No models specified. Use --models or --run-id.", file=sys.stderr)
-                return all_results
-            model_ids = self.args.models
-            logger.info(f"Executing {len(model_ids)} model(s) from CLI arguments")
-
-        for model_id in model_ids:
-            logger.info(f"Starting benchmark for model: {model_id}")
-
-            # Fetch model info
-            actual_model_id, model_info = asyncio.run(self._fetch_model_info(client, model_id))
-
-            for iteration_num in range(1, self.args.iterations + 1):
-                logger.info(f"  Starting iteration {iteration_num} for {model_id}")
-
-                # Build configuration
-                iteration_config = self._build_iteration_config(
-                    run, model_id, actual_model_id, iteration_num
-                )
-
-                # Execute iteration
-                result = self._execute_single_iteration(
-                    questions, run, model_id, actual_model_id,
-                    iteration_num, iteration_config, client
-                )
-
-                all_results.append(result)
-
-        return all_results
-
     def _compile_final_results(
-        self, 
-        all_results: list, 
+        self,
+        all_results: list,
         run: Optional,
         questions: list,
     ) -> dict:
         """Compile final results and update run status.
-        
+
         ⚠️ SIDE-EFFECTS:
         - Updates run status in database via RunManager.update_run_status()
         - Marks run as 'failed' if any iteration had errors
 
         Args:
-            all_results: List of iteration results.
+            all_results: List of ExecutionResult objects.
             run: Run object or None.
             questions: List of Question objects (for total_questions count).
 
@@ -1281,7 +1121,8 @@ class BenchmarkRunner:
         }
 
         if self.run_manager and run:
-            has_errors = any(r.get("errors", 0) > 0 for r in all_results)
+            # ExecutionResult has 'errors' attribute, not dict
+            has_errors = any(r.errors > 0 for r in all_results)
             final_status = "failed" if has_errors else "completed"
             self.run_manager.update_run_status(run.run_id, final_status)
 
@@ -1289,21 +1130,109 @@ class BenchmarkRunner:
         return results
 
     def _execute_benchmark(self) -> dict[str, Any]:
-        """Execute the benchmark test.
+        """Execute the benchmark test using ExecutionEngine.
 
         Returns:
             Dictionary containing execution results and statistics.
         """
+        from src.api.client import OpenRouterClient
+        from src.core.execution_engine import ExecutionEngine, QuestionWithContext
+        from src.core.randomizer import AnswerRandomizer
+
         logger.info("Starting benchmark execution")
 
-        # Execute benchmark using extracted helpers
+        # Load questions
         questions = self._load_and_filter_questions()
         if not questions:
             return {}
 
+        # Initialize run
         run = self._initialize_run(questions)
-        all_results = self._execute_all_models_and_iterations(questions, run)
-        return self._compile_final_results(all_results, run, questions)
+        if not run:
+            return {}
+
+        # Create ExecutionEngine with db_manager for persistence
+        api_client = OpenRouterClient(
+            api_key=self.settings.openrouter_api_key,
+            base_url=self.settings.openrouter_base_url,
+        )
+        randomizer = AnswerRandomizer(self.settings.random_seed)
+        
+        engine = ExecutionEngine(
+            api_client=api_client,
+            randomizer=randomizer,
+            settings=self.settings,
+            db_manager=self.db_manager,  # Enable persistence
+        )
+
+        # Wrap questions with snapshot_id=None (direct flow has no snapshots)
+        questions_with_context = [QuestionWithContext(question=q, snapshot_id=None) for q in questions]
+
+        # Get model variants from CLI
+        # For direct flow, we create variants on-the-fly based on model_id
+        from src.db.repository import ModelVariantRepository
+        from src.db.models import ModelVariant
+        from src.core.variant_config import VariantConfig
+        
+        variant_repo = ModelVariantRepository(self.db_manager)
+        model_variants = []
+        
+        for model_id in self.args.models:
+            logger.debug(f"Processing model: {model_id}")
+            
+            # Build variant config from settings
+            variant_config = VariantConfig(
+                reasoning_mode=self.settings.reasoning_mode if self.settings else "unspecified",
+                reasoning_effort=self.settings.reasoning_effort if self.settings else None,
+                reasoning_max_tokens=self.settings.reasoning_max_tokens if self.settings else None,
+                vision_enabled=self.settings.enable_vision if self.settings else False,
+                structured_enabled=self.settings.enable_structured if self.settings else False,
+            )
+            variant_id = variant_config.build_variant_id(model_id)
+            logger.debug(f"Built variant_id: {variant_id} for model {model_id}")
+            
+            # Create variant if not exists
+            existing = variant_repo.get_by_id(variant_id)
+            logger.debug(f"Existing variant: {existing}")
+            
+            if not existing:
+                logger.info(f"Creating new variant: {variant_id}")
+                variant = ModelVariant(
+                    variant_id=variant_id,
+                    model_id=model_id,
+                    reasoning_mode=variant_config.reasoning_mode,
+                    reasoning_effort=variant_config.reasoning_effort,
+                    reasoning_max_tokens=variant_config.reasoning_max_tokens,
+                    vision_enabled=variant_config.vision_enabled,
+                    structured_enabled=variant_config.structured_enabled,
+                    variant_signature=variant_config.build_signature(model_id),
+                )
+                try:
+                    variant_repo.create(variant)
+                    logger.info(f"Created variant: {variant_id}")
+                    existing = variant
+                except Exception as e:
+                    logger.warning(f"Failed to create variant: {e}")
+                    # Might have been created concurrently
+                    existing = variant_repo.get_by_id(variant_id)
+            
+            if existing:
+                model_variants.append(existing)
+                logger.info(f"Added variant to execution: {existing.variant_id}")
+            else:
+                logger.error(f"Failed to get or create variant: {variant_id}")
+
+        # Execute using ExecutionEngine
+        results = engine.execute(
+            model_variants=model_variants,
+            questions=questions_with_context,
+            iterations=self.args.iterations,
+            run_id=run.run_id,
+            experiment_id=run.experiment_id if run.experiment_id else "",
+        )
+
+        # Compile final results
+        return self._compile_final_results(results, run, questions)
 
     def _display_results(self, results: dict[str, Any]) -> None:
         """Calculate and display benchmark results.

@@ -337,6 +337,7 @@ class Response:
     run_id: str
     snapshot_id: int
     question_id: str
+    model_id: str  # Base model ID (for backward compatibility and easier querying)
     variant_id: str
     iteration: int = 1
     response_id: Optional[int] = None
