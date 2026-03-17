@@ -1,46 +1,73 @@
+Pertêncimento de configurações:
+
+# Experiment
+- Lista de perguntas que serão usadas por todos
+- Configurações padrões dos modelos
+- Seed Padrão
+- System e User Prompts Padrão
+
+# Run
+- Seed Expecifico
+- System e User Prompts Expecificos
+
+# Model
+- Modelos e suas configurações particulares. As configurações que não estiverem na variante do modelo, cai para o padrão do experimento
+
+
+
+
 # Comando: --execute-run (ou --run)
 
-## 1. Visão Geral
+# Flags
+Ao rodar o experimento sem nenhuma flag, ele roda:
+- Todas as runs/interações que tiverem no experimento
+- Com todos os modelos configurados
+- Com todas as perguntas configuradas
 
-Este comando executa um run de benchmark pendente. Realiza as chamadas à API de LLM para obter respostas das perguntas e persiste os resultados no banco de dados.
-
-O comando realiza as seguintes operações principais:
-- Localiza o run mais recente do experimento
-- Carrega variantes de modelo e perguntas do run
-- Executa chamadas à API para cada combinação (modelo, pergunta, iteração)
-- Persiste respostas e erros no banco de dados
-- Atualiza status do run ao final
-
-**Importante:** Este comando requer a chave de API do OpenRouter configurada, pois realiza chamadas reais à API.
-
-## 2. Pré-condições Observadas
-
-- O experimento deve existir (verificado pelo nome)
-- Deve existir pelo menos um run para o experimento
-- O run mais recente deve ter status "running"
-- O run deve ter pelo menos uma variante de modelo associada
-- O experimento deve ter pelo menos um snapshot de pergunta
-- A chave de API do OpenRouter DEVE estar configurada
-- Conexão com a internet deve estar disponível
-
-## 3. Fluxo de Execução (Passo a Passo)
+Sendo assim, as flags que esse comando vai permitir são, escolher RUNs, escolher modelos, escolher perguntas.
 
 1. **Verificação do Experimento**
    - Busca o experimento pelo nome fornecido
-   - Se não encontrado, interrompe com erro
+   - Se não encontrado, interrompe com alerta e apresenta o comando para criar experimento e para listas os experimentos existentes
+   - Se achado o experimento:
+    - Se flags foram usadas no comando, são guardadas para filtrar as configurações. Como por exemplo rodar apenas 1 dos runs, um conjunto menor de perguntas ou um conjunto menor de modelos.
+    - Se não, segue para o próximo passo direto.
 
 2. **Localização do Run**
-   - Busca todos os runs do experimento
-   - Ordena por started_at DESC (mais recente primeiro)
-   - Seleciona o primeiro run (mais recente)
-   - Se não houver runs, interrompe com erro
-
+   - Se houver RUNs selecionados no comando, busca por eles.
+    - Se não encontrar os RUNs selecionados, avisa que não encontrou, mostra os runs daquele experimento e mostra o comando de adicionar RUNS.
+    - Se encontrados, verifica se eles estão completos ou não. Se ao menos 1 não estiver completo, segue.
+   - Se não houver, busca todos os runs do experimento:
+    - Ordena por started_at DESC (mais antigo primeiro, que não esteja completo)
+    - Seleciona o primeiro run (mais antigo dos que não esteja completo)
+    - Se não houver runs, interrompe com mensagem de alerta e da comandos de exemplos para criar runs, talvez uma super breve explicação do que é um RUN.
+  
 3. **Carregamento das Variantes de Modelo**
-   - Busca todas as variantes associadas ao run (tabela `run_models`)
-   - Se models_filter especificado, filtra por IDs de modelo
-   - Para cada run_model, carrega a variante completa da tabela `model_variants`
+   - Se modelos foram selecionados, busca por eles.
+    - Se não encontrar os modelos selecionados, avisa que não encontrou, mostra os modelos daquele experimento e mostra o comando de adicionar modelos.
+    - Se encontrado verifica se os RUNS selecionados ainda tem alguma pergunta a processar com aqueles modelos.
+      - Sim, carrega as configurações daqueles modelos e segue:
+      - Não, interrompe e avisa o usuário que todas as perguntas com aquele(s) já foram processados.
+   - Se nenhum modelo selecionado na execução do comando, busca todas as variantes associadas ao run (tabela `run_models`) (Vamos mudar isso, RUN não tem modelo, só experiment terá, você pode até não rodar todos os modelos de uma run selecionando manualmente, mas todas as runs terão os mesmos modelos, que serão definidos no experiment, para simplificar)
+    - Se não houver modelos no experiment, avisa que não encontrou, mostra os modelos daquele experimento e mostra o comando de adicionar modelos.
+    - Se encontrado verifica se os RUNS selecionados ainda tem alguma pergunta a processar com aqueles modelos.
+      - Sim, carrega as configurações daqueles modelos e segue:
+      - Não, interrompe e avisa o usuário que todas as perguntas com aquele(s) já foram processados.
+   - E então carrega todos os detalhes daquelas variantes.
 
-4. **Carregamento das Perguntas**
+4. **Carregamento das Perguntas** (Aqui as perguntas serão sempre os snapshots, gerados quando se adiciona perguntas ao experimento)
+   - Se perguntas foram selecionadas, busca pelos snapshots delas.
+    - Se não encontrar as perguntas selecionadas, avisa que não encontrou, mostra as perguntas daquele experimento e mostra o comando de adicionar ou remover perguntas.
+    - Se encontradas verifica se os RUNS selecionados ainda tem alguma pergunta a processar das selecionadas.
+      - Sim, carrega as perguntas não processadas e segue:
+      - Não, interrompe e avisa o usuário que todas as perguntas selecionadas já foram processados.
+   - Se nenhum pergunta filtrada na execução do comando, verifica se tem perguntas associadas a aquele experimento.
+    - Se não houver perguntas no experiment, avisa que não encontrou, dá um alerta para o usuário e mostra o comando de adicionar perguntas.
+    - Se encontrar perguntas no experimento, verifica se os RUNS selecionados ainda tem alguma pergunta a processar.
+      - Sim, carrega as perguntas faltantes do combinado de todos os runs e segue:
+      - Não, interrompe e avisa o usuário que todas aquelas perguntas da seleção, naqueles runs, já foram processadas.
+   
+   (Essa parte de baixo tinha sido criado pela IA, possui alguns pontos que eu não coloquei, por ser mais relativo ao código(MAS MUITO IMPORTANTE TER AQUI TAMBÉM), como também, alguns passos são em ordens diferentes, eu coloquei na ordem da minha cabeça, não necessáriamente na ordem que é mais eficiente)
    - Busca todos os snapshots do experimento (tabela `question_snapshots`)
    - Se questions_filter especificado, filtra por IDs de pergunta
    - Para cada snapshot:
@@ -48,12 +75,12 @@ O comando realiza as seguintes operações principais:
      - Reconstrói objeto Question completo
      - Associa snapshot_id ao contexto da pergunta
 
-5. **Validação de Dados**
+5. **Validação de Dados** (Esse passo tinha sido criado pela IA. Não entendo porque isso tudo junto aqui, e não um atrás do outro em cada passo? Eu fiz essas verificações durante os passos anteriores. Mas novamente, fiz na ordem que funcionava na minha cabeça, não necessáriamente o mais eficiente.)
    - Verifica se há variantes de modelo (depois do filtro)
    - Verifica se há perguntas (depois do filtro)
    - Se nenhum dos dois, interrompe com erro
 
-6. **Exibição do Contexto de Execução**
+6. **Exibição do Contexto de Execução** (não mexi aqui)
    - Exibe painel com informações do run:
      - Nome do experimento
      - Run ID
@@ -62,12 +89,12 @@ O comando realiza as seguintes operações principais:
      - Quantidade de modelos
      - Quantidade de perguntas
 
-7. **Configuração do Client de API**
+7. **Configuração do Client de API** (não mexi aqui)
    - Cria instância do OpenRouterClient
    - Configura com API key e base URL das configurações
    - Cria instância do AnswerRandomizer com seed
 
-8. **Configuração do ExecutionEngine**
+8. **Configuração do ExecutionEngine** (não mexi aqui, nem entendo direito o que está acontecendo aqui)
    - Cria instância do ExecutionEngine
    - Injeta client de API, randomizer, settings e db_manager
    - db_manager permite persistência durante execução
