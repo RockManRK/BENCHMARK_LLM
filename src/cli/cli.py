@@ -436,27 +436,6 @@ Incremental Flow (add models to existing run):
             help="Mark a run as completed. No more models can be added after this.",
         )
 
-        # Manual review commands
-        parser.add_argument(
-            "--review-run",
-            type=str,
-            metavar="RUN_ID",
-            help="Start manual review interface for a specific run (e.g., run-001)",
-        )
-
-        parser.add_argument(
-            "--review-experiment",
-            type=str,
-            metavar="EXPERIMENT_ID",
-            help="Start manual review interface for a specific experiment (e.g., exp-001)",
-        )
-
-        parser.add_argument(
-            "--review-all",
-            action="store_true",
-            help="Start manual review interface for ALL pending responses across all experiments and runs",
-        )
-
         return parser
 
     def parse(self, args: Optional[list[str]] = None) -> argparse.Namespace:

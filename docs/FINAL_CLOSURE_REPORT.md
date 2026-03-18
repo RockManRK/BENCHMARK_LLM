@@ -6,6 +6,19 @@
 
 ---
 
+## TERMINOLOGY CLARIFICATION
+
+Throughout this report, the following terms are used precisely:
+
+| Term | Meaning | Example |
+|------|---------|---------|
+| **REMOVED** | Code no longer exists in codebase | `IterationExecutor`, `QuestionExecutor` deleted |
+| **NOT EXPOSED** | Functionality exists but not available via CLI | Filtering variants during execution (Planner-level only) |
+| **NOT SUPPORTED** | Explicitly not implemented by domain decision | Direct execution via `--models` |
+| **DEFERRED** | Acknowledged future work, not current gap | CSV export format |
+
+---
+
 ## 1. EXECUTIVE SUMMARY
 
 The benchmark_llm system has been fully refactored to align with the TO-BE architectural contracts. The system is **functional, minimal, and intentionally constrained**.
@@ -139,20 +152,46 @@ The following are **conscious design decisions**, not omissions:
 
 ### 3.3 Execution Modes
 
-| Feature | Decision | Rationale |
+| Feature | Status | Rationale |
 |---------|----------|-----------|
-| Direct execution (`--models`) | DISABLED | Violates "no implicit execution" principle |
-| Test mode (in-memory DB) | DISABLED | Not needed; use experiment flow |
-| Dev mode (shadow experiments) | DISABLED | All execution requires explicit experiment |
+| Direct execution (`--models`) | NOT SUPPORTED | Violates "no implicit execution" principle |
+| Test mode (in-memory DB) | NOT SUPPORTED | Not needed; use experiment flow |
+| Dev mode (shadow experiments) | NOT SUPPORTED | All execution requires explicit experiment |
 
 ### 3.4 Export Formats
 
-| Feature | Decision | Rationale |
+| Feature | Status | Rationale |
 |---------|----------|-----------|
 | JSON export | ✅ Implemented | Sufficient for current use case |
 | CSV export | NOT IMPLEMENTED | Can be added if needed |
 | Markdown export | NOT IMPLEMENTED | Can be added if needed |
 | Console table | NOT IMPLEMENTED | JSON is sufficient |
+
+---
+
+## 3.5 CLARIFICATION: Variant Filtering During Execution
+
+**Filtering variants during run execution IS ALLOWED** and does NOT violate architectural principles.
+
+| Capability | Status | Notes |
+|------------|--------|-------|
+| `--experiment NAME --run --models <list>` | ✅ SUPPORTED | Planner filters variants before building ExecutionPlan |
+| Filter applied by | Planner | NOT ExecutionEngine |
+| Violates principles? | NO | Filtering is scope resolution (Planner responsibility) |
+
+**Why this is allowed:**
+- Filtering happens at Planner level (DB read, scope resolution)
+- ExecutionEngine still receives pre-filtered ExecutionPlan
+- No inference or scope decisions during execution
+- Consistent with `execute-run.md` contract
+
+**Example:**
+```bash
+# Execute only specific models from experiment
+--experiment my_exp --run --models openai/gpt-4 anthropic/claude-3
+```
+
+This is NOT a gap — it is intentional Planner-level functionality.
 
 ---
 
