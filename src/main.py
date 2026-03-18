@@ -24,6 +24,7 @@ from src.db.schema import DatabaseManager
 from src.utils.config import get_settings
 from src.utils.logging_config import LoggingConfig, setup_logging, log_initialization_summary
 from rich.console import Console
+from rich.panel import Panel
 
 logger = logging.getLogger(__name__)
 
@@ -703,7 +704,14 @@ class BenchmarkRunner:
                 db_manager.close()
 
     def _handle_execute_run(self, experiment_name: str) -> int:
-        """Execute experiment run.
+        """Execute experiment run using new execution axis.
+
+        NEW EXECUTION FLOW:
+        1. Planner builds immutable ExecutionPlan (DB reads, deduplication)
+        2. ExecutionEngine executes plan (API calls, NO DB access)
+        3. ResultWriter persists results (DB writes, status updates)
+
+        Legacy path via experiment_commands.py is BYPASSED.
 
         Args:
             experiment_name: Name of the experiment.
@@ -712,31 +720,94 @@ class BenchmarkRunner:
             Exit code (0 for success, non-zero for errors).
         """
         try:
-            from src.cli.experiment_commands import RunManager as ExRunManager
-
             # Initialize database
             settings = get_settings()
             db_manager = DatabaseManager(settings.database_path)
             db_manager.initialize()
 
-            # Create run manager
-            run_manager = ExRunManager(db_manager)
+            # Import new execution axis components
+            from src.core.planner import Planner
+            from src.core.execution_engine import ExecutionEngine
+            from src.core.result_writer import ResultWriter
+            from src.api.client import OpenRouterClient
+            from src.core.randomizer import AnswerRandomizer
 
-            # Get filters
+            # Get filters from CLI args
             models_filter = getattr(self.args, 'models', None)
             questions_filter = getattr(self.args, 'questions', None)
 
-            # Execute run
-            run_manager.execute_run(
+            # STEP 1: Build execution plan (Planner does ALL DB reads)
+            # Planner resolves: runs, variants, snapshots, deduplication, seeds, prompts
+            logger.info(f"Building execution plan for experiment '{experiment_name}'")
+            planner = Planner(db_manager)
+            plan = planner.build_plan(
                 experiment_name=experiment_name,
-                models_filter=models_filter,
-                questions_filter=questions_filter,
+                run_name=None,  # Execute all pending runs
+                model_filter=models_filter,
+                question_filter=questions_filter,
             )
+
+            logger.info(f"Built plan {plan.plan_id} with {len(plan.runs)} run(s)")
+            total_items = sum(len(run.items) for run in plan.runs)
+            logger.info(f"Plan has {total_items} item(s) to execute")
+
+            # Show execution summary
+            console.print()
+            console.print(Panel(
+                f"[bold]Experiment:[/bold] {experiment_name}\n"
+                f"[bold]Plan:[/bold] {plan.plan_id}\n"
+                f"[bold]Runs:[/bold] {len(plan.runs)}\n"
+                f"[bold]Items to execute:[/bold] {total_items}",
+                title="🚀 Run Execution",
+                border_style="green",
+            ))
+
+            # STEP 2: Execute plan (ExecutionEngine does API calls, NO DB)
+            logger.info("Starting execution (ExecutionEngine - NO DB access)")
+            api_client = OpenRouterClient(
+                api_key=settings.openrouter_api_key,
+                base_url=settings.openrouter_base_url,
+            )
+            randomizer = AnswerRandomizer(settings.random_seed if settings else None)
+
+            # Create engine WITHOUT db_manager - pure execution only
+            engine = ExecutionEngine(
+                api_client=api_client,
+                randomizer=randomizer,
+                settings=settings,
+            )
+            results = engine.execute(plan)
+            logger.info(f"Execution completed: {len(results)} result(s)")
+
+            # STEP 3: Write results (ResultWriter does ALL DB writes)
+            # ResultWriter persists responses/errors and updates run status
+            logger.info("Persisting results (ResultWriter)")
+            writer = ResultWriter(db_manager)
+            write_result = writer.write_results(plan, results)
+
+            # Log summary
+            logger.info(
+                f"Execution complete: {write_result.responses_written} responses, "
+                f"{write_result.errors_written} errors, "
+                f"{write_result.responses_skipped} responses skipped, "
+                f"{write_result.runs_updated} runs updated"
+            )
+
+            # Display results summary
+            console.print()
+            console.print(Panel(
+                f"[bold]Responses written:[/bold] {write_result.responses_written}\n"
+                f"[bold]Errors written:[/bold] {write_result.errors_written}\n"
+                f"[bold]Responses skipped:[/bold] {write_result.responses_skipped}\n"
+                f"[bold]Runs updated:[/bold] {', '.join(write_result.runs_updated)}",
+                title="✅ Execution Complete",
+                border_style="green",
+            ))
 
             return 0
 
         except ValueError as e:
-            console = Console()
+            logger.exception(f"Execute run failed: {e}")
             console.print(f"[red]Error: {e}[/red]")
             return 1
         except Exception as e:

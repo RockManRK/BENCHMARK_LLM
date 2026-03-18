@@ -59,7 +59,6 @@ class Run:
         run_id: Unique identifier for the run.
         experiment_id: ID of the associated experiment (NULL for dev mode).
         seed: Random seed used for this run.
-        is_dev: True if run is in development mode.
         started_at: Timestamp when the run started.
         finished_at: Timestamp when the run completed.
         status: Current status (pending, running, completed, failed).
@@ -67,7 +66,8 @@ class Run:
     Example:
         >>> run = Run(
         ...     run_id="run-001",
-        ...     is_dev=True,
+        ...     experiment_id="exp-001",
+        ...     seed=42,
         ...     status="running"
         ... )
         >>> print(run.run_id)
@@ -75,7 +75,6 @@ class Run:
     """
 
     run_id: str
-    is_dev: bool = True
     experiment_id: Optional[str] = None
     seed: Optional[int] = None
     started_at: datetime = field(default_factory=datetime.now)
@@ -122,7 +121,7 @@ class ModelVariant:
     Identity fields (define variant_signature):
     - reasoning_mode: 'off', 'auto', 'effort', 'budget', 'unspecified'
     - reasoning_effort: 'xhigh', 'high', 'medium', 'low', 'minimal' (when mode='effort')
-    - reasoning_max_tokens: integer (when mode='budget')
+    - max_output_tokens: integer (when mode='budget')
     - vision_enabled: boolean
     - structured_enabled: boolean
 
@@ -135,7 +134,7 @@ class ModelVariant:
         model_id: Base model identifier (FK to models).
         reasoning_mode: Reasoning mode ('off', 'auto', 'effort', 'budget', 'unspecified').
         reasoning_effort: Reasoning effort level (when mode='effort').
-        reasoning_max_tokens: Maximum reasoning tokens (when mode='budget').
+        max_output_tokens: Maximum output tokens (when mode='budget').
         vision_enabled: Whether vision is enabled.
         structured_enabled: Whether structured outputs are enabled.
         variant_signature: Human-readable signature (unique per model_id + identity).
@@ -159,9 +158,9 @@ class ModelVariant:
     variant_signature: str
     reasoning_mode: str = "unspecified"
     reasoning_effort: Optional[str] = None
-    reasoning_max_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
     vision_enabled: bool = False
-    structured_enabled: bool = False
+    structured_output: bool = False
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -253,7 +252,7 @@ class QuestionSnapshot:
 
     Attributes:
         question_id: ID of the question this snapshot is for.
-        question_json: Complete JSON representation of the question.
+        question_payload: Complete JSON representation of the question.
         experiment_id: ID of the experiment this snapshot belongs to (ALWAYS required).
         snapshot_id: Auto-incrementing unique identifier (assigned by DB).
         created_at: Timestamp when the snapshot was created.
@@ -261,7 +260,7 @@ class QuestionSnapshot:
     Example:
         >>> snapshot = QuestionSnapshot(
         ...     question_id="Q001",
-        ...     question_json='{"id": "Q001", "stem": "What is 2+2?", "options": {...}}',
+        ...     question_payload='{"id": "Q001", "stem": "What is 2+2?", "options": {...}}',
         ...     experiment_id="exp-001"
         ... )
         >>> print(snapshot.question_id)
@@ -269,7 +268,7 @@ class QuestionSnapshot:
     """
 
     question_id: str
-    question_json: str
+    question_payload: str
     experiment_id: str
     snapshot_id: Optional[int] = None
     created_at: Optional[datetime] = None

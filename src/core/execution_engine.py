@@ -1,308 +1,474 @@
-"""Execution engine for benchmark_llm.
+"""Purified ExecutionEngine for benchmark_llm.
 
 This module provides a unified, context-agnostic execution engine for running
-benchmarks. It is responsible ONLY for execution, not for persistence or
-context management.
+benchmarks. It executes ONLY an ExecutionPlan and returns ExecutionResults.
 
 Design Principles:
-    - ExecutionEngine does NOT know about run_id, experiment_id, or database
+    - ExecutionEngine does NOT know about database
     - ExecutionEngine does NOT persist results
-    - ExecutionEngine ONLY executes and returns raw results
-    - Persistence is the responsibility of the caller (BenchmarkRunner/RunManager)
+    - ExecutionEngine ONLY executes API calls and returns raw results
+    - Persistence is the responsibility of the caller (ResultWriter)
 
 Example:
     >>> engine = ExecutionEngine(api_client, randomizer, settings)
-    >>> results = engine.execute(model_variants, questions, iterations)
-    >>> # Caller is responsible for persisting results
+    >>> results = engine.execute(plan)
+    >>> # Results are pure data - caller persists them
 """
 
+import asyncio
+import json
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
-from src.core.iteration_executor import IterationExecutor
+from src.api.client import MessageBuilder, OpenRouterClient
+from src.core.execution_plan import (
+    ExecutionPlan,
+    ExecutionResult,
+    PlanItem,
+    PlanRun,
+    PlanVariant,
+)
 from src.core.randomizer import AnswerRandomizer
-from src.db.models import ModelVariant, Question
+from src.utils.config import Settings
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class QuestionWithContext:
-    """Question with optional context (snapshot_id).
-    
-    This wrapper separates execution (Question) from context (snapshot_id).
-    
-    - In direct flow (--models): snapshot_id = None (no persistence)
-    - In hierarchical flow (--experiment --run): snapshot_id = from database
-    
-    Attributes:
-        question: The question to execute.
-        snapshot_id: Optional snapshot ID for persistence. None = execution-only mode.
-    
-    Example:
-        >>> # Direct flow (no persistence)
-        >>> q = QuestionWithContext(question=question, snapshot_id=None)
-        
-        >>> # Hierarchical flow (with persistence)
-        >>> q = QuestionWithContext(question=question, snapshot_id=123)
-    """
-    question: Question
-    snapshot_id: Optional[int] = None
-
-
-@dataclass
-class ExecutionResult:
-    """Pure execution result (no context IDs).
-    
-    This dataclass contains only execution data, without any reference to
-    run_id, experiment_id, or other context. Persistence is the caller's
-    responsibility.
-    
-    Attributes:
-        model_id: Base model identifier (e.g., "openai/gpt-4").
-        variant_id: Model variant identifier (includes configuration).
-        iteration: Iteration number (1-based).
-        total_questions: Total number of questions in this iteration.
-        completed: Number of successfully completed questions.
-        errors: Number of errors encountered.
-        duration_ms: Total iteration duration in milliseconds.
-        responses: List of raw response data (to be persisted by caller).
-    """
-    model_id: str
-    variant_id: str
-    iteration: int
-    total_questions: int
-    completed: int = 0
-    errors: int = 0
-    duration_ms: float = 0.0
-    responses: list[dict[str, Any]] = field(default_factory=list)
-
-
 class ExecutionEngine:
-    """Unified execution engine for benchmarks.
-    
-    This engine is completely agnostic of execution context. It does NOT know
-    about:
-    - run_id
-    - experiment_id
-    - CLI arguments
-    - Database
-    
-    It ONLY executes benchmarks for given model variants and questions,
-    returning raw results. Persistence is the caller's responsibility.
-    
+    """Pure execution engine. NO DB ACCESS.
+
+    This engine executes an ExecutionPlan by making API calls and returning
+    ExecutionResults. It does NOT:
+    - Access the database
+    - Create or modify model variants
+    - Create or modify question snapshots
+    - Persist results
+    - Decide scope or deduplicate
+
     Attributes:
-        api_client: OpenRouter API client for model inference.
-        randomizer: Answer randomizer for shuffling options.
-        settings: Application settings.
-    
+        api_client: OpenRouter API client for model inference
+        randomizer: Answer randomizer for shuffling options
+        settings: Application settings
+
     Example:
         >>> engine = ExecutionEngine(api_client, randomizer, settings)
-        >>> results = engine.execute(variants, questions, iterations=3)
-        >>> # Results are pure data - caller persists them
+        >>> results = engine.execute(plan)
     """
-    
+
     def __init__(
         self,
-        api_client: Any,  # OpenRouterClient
+        api_client: OpenRouterClient,
         randomizer: AnswerRandomizer,
-        settings: Any,  # Settings
-        db_manager: Optional[Any] = None,  # Optional DatabaseManager for persistence
+        settings: Settings,
     ) -> None:
         """Initialize the execution engine.
 
         Args:
-            api_client: OpenRouter API client for model inference.
-            randomizer: Answer randomizer for shuffling options.
-            settings: Application settings.
-            db_manager: Optional DatabaseManager for persistence.
-                       If None, execution-only mode (no persistence).
+            api_client: OpenRouter API client for model inference
+            randomizer: Answer randomizer for shuffling options
+            settings: Application settings
+
+        Example:
+            >>> engine = ExecutionEngine(api_client, randomizer, settings)
         """
         self.api_client = api_client
         self.randomizer = randomizer
         self.settings = settings
-        self.db_manager = db_manager
 
-        logger.debug("ExecutionEngine initialized")
-    
-    def execute(
-        self,
-        model_variants: list[ModelVariant],
-        questions: list[QuestionWithContext],
-        iterations: int,
-        run_id: str = "",  # Optional run_id for persistence
-        experiment_id: str = "",  # Optional experiment_id for persistence
-    ) -> list[ExecutionResult]:
-        """Execute benchmark for given models and questions.
+        logger.debug("ExecutionEngine initialized (NO DB ACCESS)")
 
-        This method orchestrates the complete execution:
-        1. For each model variant
-        2. For each iteration
-        3. Execute all questions
-        4. Collect and return results
+    def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
+        """Execute all items in plan.
 
-        Note: This method does NOT persist results. The caller is responsible
-        for persisting results to the database.
+        This method executes all items in the ExecutionPlan by:
+        1. For each run in plan
+        2. For each variant in run
+        3. For each item in run.items
+           - Build API request (prompts + question_payload)
+           - Apply answer randomization
+           - Call API
+           - Parse response
+           - Return ExecutionResult
 
         Args:
-            model_variants: List of model variants to benchmark.
-            questions: List of questions with optional context (snapshot_id).
-                      snapshot_id=None means execution-only mode (no persistence).
-            iterations: Number of iterations per model variant.
-            run_id: Optional run_id for persistence. Empty = execution-only mode.
-            experiment_id: Optional experiment_id for persistence. Empty = execution-only mode.
-        
+            plan: ExecutionPlan to execute
+
         Returns:
-            List of ExecutionResult objects (pure data, no persistence).
-        
+            List of ExecutionResult objects (pure data, no persistence)
+
         Example:
-            >>> results = engine.execute(variants, questions, iterations=3)
+            >>> results = engine.execute(plan)
             >>> for result in results:
-            ...     print(f"{result.model_id}: {result.completed}/{result.total_questions}")
+            ...     print(f"{result.question_id}: {result.status}")
         """
         all_results = []
 
-        logger.info(f"Starting execution: {len(model_variants)} model(s), "
-                   f"{len(questions)} question(s), {iterations} iteration(s)")
+        logger.info(f"Starting execution of plan {plan.plan_id}")
+        logger.info(f"Plan: {len(plan.runs)} run(s), experiment={plan.experiment_name}")
 
-        for variant in model_variants:
-            logger.info(f"Executing model variant: {variant.variant_id}")
+        for plan_run in plan.runs:
+            logger.info(f"Executing run {plan_run.run_id}")
 
-            for iteration_num in range(1, iterations + 1):
-                logger.debug(f"  Iteration {iteration_num}/{iterations}")
+            # Execute all items in this run
+            run_results = self._execute_run(plan_run)
+            all_results.extend(run_results)
 
-                result = self._execute_single_iteration(
-                    variant=variant,
-                    questions=questions,
-                    iteration_num=iteration_num,
-                    run_id=run_id,
-                    experiment_id=experiment_id,
-                )
+            logger.info(
+                f"Completed run {plan_run.run_id}: {len(run_results)} items executed"
+            )
 
-                all_results.append(result)
-
-                logger.debug(f"    Completed: {result.completed}/{result.total_questions}, "
-                           f"Errors: {result.errors}, Duration: {result.duration_ms:.0f}ms")
-
-        logger.info(f"Execution completed: {len(all_results)} iteration(s)")
+        logger.info(
+            f"Execution completed: {len(all_results)} total results for plan {plan.plan_id}"
+        )
         return all_results
-    
-    def _execute_single_iteration(
-        self,
-        variant: ModelVariant,
-        questions: list[QuestionWithContext],
-        iteration_num: int,
-        run_id: str = "",
-        experiment_id: str = "",
-    ) -> ExecutionResult:
-        """Execute a single iteration for a model variant.
+
+    def _execute_run(self, plan_run: PlanRun) -> list[ExecutionResult]:
+        """Execute all items in a single run.
 
         Args:
-            variant: Model variant to execute.
-            questions: List of questions with optional context (snapshot_id).
-            iteration_num: Iteration number (1-based).
+            plan_run: PlanRun to execute
 
         Returns:
-            ExecutionResult for this iteration.
+            List of ExecutionResult objects for this run
+        """
+        results = []
+
+        # Initialize randomizer with run seed (only if seed is not None)
+        # seed=None means "no randomization, preserve natural order"
+        if self.randomizer and plan_run.seed_effective is not None:
+            self.randomizer.set_seed(plan_run.seed_effective)
+            logger.debug(f"Randomizer initialized with seed={plan_run.seed_effective}")
+        elif self.randomizer:
+            logger.debug("seed_effective is None, skipping randomization (natural order)")
+
+        # Execute all items
+        for item in plan_run.items:
+            logger.debug(f"Executing item {item.item_id}")
+
+            # Execute item
+            result = self._execute_item(
+                item=item,
+                plan_run=plan_run,
+            )
+            results.append(result)
+
+        return results
+
+    def _execute_item(
+        self,
+        item: PlanItem,
+        plan_run: PlanRun,
+    ) -> ExecutionResult:
+        """Execute a single item.
+
+        Args:
+            item: PlanItem to execute
+            plan_run: PlanRun containing the item
+
+        Returns:
+            ExecutionResult for this item
         """
         start_time = time.time()
 
-        # Extract plain questions from wrappers for IterationExecutor
-        plain_questions = [q.question for q in questions]
+        try:
+            # Build question payload with options
+            question_payload = item.question_payload
+            stem = question_payload.get("stem", "")
+            options = question_payload.get("options", {})
+            correct_answer = question_payload.get("answer_key", None)
 
-        # Create iteration executor for this variant
-        # Pass snapshot_ids via model_kwargs for QuestionExecutor to use
-        snapshot_ids = {q.question.question_id: q.snapshot_id for q in questions if q.snapshot_id}
-        
-        executor = IterationExecutor(
-            db_manager=self.db_manager,  # Pass db_manager for persistence
-            api_client=self.api_client,
-            randomizer=self.randomizer,
-            run_id=run_id,  # Pass real run_id for persistence
-            model_id=variant.model_id,
-            iteration_number=iteration_num,
-            experiment_id=experiment_id,  # Pass real experiment_id for persistence
-            model_kwargs={**self._extract_model_kwargs(), "_snapshot_ids": snapshot_ids},
-            use_structured_outputs=self.settings.use_structured_outputs if self.settings else False,
-            reasoning_config=self._build_reasoning_config(),
-            settings=self.settings,
-            system_prompt_template=self.settings.system_prompt if self.settings else None,
-            user_prompt_template=self.settings.user_prompt_template if self.settings else None,
-        )
+            # Build options text
+            options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
 
-        # Execute iteration (returns dict with results)
-        iteration_result = executor.execute_iteration(plain_questions)
-        
-        duration_ms = (time.time() - start_time) * 1000
-        
-        # Build execution result (pure data, no context)
-        result = ExecutionResult(
-            model_id=variant.model_id,
-            variant_id=variant.variant_id,
-            iteration=iteration_num,
-            total_questions=iteration_result.get("total_questions", len(questions)),
-            completed=iteration_result.get("completed_questions", 0),
-            errors=iteration_result.get("errors", 0),
-            duration_ms=duration_ms,
-            responses=iteration_result.get("responses", []),
-        )
-        
-        return result
-    
-    def _extract_model_kwargs(self) -> dict[str, Any]:
-        """Extract model generation parameters from settings.
-        
+            # Build prompt
+            prompt = f"""{stem}
+
+{options_text}
+
+{plan_run.user_prompt}"""
+
+            # Apply answer randomization ONLY if:
+            # 1. Randomizer is available
+            # 2. seed_effective is NOT None (None = no randomization)
+            # 3. correct_answer exists
+            should_randomize = (
+                self.randomizer is not None
+                and plan_run.seed_effective is not None
+                and correct_answer is not None
+            )
+
+            if should_randomize:
+                # Randomize options and get new correct answer
+                randomized = self.randomizer._randomize_options(options, correct_answer)
+                randomized_options = randomized["options"]
+                randomized_correct = randomized["correct_answer"]
+
+                # Rebuild options text with randomized order
+                options_text = "\n".join([f"{k}) {v}" for k, v in randomized_options.items()])
+
+                # Rebuild prompt with randomized options
+                prompt = f"""{stem}
+
+{options_text}
+
+{plan_run.user_prompt}"""
+
+                logger.debug(
+                    f"Randomized question {item.question_id}: correct answer {correct_answer} -> {randomized_correct}"
+                )
+            else:
+                # No randomization: use original order
+                randomized_correct = correct_answer
+                if plan_run.seed_effective is None:
+                    logger.debug(f"Question {item.question_id}: no randomization (seed=None)")
+
+            # Build user message
+            if item.question_payload.get("has_image") and item.question_payload.get("image_path"):
+                # Multimodal message
+                from pathlib import Path
+
+                image_path = Path(item.question_payload["image_path"])
+                if image_path.exists():
+                    user_message = MessageBuilder.build_multimodal_message(prompt, image_path)
+                else:
+                    logger.warning(f"Image not found for question {item.question_id}: {image_path}")
+                    user_message = MessageBuilder.build_user_message(prompt)
+            else:
+                # Text-only message
+                user_message = MessageBuilder.build_user_message(prompt)
+
+            # Build messages array with system prompt
+            messages = [
+                {"role": "system", "content": plan_run.system_prompt},
+                user_message,
+            ]
+
+            # Build model config from variant
+            model_config = self._get_variant_model_config(item)
+
+            # Execute API call (handle both sync and async contexts)
+            try:
+                # Try to get the current event loop
+                loop = asyncio.get_running_loop()
+                # We're in an async context - use create_task
+                api_response = asyncio.run_coroutine_threadsafe(
+                    self.api_client.chat_completion(
+                        model=item.model_id,
+                        messages=messages,
+                        **model_config,
+                    ),
+                    loop
+                ).result()
+            except RuntimeError:
+                # No running loop - use asyncio.run
+                api_response = asyncio.run(
+                    self.api_client.chat_completion(
+                        model=item.model_id,
+                        messages=messages,
+                        **model_config,
+                    )
+                )
+
+            # Parse response
+            parsed = self._parse_api_response(api_response, randomized_correct)
+
+            # Calculate latency
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            # Extract token usage
+            tokens = self._extract_token_usage(api_response)
+
+            # Build execution result
+            result = ExecutionResult(
+                item_id=item.item_id,
+                run_id=item.run_id,
+                variant_id=item.variant_id,
+                model_id=item.model_id,
+                snapshot_id=item.snapshot_id,
+                question_id=item.question_id,
+                iteration_number=item.iteration_number,
+                status="success",
+                response_text=parsed.get("response_text", ""),
+                selected_answer=parsed.get("selected_answer"),
+                is_correct=parsed.get("is_correct"),
+                latency_ms=latency_ms,
+                input_tokens=tokens.get("input_tokens", 0),
+                output_tokens=tokens.get("output_tokens", 0),
+            )
+
+            logger.info(
+                f"Item {item.item_id} completed: "
+                f"answer={parsed.get('selected_answer')}, "
+                f"correct={parsed.get('is_correct')}, "
+                f"latency={latency_ms}ms"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.exception(f"Failed to execute item {item.item_id}: {e}")
+
+            # Build error result
+            result = ExecutionResult(
+                item_id=item.item_id,
+                run_id=item.run_id,
+                variant_id=item.variant_id,
+                model_id=item.model_id,
+                snapshot_id=item.snapshot_id,
+                question_id=item.question_id,
+                iteration_number=item.iteration_number,
+                status="failure",
+                response_text="",
+                selected_answer=None,
+                is_correct=None,
+                latency_ms=int((time.time() - start_time) * 1000),
+                input_tokens=0,
+                output_tokens=0,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
+
+            return result
+
+    def _get_variant_model_config(self, item: PlanItem) -> dict[str, Any]:
+        """Build model config from variant settings.
+
+        Args:
+            item: PlanItem with variant information
+
         Returns:
-            Dictionary of model kwargs (only non-None values).
+            Dictionary of model kwargs for API call
         """
-        if not self.settings:
-            return {}
-        
-        kwargs = {}
-        
+        config = {}
+
+        # Add generation parameters from settings
         if hasattr(self.settings, 'model_max_tokens') and self.settings.model_max_tokens is not None:
-            kwargs["max_tokens"] = self.settings.model_max_tokens
-        
+            config["max_tokens"] = self.settings.model_max_tokens
+
         if hasattr(self.settings, 'model_temperature') and self.settings.model_temperature is not None:
-            kwargs["temperature"] = self.settings.model_temperature
-        
+            config["temperature"] = self.settings.model_temperature
+
         if hasattr(self.settings, 'model_top_p') and self.settings.model_top_p is not None:
-            kwargs["top_p"] = self.settings.model_top_p
-        
-        if hasattr(self.settings, 'model_top_k') and self.settings.model_top_k is not None:
-            kwargs["top_k"] = self.settings.model_top_k
-        
-        if hasattr(self.settings, 'model_repeat_penalty') and self.settings.model_repeat_penalty is not None:
-            kwargs["repeat_penalty"] = self.settings.model_repeat_penalty
-        
-        return kwargs
-    
-    def _build_reasoning_config(self) -> dict[str, Any] | None:
+            config["top_p"] = self.settings.model_top_p
+
+        # Build reasoning config from settings
+        reasoning = self._build_reasoning_config()
+        if reasoning is not None:
+            config["reasoning"] = reasoning
+
+        # Add structured output if enabled
+        if hasattr(self.settings, 'use_structured_outputs') and self.settings.use_structured_outputs:
+            from src.utils.answer_schema import ANSWER_SCHEMA
+            config["response_format"] = ANSWER_SCHEMA
+
+        return config
+
+    def _build_reasoning_config(self) -> Optional[dict[str, Any]]:
         """Build reasoning configuration from settings.
-        
+
         Returns:
-            Reasoning config dict or None if not configured.
+            Reasoning config dict or None if not configured
         """
         if not self.settings:
             return None
-        
+
         reasoning_config = {}
-        
+
         if hasattr(self.settings, 'reasoning_effort') and self.settings.reasoning_effort is not None:
             if self.settings.reasoning_effort == 'none':
                 reasoning_config["enabled"] = False
             else:
                 reasoning_config["effort"] = self.settings.reasoning_effort
-        
+
         if hasattr(self.settings, 'reasoning_max_tokens') and self.settings.reasoning_max_tokens is not None:
             reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
-        
-        if hasattr(self.settings, 'reasoning_exclude') and self.settings.reasoning_exclude is not None:
-            reasoning_config["exclude"] = self.settings.reasoning_exclude
-        
+
         if hasattr(self.settings, 'reasoning_enabled') and self.settings.reasoning_enabled is not None:
             reasoning_config["enabled"] = self.settings.reasoning_enabled
-        
+
         return reasoning_config if reasoning_config else None
+
+    def _parse_api_response(
+        self,
+        api_response: dict[str, Any],
+        correct_answer: Optional[str],
+    ) -> dict[str, Any]:
+        """Parse API response and extract answer.
+
+        Args:
+            api_response: Raw API response dictionary
+            correct_answer: Correct answer for comparison
+
+        Returns:
+            Dictionary with parsed response data
+        """
+        # Extract content from response
+        choices = api_response.get("choices", [])
+        content = ""
+        if choices:
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+
+        # Parse answer from content
+        selected_answer = self._parse_answer(content)
+
+        # Determine if correct
+        is_correct = selected_answer == correct_answer if selected_answer and correct_answer else None
+
+        return {
+            "response_text": content,
+            "selected_answer": selected_answer,
+            "is_correct": is_correct,
+        }
+
+    def _parse_answer(self, content: str) -> Optional[str]:
+        """Parse answer letter from response content.
+
+        Args:
+            content: Response content from model
+
+        Returns:
+            Answer letter (A, B, C, D) or None
+        """
+        if not content:
+            return None
+
+        # Try to extract answer letter using AnswerParser
+        try:
+            from src.core.answer_parser import AnswerParser
+
+            parser = AnswerParser()
+            parsed = parser.parse(content)
+            return parsed.answer if parsed.answer else None
+        except Exception:
+            # Fallback: simple regex extraction
+            import re
+
+            match = re.search(r'\b([A-D])\b', content.upper())
+            if match:
+                return match.group(1)
+
+            # Try to find "answer is X" pattern
+            match = re.search(r'answer\s+is\s+([A-D])', content.upper())
+            if match:
+                return match.group(1)
+
+            return None
+
+    def _extract_token_usage(self, api_response: dict[str, Any]) -> dict[str, int]:
+        """Extract token usage from API response.
+
+        Args:
+            api_response: Raw API response dictionary
+
+        Returns:
+            Dictionary with input_tokens, output_tokens, total_tokens
+        """
+        usage = api_response.get("usage", {})
+
+        return {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+        }

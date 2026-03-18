@@ -275,14 +275,13 @@ class RunRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO runs (run_id, experiment_id, seed, is_dev, started_at, status)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO runs (run_id, experiment_id, seed, started_at, status)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     run.run_id,
                     run.experiment_id,
                     run.seed,
-                    1 if run.is_dev else 0,
                     run.started_at.isoformat(),
                     run.status,
                 ),
@@ -303,7 +302,7 @@ class RunRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT run_id, experiment_id, seed, is_dev, started_at, finished_at, status
+                SELECT run_id, experiment_id, seed, started_at, finished_at, status
                 FROM runs WHERE run_id = ?
                 """,
                 (run_id,),
@@ -315,7 +314,6 @@ class RunRepository:
                 run_id=row["run_id"],
                 experiment_id=row["experiment_id"],
                 seed=row["seed"],
-                is_dev=bool(row["is_dev"]),
                 started_at=datetime.fromisoformat(row["started_at"]),
                 finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
                 status=row["status"],
@@ -331,7 +329,7 @@ class RunRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT run_id, experiment_id, seed, is_dev, started_at, finished_at, status
+                SELECT run_id, experiment_id, seed, started_at, finished_at, status
                 FROM runs WHERE experiment_id = ? ORDER BY started_at DESC
                 """,
                 (experiment_id,),
@@ -343,7 +341,6 @@ class RunRepository:
                         run_id=row["run_id"],
                         experiment_id=row["experiment_id"],
                         seed=row["seed"],
-                        is_dev=bool(row["is_dev"]),
                         started_at=datetime.fromisoformat(row["started_at"]),
                         finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
                         status=row["status"],
@@ -361,7 +358,7 @@ class RunRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT run_id, experiment_id, seed, is_dev, started_at, finished_at, status
+                SELECT run_id, experiment_id, seed, started_at, finished_at, status
                 FROM runs ORDER BY started_at DESC
                 """
             )
@@ -372,7 +369,6 @@ class RunRepository:
                         run_id=row["run_id"],
                         experiment_id=row["experiment_id"],
                         seed=row["seed"],
-                        is_dev=bool(row["is_dev"]),
                         started_at=datetime.fromisoformat(row["started_at"]),
                         finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
                         status=row["status"],
@@ -417,14 +413,13 @@ class RunRepository:
             cursor.execute(
                 """
                 UPDATE runs SET
-                    experiment_id = ?, seed = ?, is_dev = ?,
+                    experiment_id = ?, seed = ?,
                     started_at = ?, finished_at = ?, status = ?
                 WHERE run_id = ?
                 """,
                 (
                     run.experiment_id,
                     run.seed,
-                    1 if run.is_dev else 0,
                     run.started_at.isoformat(),
                     run.finished_at.isoformat() if run.finished_at else None,
                     run.status,
@@ -600,7 +595,7 @@ class ModelVariantRepository:
                 """
                 INSERT INTO model_variants (
                     variant_id, model_id, reasoning_mode, reasoning_effort,
-                    reasoning_max_tokens, vision_enabled, structured_enabled,
+                    max_output_tokens, vision_enabled, structured_enabled,
                     variant_signature
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -609,7 +604,7 @@ class ModelVariantRepository:
                     variant.model_id,
                     variant.reasoning_mode,
                     variant.reasoning_effort,
-                    variant.reasoning_max_tokens,
+                    variant.max_output_tokens,
                     1 if variant.vision_enabled else 0,
                     1 if variant.structured_enabled else 0,
                     variant.variant_signature,
@@ -632,7 +627,7 @@ class ModelVariantRepository:
             cursor.execute(
                 """
                 SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
-                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       max_output_tokens, vision_enabled, structured_enabled,
                        variant_signature, created_at
                 FROM model_variants WHERE variant_id = ?
                 """,
@@ -646,7 +641,7 @@ class ModelVariantRepository:
                 model_id=row["model_id"],
                 reasoning_mode=row["reasoning_mode"],
                 reasoning_effort=row["reasoning_effort"],
-                reasoning_max_tokens=row["reasoning_max_tokens"],
+                max_output_tokens=row["max_output_tokens"],
                 vision_enabled=bool(row["vision_enabled"]),
                 structured_enabled=bool(row["structured_enabled"]),
                 variant_signature=row["variant_signature"],
@@ -1308,7 +1303,7 @@ class QuestionSnapshotRepository:
         self.db_manager = db_manager
 
     def create_if_not_exists(
-        self, experiment_id: str, question_id: str, question_json: str
+        self, experiment_id: str, question_id: str, question_payload: str
     ) -> int:
         """Create a snapshot if it doesn't exist, return snapshot_id.
 
@@ -1322,7 +1317,7 @@ class QuestionSnapshotRepository:
         Args:
             experiment_id: ID of the experiment (ALWAYS required, never None).
             question_id: ID of the question to snapshot.
-            question_json: Complete JSON representation of the question.
+            question_payload: Complete JSON representation of the question.
 
         Returns:
             The snapshot_id (either newly created or existing).
@@ -1335,7 +1330,7 @@ class QuestionSnapshotRepository:
             >>> snapshot_id = repo.create_if_not_exists(
             ...     experiment_id="exp-001",
             ...     question_id="Q001",
-            ...     question_json='{"id": "Q001", "stem": "What is 2+2?"}'
+            ...     question_payload='{"id": "Q001", "stem": "What is 2+2?"}'
             ... )
             >>> print(snapshot_id)
             1
@@ -1365,10 +1360,10 @@ class QuestionSnapshotRepository:
             # Create new snapshot
             cursor.execute(
                 """
-                INSERT INTO question_snapshots (experiment_id, question_id, question_json)
+                INSERT INTO question_snapshots (experiment_id, question_id, question_payload)
                 VALUES (?, ?, ?)
                 """,
-                (experiment_id, question_id, question_json),
+                (experiment_id, question_id, question_payload),
             )
             conn.commit()
             snapshot_id = cursor.lastrowid
@@ -1392,7 +1387,7 @@ class QuestionSnapshotRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT snapshot_id, experiment_id, question_id, question_json, created_at
+                SELECT snapshot_id, experiment_id, question_id, question_payload, created_at
                 FROM question_snapshots WHERE snapshot_id = ?
                 """,
                 (snapshot_id,),
@@ -1404,7 +1399,7 @@ class QuestionSnapshotRepository:
                 snapshot_id=row["snapshot_id"],
                 experiment_id=row["experiment_id"],
                 question_id=row["question_id"],
-                question_json=row["question_json"],
+                question_payload=row["question_payload"],
                 created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
             )
         finally:
@@ -1418,7 +1413,7 @@ class QuestionSnapshotRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT snapshot_id, experiment_id, question_id, question_json, created_at
+                SELECT snapshot_id, experiment_id, question_id, question_payload, created_at
                 FROM question_snapshots WHERE experiment_id = ?
                 ORDER BY question_id
                 """,
@@ -1431,7 +1426,7 @@ class QuestionSnapshotRepository:
                         snapshot_id=row["snapshot_id"],
                         experiment_id=row["experiment_id"],
                         question_id=row["question_id"],
-                        question_json=row["question_json"],
+                        question_payload=row["question_payload"],
                         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
                     )
                 )
@@ -1447,7 +1442,7 @@ class QuestionSnapshotRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT snapshot_id, experiment_id, question_id, question_json, created_at
+                SELECT snapshot_id, experiment_id, question_id, question_payload, created_at
                 FROM question_snapshots WHERE question_id = ?
                 ORDER BY experiment_id, created_at
                 """,
@@ -1460,7 +1455,7 @@ class QuestionSnapshotRepository:
                         snapshot_id=row["snapshot_id"],
                         experiment_id=row["experiment_id"],
                         question_id=row["question_id"],
-                        question_json=row["question_json"],
+                        question_payload=row["question_payload"],
                         created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
                     )
                 )
@@ -1470,11 +1465,11 @@ class QuestionSnapshotRepository:
                 conn.close()
 
     def validate_snapshot_integrity(self, snapshot_id: int) -> tuple[bool, str]:
-        """Validate that snapshot JSON matches question_id.
+        """Validate that snapshot payload matches question_id.
 
         This method ensures data integrity by verifying that the question_id
         stored in the snapshot metadata matches the 'id' field inside the
-        question_json.
+        question_payload.
 
         Args:
             snapshot_id: ID of the snapshot to validate.
@@ -1496,16 +1491,16 @@ class QuestionSnapshotRepository:
 
         try:
             import json
-            question_data = json.loads(snapshot.question_json)
+            question_data = json.loads(snapshot.question_payload)
             if question_data.get("id") != snapshot.question_id:
                 return (
                     False,
                     f"Question ID mismatch: snapshot.question_id={snapshot.question_id}, "
-                    f"json.id={question_data.get('id')}",
+                    f"payload.id={question_data.get('id')}",
                 )
             return True, ""
         except json.JSONDecodeError as e:
-            return False, f"Invalid JSON in question_json: {e}"
+            return False, f"Invalid JSON in question_payload: {e}"
         except Exception as e:
             return False, f"Unexpected error validating snapshot: {e}"
 

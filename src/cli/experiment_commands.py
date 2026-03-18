@@ -1110,14 +1110,12 @@ class RunManager:
         models_filter: Optional[list[str]] = None,
         questions_filter: Optional[list[str]] = None,
     ) -> None:
-        """Execute pending items in a run.
+        """Execute pending items in a run using new execution axis.
 
-        This method:
-        1. Finds the latest run for the experiment
-        2. Gets model variants from run_models
-        3. Gets questions from experiment snapshots
-        4. Uses ExecutionEngine to execute (no re-implementation)
-        5. Updates run status based on results
+        This method uses the new execution flow:
+        1. Planner builds immutable ExecutionPlan (DB reads, deduplication)
+        2. ExecutionEngine executes plan (API calls, NO DB access)
+        3. ResultWriter persists results (DB writes, status updates)
 
         Args:
             experiment_name: Name of the experiment.
@@ -1125,7 +1123,7 @@ class RunManager:
             questions_filter: Optional list of question IDs to filter.
 
         Raises:
-            ValueError: If experiment not found or no runs exist.
+            ValueError: If experiment not found or no items to execute.
 
         Example:
             >>> manager = RunManager(db_manager)
@@ -1135,7 +1133,9 @@ class RunManager:
             ... )
         """
         from src.api.client import OpenRouterClient
+        from src.core.planner import Planner
         from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
         from src.core.randomizer import AnswerRandomizer
         from src.utils.config import get_settings
 
@@ -1144,72 +1144,31 @@ class RunManager:
         if not experiment:
             raise ValueError(f"Experiment '{experiment_name}' not found")
 
-        # Get latest run for experiment
-        runs = self.run_repo.get_by_experiment(experiment.experiment_id)
-        if not runs:
-            raise ValueError(f"No runs found for experiment '{experiment_name}'")
+        # Build execution plan (Planner does ALL DB reads)
+        # Planner resolves: runs, variants, snapshots, deduplication, seeds, prompts
+        planner = Planner(self.db_manager)
+        plan = planner.build_plan(
+            experiment_name=experiment_name,
+            run_name=None,  # Execute all pending runs
+            model_filter=models_filter,
+            question_filter=questions_filter,
+        )
 
-        # Get latest run
-        latest_run = runs[0]  # Runs are ordered by created_at DESC
-
-        # Get model variants for this run
-        run_models = self.run_model_repo.get_by_run(latest_run.run_id)
-        if not run_models:
-            raise ValueError(f"No models configured for run {latest_run.run_id}")
-
-        # Filter by models if specified
-        if models_filter:
-            # Get variant IDs for filtered models
-            all_variants = self.variant_repo.get_all()
-            variant_ids = [v.variant_id for v in all_variants if v.model_id in models_filter]
-            run_models = [rm for rm in run_models if rm.variant_id in variant_ids]
-
-        # Get questions for this experiment
-        snapshot_repo = QuestionSnapshotRepository(self.db_manager)
-        snapshots = snapshot_repo.get_by_experiment(experiment.experiment_id)
-
-        # Filter by questions if specified
-        if questions_filter:
-            snapshots = [s for s in snapshots if s.question_id in questions_filter]
-
-        if not snapshots:
-            raise ValueError(f"No questions found for experiment {experiment_name}")
-
-        # Load questions from snapshots with context
-        from src.core.execution_engine import QuestionWithContext
-        
-        questions = []
-        for snapshot in snapshots:
-            import json
-            question_data = json.loads(snapshot.question_json)
-            from src.db.models import Question
-            question = Question(
-                question_id=question_data.get('id', snapshot.question_id),
-                stem=question_data.get('stem', ''),
-                options_json=json.dumps(question_data.get('options', {})),
-                correct_answer=question_data.get('correct_answer', ''),
-                has_image=bool(question_data.get('has_image', False)),
-                image_path=question_data.get('image_path'),
-                status=question_data.get('status', 'active'),
-            )
-            # Wrap question with snapshot_id context
-            questions.append(QuestionWithContext(question=question, snapshot_id=snapshot.snapshot_id))
-
+        # Show execution summary
+        total_items = sum(len(run.items) for run in plan.runs)
         console.print()
         console.print(Panel(
             f"[bold]Experiment:[/bold] {experiment_name}\n"
-            f"[bold]Run:[/bold] {latest_run.run_id}\n"
-            f"[bold]Status:[/bold] {latest_run.status}\n"
-            f"[bold]Seed:[/bold] {latest_run.seed if latest_run.seed else 'None'}\n"
-            f"[bold]Models:[/bold] {len(run_models)}\n"
-            f"[bold]Questions:[/bold] {len(questions)}",
+            f"[bold]Plan:[/bold] {plan.plan_id}\n"
+            f"[bold]Runs:[/bold] {len(plan.runs)}\n"
+            f"[bold]Items to execute:[/bold] {total_items}",
             title="🚀 Run Execution",
             border_style="green",
         ))
 
-        logger.info(f"Executing run {latest_run.run_id} for experiment {experiment_name}")
+        logger.info(f"Built execution plan {plan.plan_id} with {total_items} items")
 
-        # Get settings and create API client
+        # Execute plan (ExecutionEngine does API calls, NO DB)
         settings = get_settings()
         api_client = OpenRouterClient(
             api_key=settings.openrouter_api_key,
@@ -1217,40 +1176,39 @@ class RunManager:
         )
         randomizer = AnswerRandomizer(settings.random_seed if settings else None)
 
-        # Create ExecutionEngine with db_manager for persistence
+        # Create engine WITHOUT db_manager - pure execution only
         engine = ExecutionEngine(
             api_client=api_client,
             randomizer=randomizer,
             settings=settings,
-            db_manager=self.db_manager,  # Pass db_manager for persistence
         )
+        results = engine.execute(plan)
 
-        # Get model variants (full objects)
-        model_variants = [self.variant_repo.get_by_id(rm.variant_id) for rm in run_models]
-        model_variants = [v for v in model_variants if v]  # Filter out None
+        logger.info(f"Execution completed: {len(results)} results")
 
-        # Execute using ExecutionEngine with context for persistence
-        results = engine.execute(
-            model_variants=model_variants,
-            questions=questions,
-            iterations=1,  # Default for run execution
-            run_id=latest_run.run_id,  # Pass real run_id for persistence
-            experiment_id=experiment.experiment_id,  # Pass real experiment_id for persistence
+        # Write results (ResultWriter does ALL DB writes)
+        # ResultWriter persists responses/errors and updates run status
+        writer = ResultWriter(self.db_manager)
+        write_result = writer.write_results(plan, results)
+
+        # Log summary
+        logger.info(
+            f"Execution complete: {write_result.responses_written} responses, "
+            f"{write_result.errors_written} errors, "
+            f"{write_result.responses_skipped} responses skipped, "
+            f"{write_result.runs_updated} runs updated"
         )
-
-        # Update run status based on results
-        total_errors = sum(r.errors for r in results)
-        if total_errors > 0:
-            self.run_repo.update_status(latest_run.run_id, "failed")
-            logger.warning(f"Run {latest_run.run_id} completed with {total_errors} errors")
-        else:
-            self.run_repo.update_status(latest_run.run_id, "completed")
-            logger.info(f"Run {latest_run.run_id} completed successfully")
 
         # Display results summary
-        console.print(f"\n[green]✓ Run execution completed[/green]")
-        console.print(f"  Total iterations: {len(results)}")
-        console.print(f"  Total errors: {total_errors}")
+        console.print()
+        console.print(Panel(
+            f"[bold]Responses written:[/bold] {write_result.responses_written}\n"
+            f"[bold]Errors written:[/bold] {write_result.errors_written}\n"
+            f"[bold]Responses skipped:[/bold] {write_result.responses_skipped}\n"
+            f"[bold]Runs updated:[/bold] {', '.join(write_result.runs_updated)}",
+            title="✅ Execution Complete",
+            border_style="green",
+        ))
 
     def add_models_to_run(
         self,
