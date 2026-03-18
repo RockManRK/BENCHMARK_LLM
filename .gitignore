@@ -70,7 +70,12 @@ venv.bak/
 logs/
 *.log
 data/*.sqlite
+.gitignore
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Outros
+old/
+.gitignore
