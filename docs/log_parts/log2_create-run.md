@@ -1,8 +1,0 @@
-2026-03-15 23:14:13 - INFO - src.main - BenchmarkRunner initialized
-2026-03-15 23:14:13 - DEBUG - src.main - Arguments: Namespace(create_experiment=None, add_models=None, remove_model=None, add_questions=None, create_run=True, execute_run=False, models=None, run_id=None, iterations=1, questions=None, where=[], exclude=[], config=None, output='console', output_file=None, seed=None, verbose=False, dry_run=False, mode=None, experiment='nonteste', test_mode=False, vary_seed=False, temperature=None, max_tokens=None, top_p=None, top_k=None, repeat_penalty=None, reasoning_effort=None, enable_vision=None, enable_structured=None, add_to_run=None, complete_run=None, review_run=None, review_experiment=None, review_all=False, execution_mode='experiment', experiment_name='nonteste')
-2026-03-15 23:14:13 - DEBUG - src.db.schema - Database initialized at data\benchmark.db
-2026-03-15 23:14:13 - INFO - src.cli.experiment_commands - RunManager initialized
-2026-03-15 23:14:13 - INFO - src.cli.experiment_commands - Auto-generated seed: 2006312806
-2026-03-15 23:14:13 - INFO - src.cli.experiment_commands - Created run run-20260315231413-e4dae222 for experiment nonteste
-2026-03-15 23:14:13 - DEBUG - src.cli.experiment_commands - Associated variant var-ae7cf538 with run run-20260315231413-e4dae222
-2026-03-15 23:14:13 - DEBUG - src.cli.experiment_commands - Associated variant var-9a56c041 with run run-20260315231413-e4dae222

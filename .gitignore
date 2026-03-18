@@ -77,5 +77,6 @@ data/*.sqlite
 Thumbs.db
 
 # Outros
-old/
+Arquivos_Mortos/
+Nao_Apagar-Temporarios_do_Usuario/
 .gitignore

@@ -278,3 +278,5 @@ O comando realiza as seguintes operações principais:
 - Exibe resumo após conclusão
 - Feedback inclui quantidades e status
 - Não exibe progresso detalhado durante execução (isso é feito pelo ExecutionEngine)
+
+---

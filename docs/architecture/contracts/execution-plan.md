@@ -46,7 +46,7 @@ Ele contém tudo que o ExecutionEngine precisa para rodar—e nada que permita �
 Cada run no plano deve conter:
 
 - **run_id**
-- **iteration_number(s):** normalmente `[1]`, mas o plano suporta múltiplas
+- **iteration_number(s):** normalmente `[1]`, mas o plano suporta múltiplas (Não será mantido/implementado nesse momento)
 - **seed_effective:** seed final já resolvida (run → fallback experimento)
 - **prompts_effective:** prompts finais já resolvidos (run sobrescreve experimento)
 - **variants:** variantes a executar (já resolvidas por `variant_id`)
@@ -176,14 +176,3 @@ Cada item gera exatamente um resultado:
 O Writer decide como persistir (ex: `responses` e `errors`), mas **não decide escopo**.
 
 ---
-
-## Próximo passo
-
-Agora que temos o **ExecutionPlan**, o próximo documento que fecha o triângulo é o **ResultWriter** (persistência e status), porque ele define:
-
-- como salvar `responses`/`errors`
-- como atualizar status de run
-- como registrar “partial_failed”
-- como suportar `--retry-only-failed`
-
-Você quer que a gente faça o **ResultWriter TO‑BE** agora, ou prefere antes fechar a **chave de deduplicação + constraints do DB**?
