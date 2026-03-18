@@ -123,7 +123,7 @@ class ModelVariant:
     - reasoning_effort: 'xhigh', 'high', 'medium', 'low', 'minimal' (when mode='effort')
     - max_output_tokens: integer (when mode='budget')
     - vision_enabled: boolean
-    - structured_enabled: boolean
+    - structured_output: boolean
 
     Non-identity fields (NOT part of variant_signature):
     - temperature, top_p, top_k, max_tokens, repeat_penalty
@@ -136,7 +136,7 @@ class ModelVariant:
         reasoning_effort: Reasoning effort level (when mode='effort').
         max_output_tokens: Maximum output tokens (when mode='budget').
         vision_enabled: Whether vision is enabled.
-        structured_enabled: Whether structured outputs are enabled.
+        structured_output: Whether structured outputs are enabled.
         variant_signature: Human-readable signature (unique per model_id + identity).
         created_at: Timestamp when the variant was registered.
 
@@ -161,6 +161,9 @@ class ModelVariant:
     max_output_tokens: Optional[int] = None
     vision_enabled: bool = False
     structured_output: bool = False
+    web_access_enabled: bool = False
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -311,8 +314,7 @@ class Response:
         timestamp: When the response was received.
         response_id: Auto-incrementing unique identifier (assigned by DB).
         parse_confidence: Confidence level from answer parsing ("unknown", "clear", "ambiguous", "no_answer", "low_confidence").
-        review_status: Review status ("auto" for auto-parsed, "manual" for manually reviewed, "skipped").
-        reviewed_at: Timestamp of manual review (if manually reviewed).
+        needs_review: Whether this response needs manual review (derived from parse_confidence).
         manual_answer: Answer letter assigned during manual review (if manually reviewed).
 
     Example:
@@ -358,8 +360,7 @@ class Response:
 
     # Manual review fields
     parse_confidence: str = "unknown"  # "unknown", "clear", "ambiguous", "no_answer", "low_confidence"
-    review_status: str = "auto"  # "auto", "manual", "skipped"
-    reviewed_at: Optional[datetime] = None
+    needs_review: bool = False
     manual_answer: Optional[str] = None
 
     def __post_init__(self) -> None:

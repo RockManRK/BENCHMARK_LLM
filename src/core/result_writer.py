@@ -213,7 +213,11 @@ class ResultWriter:
             cost=None,  # Stubbed for future
             raw_response_json=None,  # Stubbed for future
             parse_confidence="clear" if result.selected_answer else "no_answer",
-            review_status="auto",
+            # needs_review per contract: TRUE when parse_confidence is low OR selected_answer is NULL
+            needs_review=(
+                ("clear" if result.selected_answer else "no_answer") in ("ambiguous", "no_answer", "low_confidence")
+                or result.selected_answer is None
+            ),
         )
 
         # Persist response

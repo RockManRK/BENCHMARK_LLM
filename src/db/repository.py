@@ -595,9 +595,10 @@ class ModelVariantRepository:
                 """
                 INSERT INTO model_variants (
                     variant_id, model_id, reasoning_mode, reasoning_effort,
-                    max_output_tokens, vision_enabled, structured_enabled,
+                    max_output_tokens, vision_enabled, structured_output,
+                    web_access_enabled, temperature, top_p,
                     variant_signature
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     variant.variant_id,
@@ -606,7 +607,10 @@ class ModelVariantRepository:
                     variant.reasoning_effort,
                     variant.max_output_tokens,
                     1 if variant.vision_enabled else 0,
-                    1 if variant.structured_enabled else 0,
+                    1 if variant.structured_output else 0,
+                    1 if variant.web_access_enabled else 0,
+                    variant.temperature,
+                    variant.top_p,
                     variant.variant_signature,
                 ),
             )
@@ -627,7 +631,8 @@ class ModelVariantRepository:
             cursor.execute(
                 """
                 SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
-                       max_output_tokens, vision_enabled, structured_enabled,
+                       max_output_tokens, vision_enabled, structured_output,
+                       web_access_enabled, temperature, top_p,
                        variant_signature, created_at
                 FROM model_variants WHERE variant_id = ?
                 """,
@@ -643,7 +648,10 @@ class ModelVariantRepository:
                 reasoning_effort=row["reasoning_effort"],
                 max_output_tokens=row["max_output_tokens"],
                 vision_enabled=bool(row["vision_enabled"]),
-                structured_enabled=bool(row["structured_enabled"]),
+                structured_output=bool(row["structured_output"]),
+                web_access_enabled=bool(row["web_access_enabled"]),
+                temperature=row["temperature"],
+                top_p=row["top_p"],
                 variant_signature=row["variant_signature"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
@@ -659,7 +667,8 @@ class ModelVariantRepository:
             cursor.execute(
                 """
                 SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
-                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       max_output_tokens, vision_enabled, structured_output,
+                       web_access_enabled, temperature, top_p,
                        variant_signature, created_at
                 FROM model_variants WHERE model_id = ? AND variant_signature = ?
                 """,
@@ -673,9 +682,12 @@ class ModelVariantRepository:
                 model_id=row["model_id"],
                 reasoning_mode=row["reasoning_mode"],
                 reasoning_effort=row["reasoning_effort"],
-                reasoning_max_tokens=row["reasoning_max_tokens"],
+                max_output_tokens=row["max_output_tokens"],
                 vision_enabled=bool(row["vision_enabled"]),
-                structured_enabled=bool(row["structured_enabled"]),
+                structured_output=bool(row["structured_output"]),
+                web_access_enabled=bool(row["web_access_enabled"]),
+                temperature=row["temperature"],
+                top_p=row["top_p"],
                 variant_signature=row["variant_signature"],
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
@@ -691,7 +703,8 @@ class ModelVariantRepository:
             cursor.execute(
                 """
                 SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
-                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       max_output_tokens, vision_enabled, structured_output,
+                       web_access_enabled, temperature, top_p,
                        variant_signature, created_at
                 FROM model_variants ORDER BY model_id, variant_signature
                 """
@@ -704,9 +717,9 @@ class ModelVariantRepository:
                         model_id=row["model_id"],
                         reasoning_mode=row["reasoning_mode"],
                         reasoning_effort=row["reasoning_effort"],
-                        reasoning_max_tokens=row["reasoning_max_tokens"],
+                        max_output_tokens=row["max_output_tokens"],
                         vision_enabled=bool(row["vision_enabled"]),
-                        structured_enabled=bool(row["structured_enabled"]),
+                        structured_output=bool(row["structured_output"]),
                         variant_signature=row["variant_signature"],
                         created_at=datetime.fromisoformat(row["created_at"]),
                     )
@@ -724,7 +737,8 @@ class ModelVariantRepository:
             cursor.execute(
                 """
                 SELECT variant_id, model_id, reasoning_mode, reasoning_effort,
-                       reasoning_max_tokens, vision_enabled, structured_enabled,
+                       max_output_tokens, vision_enabled, structured_output,
+                       web_access_enabled, temperature, top_p,
                        variant_signature, created_at
                 FROM model_variants WHERE model_id = ?
                 ORDER BY variant_signature
@@ -739,9 +753,9 @@ class ModelVariantRepository:
                         model_id=row["model_id"],
                         reasoning_mode=row["reasoning_mode"],
                         reasoning_effort=row["reasoning_effort"],
-                        reasoning_max_tokens=row["reasoning_max_tokens"],
+                        max_output_tokens=row["max_output_tokens"],
                         vision_enabled=bool(row["vision_enabled"]),
-                        structured_enabled=bool(row["structured_enabled"]),
+                        structured_output=bool(row["structured_output"]),
                         variant_signature=row["variant_signature"],
                         created_at=datetime.fromisoformat(row["created_at"]),
                     )
@@ -1066,7 +1080,7 @@ class ExperimentModelRepository:
             cursor.execute(
                 """
                 SELECT mv.variant_id, mv.model_id, mv.reasoning_mode, mv.reasoning_effort,
-                       mv.reasoning_max_tokens, mv.vision_enabled, mv.structured_enabled,
+                       mv.max_output_tokens, mv.vision_enabled, mv.structured_output,
                        mv.variant_signature, mv.created_at
                 FROM experiment_models em
                 JOIN model_variants mv ON em.variant_id = mv.variant_id
@@ -1083,9 +1097,9 @@ class ExperimentModelRepository:
                         model_id=row["model_id"],
                         reasoning_mode=row["reasoning_mode"],
                         reasoning_effort=row["reasoning_effort"],
-                        reasoning_max_tokens=row["reasoning_max_tokens"],
+                        max_output_tokens=row["max_output_tokens"],
                         vision_enabled=bool(row["vision_enabled"]),
-                        structured_enabled=bool(row["structured_enabled"]),
+                        structured_output=bool(row["structured_output"]),
                         variant_signature=row["variant_signature"],
                         created_at=datetime.fromisoformat(row["created_at"]),
                     )
@@ -1541,8 +1555,8 @@ class ResponseRepository:
                     status, finish_reason, error_details, latency_ms,
                     input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                     cost, raw_response_json,
-                    parse_confidence, review_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    parse_confidence, needs_review, manual_answer
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     response.run_id,
@@ -1566,7 +1580,8 @@ class ResponseRepository:
                     response.cost,
                     response.raw_response_json,
                     response.parse_confidence,
-                    response.review_status,
+                    1 if response.needs_review else 0,
+                    response.manual_answer,
                 ),
             )
             conn.commit()
@@ -1606,7 +1621,7 @@ class ResponseRepository:
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                        cost, raw_response_json, timestamp,
-                       parse_confidence, review_status, reviewed_at, manual_answer
+                       parse_confidence, needs_review, manual_answer
                 FROM responses WHERE response_id = ?
                 """,
                 (response_id,),
@@ -1636,9 +1651,8 @@ class ResponseRepository:
                 cost=row["cost"],
                 raw_response_json=row["raw_response_json"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
-                parse_confidence=row["parse_confidence"],
-                review_status=row["review_status"],
-                reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
+                needs_review=bool(row["needs_review"]),
                 manual_answer=row["manual_answer"],
             )
         finally:
@@ -1657,7 +1671,7 @@ class ResponseRepository:
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                        cost, raw_response_json, timestamp,
-                       parse_confidence, review_status, reviewed_at, manual_answer
+                       parse_confidence, needs_review, manual_answer
                 FROM responses WHERE run_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id,),
@@ -1689,8 +1703,7 @@ class ResponseRepository:
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
-                        review_status=row["review_status"] if row["review_status"] else "auto",
-                        reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                        needs_review=bool(row["needs_review"]),
                         manual_answer=row["manual_answer"],
                     )
                 )
@@ -1711,7 +1724,7 @@ class ResponseRepository:
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                        cost, raw_response_json, timestamp,
-                       parse_confidence, review_status, reviewed_at, manual_answer
+                       parse_confidence, needs_review, manual_answer
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, question_id
                 """,
                 (model_id,),
@@ -1742,8 +1755,7 @@ class ResponseRepository:
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
-                        review_status=row["review_status"] if row["review_status"] else "auto",
-                        reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                        needs_review=bool(row["needs_review"]),
                         manual_answer=row["manual_answer"],
                     )
                 )
@@ -1764,7 +1776,7 @@ class ResponseRepository:
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                        cost, raw_response_json, timestamp,
-                       parse_confidence, review_status, reviewed_at, manual_answer
+                       parse_confidence, needs_review, manual_answer
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, question_id
                 """,
                 (run_id, model_id),
@@ -1795,8 +1807,7 @@ class ResponseRepository:
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
-                        review_status=row["review_status"] if row["review_status"] else "auto",
-                        reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                        needs_review=bool(row["needs_review"]),
                         manual_answer=row["manual_answer"],
                     )
                 )
@@ -1817,7 +1828,7 @@ class ResponseRepository:
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                        cost, raw_response_json, timestamp,
-                       parse_confidence, review_status, reviewed_at, manual_answer
+                       parse_confidence, needs_review, manual_answer
                 FROM responses WHERE model_id = ? ORDER BY run_id, iteration, snapshot_id
                 """,
                 (model_id,),
@@ -1847,8 +1858,7 @@ class ResponseRepository:
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
-                        review_status=row["review_status"] if row["review_status"] else "auto",
-                        reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                        needs_review=bool(row["needs_review"]),
                         manual_answer=row["manual_answer"],
                     )
                 )
@@ -1869,7 +1879,7 @@ class ResponseRepository:
                        status, finish_reason, error_details, latency_ms,
                        input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
                        cost, raw_response_json, timestamp,
-                       parse_confidence, review_status, reviewed_at, manual_answer
+                       parse_confidence, needs_review, manual_answer
                 FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
                 """,
                 (run_id, model_id),
@@ -1899,8 +1909,7 @@ class ResponseRepository:
                         raw_response_json=row["raw_response_json"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
                         parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
-                        review_status=row["review_status"] if row["review_status"] else "auto",
-                        reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                        needs_review=bool(row["needs_review"]),
                         manual_answer=row["manual_answer"],
                     )
                 )
@@ -1926,7 +1935,7 @@ class ResponseRepository:
                     input_tokens = ?, response_tokens = ?,
                     total_tokens = ?, reasoning_tokens = ?, effective_tokens = ?,
                     cost = ?, raw_response_json = ?,
-                    parse_confidence = ?, review_status = ?
+                    parse_confidence = ?, needs_review = ?
                 WHERE response_id = ?
                 """,
                 (
@@ -1950,7 +1959,7 @@ class ResponseRepository:
                     response.cost,
                     response.raw_response_json,
                     response.parse_confidence,
-                    response.review_status,
+                    1 if response.needs_review else 0,
                     response.response_id,
                 ),
             )

@@ -221,6 +221,81 @@ class BenchmarkRunner:
         finally:
             self._cleanup()
 
+    def _handle_export_results(self) -> int:
+        """Handle --export-results flag.
+
+        Export final results for a run, using manual_answer when present.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.db.repository import ResponseRepository
+            from src.db.schema import DatabaseManager
+            from src.utils.config import get_settings
+            import json
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Get run ID
+            run_id = self.args.export_results
+
+            # Fetch responses
+            response_repo = ResponseRepository(db_manager)
+            responses = response_repo.get_by_run(run_id)
+
+            if not responses:
+                print(f"No responses found for run {run_id}")
+                return 1
+
+            # Build export data
+            export_data = []
+            for r in responses:
+                # Use manual_answer if present, otherwise use selected_answer
+                final_answer = r.manual_answer if r.manual_answer else r.selected_answer
+                answer_source = "manual" if r.manual_answer else "automatic"
+
+                export_data.append({
+                    "response_id": r.response_id,
+                    "question_id": r.question_id,
+                    "variant_id": r.variant_id,
+                    "model_id": r.model_id,
+                    "iteration": r.iteration,
+                    "selected_answer": r.selected_answer,
+                    "manual_answer": r.manual_answer,
+                    "final_answer": final_answer,
+                    "answer_source": answer_source,
+                    "is_correct": r.is_correct,
+                    "parse_confidence": r.parse_confidence,
+                    "latency_ms": r.latency_ms,
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                })
+
+            # Output as JSON
+            output = {
+                "run_id": run_id,
+                "total_responses": len(responses),
+                "manual_answers": sum(1 for r in responses if r.manual_answer),
+                "automatic_answers": sum(1 for r in responses if not r.manual_answer),
+                "responses": export_data,
+            }
+
+            print(json.dumps(output, indent=2, default=str))
+
+            return 0
+
+        except Exception as e:
+            logger.exception(f"Export failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
     def run(self) -> int:
         """Execute the benchmark.
 
@@ -247,6 +322,10 @@ class BenchmarkRunner:
                 return self._handle_review_run()
             if self.args.review_all:
                 return self._handle_review_all()
+
+            # Handle export results command
+            if self.args.export_results:
+                return self._handle_export_results()
 
             # Handle add-models-to-run command
             if self.args.add_to_run:

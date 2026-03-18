@@ -150,6 +150,35 @@ Incremental Flow (add models to existing run):
             help="Execute the experiment run. Use with --experiment. Supports --models and --questions for filtering.",
         )
 
+        # Manual review commands
+        parser.add_argument(
+            "--review-experiment",
+            type=str,
+            metavar="NAME",
+            help="Start manual review for an experiment. Shows responses where needs_review=TRUE.",
+        )
+
+        parser.add_argument(
+            "--review-run",
+            type=str,
+            metavar="RUN_ID",
+            help="Start manual review for a specific run. Shows responses where needs_review=TRUE.",
+        )
+
+        parser.add_argument(
+            "--review-all",
+            action="store_true",
+            help="Start manual review for all pending responses (all experiments/runs).",
+        )
+
+        # Export results command
+        parser.add_argument(
+            "--export-results",
+            type=str,
+            metavar="RUN_ID",
+            help="Export final results for a run. Uses manual_answer when present, otherwise selected_answer.",
+        )
+
         # Model selection
         parser.add_argument(
             "--models",

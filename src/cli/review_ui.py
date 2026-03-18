@@ -149,7 +149,7 @@ class ReviewUI:
                        r.status, r.finish_reason, r.error_details, r.latency_ms,
                        r.input_tokens, r.response_tokens, r.total_tokens, r.reasoning_tokens, r.effective_tokens,
                        r.cost, r.raw_response_json, r.timestamp,
-                       r.parse_confidence, r.review_status, r.reviewed_at, r.manual_answer,
+                       r.parse_confidence, r.needs_review, r.manual_answer,
                        json_extract(q.question_json, '$.stem') as stem,
                        json_extract(q.question_json, '$.options') as options_json,
                        json_extract(q.question_json, '$.answer_key') as answer_key
@@ -157,7 +157,7 @@ class ReviewUI:
                 JOIN question_snapshots q ON r.snapshot_id = q.snapshot_id
                 WHERE q.experiment_id = ?
                   AND r.parse_confidence IN ('ambiguous', 'no_answer', 'low_confidence')
-                  AND r.review_status = 'auto'
+                  AND r.needs_review = TRUE
                 ORDER BY r.question_id, r.iteration
                 """,
                 (experiment_id,),
@@ -193,9 +193,8 @@ class ReviewUI:
                     cost=row["cost"],
                     raw_response_json=row["raw_response_json"],
                     timestamp=datetime.fromisoformat(row["timestamp"]),
-                    parse_confidence=row["parse_confidence"],
-                    review_status=row["review_status"],
-                    reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                    parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
+                    needs_review=bool(row["needs_review"]),
                     manual_answer=row["manual_answer"],
                 )
 
@@ -236,7 +235,7 @@ class ReviewUI:
                        r.status, r.finish_reason, r.error_details, r.latency_ms,
                        r.input_tokens, r.response_tokens, r.total_tokens, r.reasoning_tokens, r.effective_tokens,
                        r.cost, r.raw_response_json, r.timestamp,
-                       r.parse_confidence, r.review_status, r.reviewed_at, r.manual_answer,
+                       r.parse_confidence, r.needs_review, r.manual_answer,
                        json_extract(q.question_json, '$.stem') as stem,
                        json_extract(q.question_json, '$.options') as options_json,
                        json_extract(q.question_json, '$.answer_key') as answer_key
@@ -244,7 +243,7 @@ class ReviewUI:
                 JOIN question_snapshots q ON r.snapshot_id = q.snapshot_id
                 WHERE r.run_id = ?
                   AND r.parse_confidence IN ('ambiguous', 'no_answer', 'low_confidence')
-                  AND r.review_status = 'auto'
+                  AND r.needs_review = TRUE
                 ORDER BY r.question_id, r.iteration
                 """,
                 (run_id,),
@@ -280,9 +279,8 @@ class ReviewUI:
                     cost=row["cost"],
                     raw_response_json=row["raw_response_json"],
                     timestamp=datetime.fromisoformat(row["timestamp"]),
-                    parse_confidence=row["parse_confidence"],
-                    review_status=row["review_status"],
-                    reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                    parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
+                    needs_review=bool(row["needs_review"]),
                     manual_answer=row["manual_answer"],
                 )
 
@@ -321,14 +319,14 @@ class ReviewUI:
                        r.status, r.finish_reason, r.error_details, r.latency_ms,
                        r.input_tokens, r.response_tokens, r.total_tokens, r.reasoning_tokens, r.effective_tokens,
                        r.cost, r.raw_response_json, r.timestamp,
-                       r.parse_confidence, r.review_status, r.reviewed_at, r.manual_answer,
+                       r.parse_confidence, r.needs_review, r.manual_answer,
                        json_extract(q.question_json, '$.stem') as stem,
                        json_extract(q.question_json, '$.options') as options_json,
                        json_extract(q.question_json, '$.answer_key') as answer_key
                 FROM responses r
                 JOIN question_snapshots q ON r.snapshot_id = q.snapshot_id
                 WHERE r.parse_confidence IN ('ambiguous', 'no_answer', 'low_confidence')
-                  AND r.review_status = 'auto'
+                  AND r.needs_review = TRUE
                 ORDER BY r.question_id, r.iteration
                 """,
             )
@@ -363,9 +361,8 @@ class ReviewUI:
                     cost=row["cost"],
                     raw_response_json=row["raw_response_json"],
                     timestamp=datetime.fromisoformat(row["timestamp"]),
-                    parse_confidence=row["parse_confidence"],
-                    review_status=row["review_status"],
-                    reviewed_at=datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None,
+                    parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
+                    needs_review=bool(row["needs_review"]),
                     manual_answer=row["manual_answer"],
                 )
 
@@ -479,22 +476,19 @@ class ReviewUI:
         # Update response
         if classification in ("A", "B", "C", "D"):
             item.response.manual_answer = classification
-            item.response.review_status = "manual"
-            item.response.reviewed_at = datetime.now()
+            item.response.needs_review = False
             # Update selected answer with manual classification
             item.response.selected_answer = classification
             # Recalculate is_correct
             item.response.is_correct = (classification == item.correct_answer)
         elif classification == "N":
             item.response.manual_answer = None
-            item.response.review_status = "manual"
-            item.response.reviewed_at = datetime.now()
+            item.response.needs_review = False
             item.response.selected_answer = None
             item.response.is_correct = False
         elif classification == "E":
             item.response.manual_answer = None
-            item.response.review_status = "skipped"
-            item.response.reviewed_at = datetime.now()
+            item.response.needs_review = False
             item.response.status = "error"
 
         # Save to database
@@ -504,14 +498,13 @@ class ReviewUI:
             cursor.execute(
                 """
                 UPDATE responses
-                SET manual_answer = ?, review_status = ?, reviewed_at = ?,
+                SET manual_answer = ?, needs_review = ?,
                     selected_answer = ?, is_correct = ?, status = ?
                 WHERE response_id = ?
                 """,
                 (
                     item.response.manual_answer,
-                    item.response.review_status,
-                    item.response.reviewed_at.isoformat() if item.response.reviewed_at else None,
+                    0,  # needs_review = FALSE
                     item.response.selected_answer,
                     item.response.is_correct,
                     item.response.status,
