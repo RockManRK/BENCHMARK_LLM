@@ -275,13 +275,14 @@ class BenchmarkRunner:
                 print("Configuration validated successfully (dry run)")
                 return 0
 
-            # Execute benchmark
-            results = self._execute_benchmark()
-
-            # Calculate and display statistics
-            self._display_results(results)
-
-            return 0
+            # DIRECT EXECUTION IS NO LONGER SUPPORTED
+            # Execution MUST go through: --experiment NAME --execute-run
+            # See: QWEN.md - "There is no immediate or ad‑hoc execution mode"
+            raise NotImplementedError(
+                "Direct execution (--models) is no longer supported. "
+                "Use experiment-based execution: "
+                "--experiment <name> --execute-run"
+            )
 
         except KeyboardInterrupt:
             logger.info("Benchmark interrupted by user")
@@ -1200,184 +1201,12 @@ class BenchmarkRunner:
         logger.info("Benchmark execution completed")
         return results
 
-    def _execute_benchmark(self) -> dict[str, Any]:
-        """Execute the benchmark test using ExecutionEngine.
 
-        Returns:
-            Dictionary containing execution results and statistics.
-        """
-        from src.api.client import OpenRouterClient
-        from src.core.execution_engine import ExecutionEngine, QuestionWithContext
-        from src.core.randomizer import AnswerRandomizer
+    # DEPRECATED: _execute_benchmark() removed
+    # Execution is NOW ONLY via: _handle_execute_run() -> Planner -> ExecutionEngine -> ResultWriter
+    # Direct/immediate execution mode is NO LONGER SUPPORTED.
 
-        logger.info("Starting benchmark execution")
-
-        # Load questions
-        questions = self._load_and_filter_questions()
-        if not questions:
-            return {}
-
-        # Initialize run
-        run = self._initialize_run(questions)
-        if not run:
-            return {}
-
-        # Create ExecutionEngine with db_manager for persistence
-        api_client = OpenRouterClient(
-            api_key=self.settings.openrouter_api_key,
-            base_url=self.settings.openrouter_base_url,
-        )
-        randomizer = AnswerRandomizer(self.settings.random_seed)
-        
-        engine = ExecutionEngine(
-            api_client=api_client,
-            randomizer=randomizer,
-            settings=self.settings,
-            db_manager=self.db_manager,  # Enable persistence
-        )
-
-        # Wrap questions with snapshot_id=None (direct flow has no snapshots)
-        questions_with_context = [QuestionWithContext(question=q, snapshot_id=None) for q in questions]
-
-        # Get model variants from CLI
-        # For direct flow, we create variants on-the-fly based on model_id
-        from src.db.repository import ModelVariantRepository
-        from src.db.models import ModelVariant
-        from src.core.variant_config import VariantConfig
-        
-        variant_repo = ModelVariantRepository(self.db_manager)
-        model_variants = []
-        
-        for model_id in self.args.models:
-            logger.debug(f"Processing model: {model_id}")
-            
-            # Build variant config from settings
-            variant_config = VariantConfig(
-                reasoning_mode=self.settings.reasoning_mode if self.settings else "unspecified",
-                reasoning_effort=self.settings.reasoning_effort if self.settings else None,
-                reasoning_max_tokens=self.settings.reasoning_max_tokens if self.settings else None,
-                vision_enabled=self.settings.enable_vision if self.settings else False,
-                structured_enabled=self.settings.enable_structured if self.settings else False,
-            )
-            variant_id = variant_config.build_variant_id(model_id)
-            logger.debug(f"Built variant_id: {variant_id} for model {model_id}")
-            
-            # Create variant if not exists
-            existing = variant_repo.get_by_id(variant_id)
-            logger.debug(f"Existing variant: {existing}")
-            
-            if not existing:
-                logger.info(f"Creating new variant: {variant_id}")
-                variant = ModelVariant(
-                    variant_id=variant_id,
-                    model_id=model_id,
-                    reasoning_mode=variant_config.reasoning_mode,
-                    reasoning_effort=variant_config.reasoning_effort,
-                    reasoning_max_tokens=variant_config.reasoning_max_tokens,
-                    vision_enabled=variant_config.vision_enabled,
-                    structured_enabled=variant_config.structured_enabled,
-                    variant_signature=variant_config.build_signature(model_id),
-                )
-                try:
-                    variant_repo.create(variant)
-                    logger.info(f"Created variant: {variant_id}")
-                    existing = variant
-                except Exception as e:
-                    logger.warning(f"Failed to create variant: {e}")
-                    # Might have been created concurrently
-                    existing = variant_repo.get_by_id(variant_id)
-            
-            if existing:
-                model_variants.append(existing)
-                logger.info(f"Added variant to execution: {existing.variant_id}")
-            else:
-                logger.error(f"Failed to get or create variant: {variant_id}")
-
-        # Execute using ExecutionEngine
-        results = engine.execute(
-            model_variants=model_variants,
-            questions=questions_with_context,
-            iterations=self.args.iterations,
-            run_id=run.run_id,
-            experiment_id=run.experiment_id if run.experiment_id else "",
-        )
-
-        # Compile final results
-        return self._compile_final_results(results, run, questions)
-
-    def _display_results(self, results: dict[str, Any]) -> None:
-        """Calculate and display benchmark results.
-
-        Args:
-            results: Dictionary containing execution results.
-        """
-        # Fetch responses and errors from database
-        from src.db.repository import ResponseRepository
-        
-        response_repo = ResponseRepository(self.db_manager)
-        
-        # Get all responses for this run
-        run_id = results.get("run_id", "")
-        responses = response_repo.get_by_run(run_id) if run_id else []
-        
-        # Convert to format expected by StatisticsCalculator
-        responses_data = [
-            {
-                "model_id": r.variant_id,
-                "is_correct": r.is_correct,
-                "latency_ms": r.latency_ms,
-                "input_tokens": r.input_tokens,
-                "response_tokens": r.response_tokens,
-                "status": r.status,
-            }
-            for r in responses
-        ]
-
-        # Get errors for this run
-        from src.db.repository import ErrorRepository
-        error_repo = ErrorRepository(self.db_manager)
-        errors = error_repo.get_by_run(run_id) if run_id else []
-
-        errors_data = [
-            {
-                "model_id": e.variant_id,
-                "error_type": e.error_type,
-                "error_message": e.error_message
-            }
-            for e in errors
-        ]
-
-        # Calculate statistics
-        calculator = StatisticsCalculator(responses_data, errors_data)
-
-        # Get statistics for all models
-        all_stats = calculator.get_all_statistics()
-
-        if not all_stats:
-            print("No results to display")
-            return
-
-        # Create formatter based on output format
-        formatter = create_formatter(self.args.output)
-
-        # Display based on format
-        if self.args.output == "console":
-            if isinstance(formatter, ConsoleFormatter):
-                formatter.display_table(all_stats)
-                formatter.display_summary(all_stats)
-        else:
-            # Export to file or stdout
-            if self.args.output_file:
-                formatter.export_to_file(all_stats, str(self.args.output_file), self.args.output)
-                print(f"Results exported to {self.args.output_file}")
-            else:
-                # Output to stdout
-                if self.args.output == "json":
-                    print(formatter.to_json(all_stats))
-                elif self.args.output == "csv":
-                    print(formatter.to_csv(all_stats), end="")
-                elif self.args.output == "markdown":
-                    print(formatter.to_markdown(all_stats))
+    # DEPRECATED: _display_results() removed - only used by legacy _execute_benchmark()
 
     def _cleanup(self) -> None:
         """Clean up resources."""

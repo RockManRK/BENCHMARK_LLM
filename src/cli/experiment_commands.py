@@ -1110,105 +1110,17 @@ class RunManager:
         models_filter: Optional[list[str]] = None,
         questions_filter: Optional[list[str]] = None,
     ) -> None:
-        """Execute pending items in a run using new execution axis.
+        """DEPRECATED: Execution is now ONLY via BenchmarkRunner.
 
-        This method uses the new execution flow:
-        1. Planner builds immutable ExecutionPlan (DB reads, deduplication)
-        2. ExecutionEngine executes plan (API calls, NO DB access)
-        3. ResultWriter persists results (DB writes, status updates)
-
-        Args:
-            experiment_name: Name of the experiment.
-            models_filter: Optional list of model IDs to filter.
-            questions_filter: Optional list of question IDs to filter.
-
-        Raises:
-            ValueError: If experiment not found or no items to execute.
-
-        Example:
-            >>> manager = RunManager(db_manager)
-            >>> manager.execute_run(
-            ...     experiment_name="my_exp",
-            ...     models_filter=["openai/gpt-4"]
-            ... )
+        This method is intentionally disabled.
+        All execution MUST go through:
+        BenchmarkRunner._handle_execute_run() → Planner → ExecutionEngine → ResultWriter
         """
-        from src.api.client import OpenRouterClient
-        from src.core.planner import Planner
-        from src.core.execution_engine import ExecutionEngine
-        from src.core.result_writer import ResultWriter
-        from src.core.randomizer import AnswerRandomizer
-        from src.utils.config import get_settings
-
-        # Verify experiment exists
-        experiment = self.experiment_repo.get_by_name(experiment_name)
-        if not experiment:
-            raise ValueError(f"Experiment '{experiment_name}' not found")
-
-        # Build execution plan (Planner does ALL DB reads)
-        # Planner resolves: runs, variants, snapshots, deduplication, seeds, prompts
-        planner = Planner(self.db_manager)
-        plan = planner.build_plan(
-            experiment_name=experiment_name,
-            run_name=None,  # Execute all pending runs
-            model_filter=models_filter,
-            question_filter=questions_filter,
+        raise NotImplementedError(
+            "execute_run() is deprecated. "
+            "Execution must go through BenchmarkRunner._handle_execute_run(). "
+            "See: Planner → ExecutionEngine → ResultWriter"
         )
-
-        # Show execution summary
-        total_items = sum(len(run.items) for run in plan.runs)
-        console.print()
-        console.print(Panel(
-            f"[bold]Experiment:[/bold] {experiment_name}\n"
-            f"[bold]Plan:[/bold] {plan.plan_id}\n"
-            f"[bold]Runs:[/bold] {len(plan.runs)}\n"
-            f"[bold]Items to execute:[/bold] {total_items}",
-            title="🚀 Run Execution",
-            border_style="green",
-        ))
-
-        logger.info(f"Built execution plan {plan.plan_id} with {total_items} items")
-
-        # Execute plan (ExecutionEngine does API calls, NO DB)
-        settings = get_settings()
-        api_client = OpenRouterClient(
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
-        )
-        randomizer = AnswerRandomizer(settings.random_seed if settings else None)
-
-        # Create engine WITHOUT db_manager - pure execution only
-        engine = ExecutionEngine(
-            api_client=api_client,
-            randomizer=randomizer,
-            settings=settings,
-        )
-        results = engine.execute(plan)
-
-        logger.info(f"Execution completed: {len(results)} results")
-
-        # Write results (ResultWriter does ALL DB writes)
-        # ResultWriter persists responses/errors and updates run status
-        writer = ResultWriter(self.db_manager)
-        write_result = writer.write_results(plan, results)
-
-        # Log summary
-        logger.info(
-            f"Execution complete: {write_result.responses_written} responses, "
-            f"{write_result.errors_written} errors, "
-            f"{write_result.responses_skipped} responses skipped, "
-            f"{write_result.runs_updated} runs updated"
-        )
-
-        # Display results summary
-        console.print()
-        console.print(Panel(
-            f"[bold]Responses written:[/bold] {write_result.responses_written}\n"
-            f"[bold]Errors written:[/bold] {write_result.errors_written}\n"
-            f"[bold]Responses skipped:[/bold] {write_result.responses_skipped}\n"
-            f"[bold]Runs updated:[/bold] {', '.join(write_result.runs_updated)}",
-            title="✅ Execution Complete",
-            border_style="green",
-        ))
 
     def add_models_to_run(
         self,

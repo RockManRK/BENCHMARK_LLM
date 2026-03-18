@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS runs (
     run_group_id               TEXT,
 
     -- Effective configuration
-    seed                       INTEGER NOT NULL,
+    seed                       INTEGER, # Tornar runs.seed nullable
     system_prompt              TEXT,
     user_prompt                TEXT,
 
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS responses (
     provider_debug_payload     TEXT,
 
     -- State
-    status                     TEXT NOT NULL DEFAULT 'success',
+    status                     TEXT NOT NULL DEFAULT 'success', # Nunca usar responses.status para controle de fluxo.
     created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (run_id)
@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS errors (
     is_retryable               BOOLEAN NOT NULL,
 
     -- Audit
-    provider_model_resolved    TEXT,
+    provider_model_resolved    TEXT, # Precisa ainda ser definido claramente. Em responses ele é NOT NULL, em errors é opcional. Isso faz sentido se: - houver falhas antes da chamada ao provider. Se não, você pode padronizar como NOT NULL.
     provider_error_payload     TEXT,
 
     created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
