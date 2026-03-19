@@ -65,7 +65,6 @@ ExecutionPlan
       questions:
         - snapshot_id
           question_payload
-          iteration_number
 ```
 
 📌 O plano é:
@@ -120,7 +119,6 @@ ExecutionResult
 - run_id
 - variant_id
 - snapshot_id
-- iteration_number
 - status: success | failure
 - payload | error
 - timing_info

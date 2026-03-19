@@ -19,6 +19,7 @@ Ele contém tudo que o ExecutionEngine precisa para rodar—e nada que permita �
 - **Plano não decide:** decisões (escopo/deduplicação) acontecem antes, no Planner.
 - **Plano não cria identidade:** `variant_id` e `snapshot_id` já vêm resolvidos.
 - **Plano não acessa DB:** DB é responsabilidade do Planner (leitura) e Writer (escrita).
+- **All model behavior-affecting parameters** (e.g. temperature, top_p, max_output_tokens) MUST be resolved by the Planner and included in model_config_effective. ExecutionEngine MUST NOT assume defaults.”
 
 ---
 
@@ -46,7 +47,6 @@ Ele contém tudo que o ExecutionEngine precisa para rodar—e nada que permita �
 Cada run no plano deve conter:
 
 - **run_id**
-- **iteration_number(s):** normalmente `[1]`, mas o plano suporta múltiplas (Não será mantido/implementado nesse momento)
 - **seed_effective:** seed final já resolvida (run → fallback experimento)
 - **prompts_effective:** prompts finais já resolvidos (run sobrescreve experimento)
 - **variants:** variantes a executar (já resolvidas por `variant_id`)
@@ -55,6 +55,8 @@ Cada run no plano deve conter:
 ---
 
 ### 5. Modelo de dados recomendado em YAML
+
+**model_config_effective MUST include all parameters that affect model behavior, including sampling parameters such as temperature and top_p.**
 
 > **Nota:** YAML aqui é o “contrato legível” para IA/humanos. O código pode usar dataclasses/JSON, mas deve ser isomórfico.
 
@@ -95,6 +97,9 @@ runs:
       - variant_id: "var-5eb0bdca"
         model_id: "google/gemini-3.1-flash-lite-preview"
         model_config_effective:
+          temperature: 0.7
+          top_p: 0.95
+          max_output_tokens: 1024
           enable_vision: true
           structured_output: false
           reasoning_mode: "off"
@@ -117,8 +122,7 @@ runs:
 
         snapshot_id: 55
         question_id: "Q055"
-        iteration_number: 1
-
+        
         question_payload:
           # snapshot JSON já carregado e validado pelo Planner
           stem: "..."
@@ -131,7 +135,6 @@ runs:
         model_id: "google/gemini-3.1-flash-lite-preview"
         snapshot_id: 1
         question_id: "Q001"
-        iteration_number: 1
         question_payload: { ... }
 ```
 
@@ -145,7 +148,7 @@ O Planner **só pode emitir** um plano válido se:
 - **Todo `snapshot_id` existe no DB** (e pertence ao experimento)
 - **Todo `run_id` pertence ao experimento**
 - **`items` não contém duplicatas** pela chave:
-  - `run_id + variant_id + snapshot_id + iteration_number`
+  - `run_id + variant_id + snapshot_id`
 - **`model_config_effective` está resolvida** (sem depender de settings globais)
 
 ---

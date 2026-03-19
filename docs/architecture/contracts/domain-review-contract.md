@@ -21,6 +21,7 @@ We only need to track:
 - Why it was reviewed
 - Workflow status tracking
 
+**The review contract MUST NOT introduce new schema fields beyond those explicitly listed here. Review logic must adapt to the existing schema, never the opposite.**
 ---
 
 ## 2. SIMPLIFIED REVIEW CONTRACT

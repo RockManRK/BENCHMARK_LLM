@@ -59,7 +59,6 @@ ExecutionResult
 - model_id
 - snapshot_id
 - question_id
-- iteration_number
 - status: success | failure
 - payload | error
 - timing_info
@@ -86,7 +85,6 @@ responses
 - model_id
 - snapshot_id
 - question_id
-- iteration_number
 - response_payload
 - timing_info
 - created_at
@@ -95,7 +93,7 @@ responses
 📌 **Chave lógica de unicidade:**
 
 ```
-(run_id, variant_id, snapshot_id, iteration_number)
+(run_id, variant_id, snapshot_id)
 ```
 
 📌 Se já existir:
@@ -119,7 +117,6 @@ errors
 - run_id
 - variant_id
 - snapshot_id
-- iteration_number
 - error_type
 - error_message
 - stack_trace (opcional)

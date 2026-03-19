@@ -289,7 +289,6 @@ response_id (PK)
 run_id (FK)
 variant_id (FK)
 snapshot_id (FK)
-iteration_number
 
 # Referência legível
 model_id

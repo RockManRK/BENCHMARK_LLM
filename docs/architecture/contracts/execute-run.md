@@ -34,12 +34,7 @@ pertencentes a um experimento, respeitando:
 
 ## 3. Conceitos Importantes
 
-### Iteration Number
-
-- `iteration_number` **não é um conceito de primeira classe**
-- No modelo atual, seu valor é sempre `1`
-- Existe apenas como campo técnico para compatibilidade futura
-- Não representa loops, repetições ou múltiplas execuções conceituais
+### *
 
 ---
 
@@ -96,7 +91,7 @@ pertencentes a um experimento, respeitando:
 12. Para cada combinação:
 
 ```
-(run_id, variant_id, snapshot_id, iteration_number)
+(run_id, variant_id, snapshot_id)
 ```
 
 13. Verificar se já existe resposta persistida:
@@ -105,7 +100,6 @@ pertencentes a um experimento, respeitando:
 WHERE run_id
   AND variant_id
   AND snapshot_id
-  AND iteration_number
 ```
 
 14. Se não existir:
