@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS runs (
     run_group_id               TEXT,
 
     -- Effective configuration
-    seed                       INTEGER, # Tornar runs.seed nullable
+    seed                       INTEGER, -- Tornar runs.seed nullable
     system_prompt              TEXT,
     user_prompt                TEXT,
 
@@ -165,7 +165,10 @@ CREATE TABLE IF NOT EXISTS responses (
     cost                        REAL,
 
     -- Audit (always present)
-    provider_model_resolved    TEXT NOT NULL,
+    provider_model_resolved    TEXT,
+    parse_confidence           TEXT DEFAULT 'unknown',
+    needs_review               BOOLEAN NOT NULL DEFAULT FALSE,
+    manual_answer              TEXT,
 
     -- Optional debug/audit
     provider_parameters_effective TEXT,
@@ -173,7 +176,7 @@ CREATE TABLE IF NOT EXISTS responses (
     provider_debug_payload     TEXT,
 
     -- State
-    status                     TEXT NOT NULL DEFAULT 'success', # Nunca usar responses.status para controle de fluxo.
+    status                     TEXT NOT NULL DEFAULT 'success', -- Nunca usar responses.status para controle de fluxo.
     created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (run_id)
@@ -201,6 +204,9 @@ CREATE INDEX IF NOT EXISTS idx_responses_variant
 CREATE INDEX IF NOT EXISTS idx_responses_snapshot
     ON responses(snapshot_id);
 
+CREATE INDEX IF NOT EXISTS idx_responses_needs_review
+    ON responses(needs_review)
+    WHERE needs_review = TRUE;
 -- ============================================================================
 -- TABLE: errors
 -- Purpose: Technical execution failures (observational)
@@ -227,7 +233,7 @@ CREATE TABLE IF NOT EXISTS errors (
     is_retryable               BOOLEAN NOT NULL,
 
     -- Audit
-    provider_model_resolved    TEXT, # Precisa ainda ser definido claramente. Em responses ele é NOT NULL, em errors é opcional. Isso faz sentido se: - houver falhas antes da chamada ao provider. Se não, você pode padronizar como NOT NULL.
+    provider_model_resolved    TEXT,
     provider_error_payload     TEXT,
 
     created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

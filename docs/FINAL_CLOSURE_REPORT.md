@@ -135,11 +135,6 @@ The following are **conscious design decisions**, not omissions:
 
 ### 3.1 Database Structure
 
-| Feature | Decision | Rationale |
-|---------|----------|-----------|
-| `models` table | NOT IMPLEMENTED | `model_id` is logical identifier; identity is in `model_variants` |
-| `run_models` table | NOT IMPLEMENTED | Run-variant association is in-memory (ExecutionPlan only) |
-| `iterations` table | NOT IMPLEMENTED | `iteration_number` is always 1; no conceptual loops |
 
 ### 3.2 Review Metadata
 
@@ -278,8 +273,6 @@ The following would **violate architectural principles** and should NOT be added
 
 | Feature | Why NOT | Principle Violated |
 |---------|---------|-------------------|
-| `models` table | Unnecessary complexity | "model_id is logical identifier" |
-| `run_models` table | Execution structure is in-memory | "Database does not model execution" |
 | Review workflow metadata | Overengineering | "Minimal review contract" |
 
 ### 6.3 Complexity Violations
