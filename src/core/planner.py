@@ -298,10 +298,9 @@ class Planner:
         # Resolve prompts (run prompts, fallback to experiment templates)
         system_prompt, user_prompt = self._resolve_prompts(run, experiment)
 
-        # Get variants for this run (via run_models table)
-        run_models = self._run_model_repo.get_by_run(run.run_id)
-        run_variant_ids = {rm.variant_id for rm in run_models}
-        variants_for_run = [v for v in all_variants if v.variant_id in run_variant_ids]
+        # In TO-BE architecture, variants are GLOBAL (not associated with runs)
+        # ALL variants from all_variants are used (already filtered by model_filter in _resolve_variants)
+        variants_for_run = all_variants
 
         if not variants_for_run:
             logger.warning(f"No variants associated with run {run.run_id}, skipping")
@@ -408,9 +407,9 @@ class Planner:
         return {
             "reasoning_mode": variant.reasoning_mode,
             "reasoning_effort": variant.reasoning_effort,
-            "reasoning_max_tokens": variant.reasoning_max_tokens,
+            "max_output_tokens": variant.max_output_tokens,  # Note: ModelVariant uses max_output_tokens
             "vision_enabled": variant.vision_enabled,
-            "structured_enabled": variant.structured_enabled,
+            "structured_output": variant.structured_output,  # Note: ModelVariant uses structured_output
         }
 
     def _build_deduplicated_items(
@@ -421,7 +420,7 @@ class Planner:
     ) -> list[PlanItem]:
         """Build deduplicated list of PlanItems.
 
-        Deduplication key: (run_id, variant_id, snapshot_id, iteration_number)
+        Deduplication key: (run_id, variant_id, snapshot_id)
         Excludes items that already have responses in the database.
 
         Args:
@@ -435,7 +434,6 @@ class Planner:
         import json
 
         items = []
-        iteration_number = 1  # Always 1 in current model
 
         # Get existing response keys for deduplication
         existing_keys = self._get_existing_response_keys(run_id, variants)
@@ -443,27 +441,27 @@ class Planner:
         for variant in variants:
             for snapshot in snapshots:
                 # Check if this combination already has a response
-                key = (run_id, variant.variant_id, snapshot.snapshot_id, iteration_number)
+                key = (run_id, variant.variant_id, snapshot.snapshot_id)
                 if key in existing_keys:
                     logger.debug(f"Skipping already answered: {key}")
                     continue
 
                 # Parse question payload from snapshot
                 try:
-                    question_payload = json.loads(snapshot.question_json)
+                    question_payload = json.loads(snapshot.question_payload)
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse snapshot {snapshot.snapshot_id}: {e}")
                     continue
 
                 # Build item
                 item = PlanItem(
-                    item_id=generate_item_id(run_id, variant.variant_id, snapshot.snapshot_id, iteration_number),
+                    item_id=generate_item_id(run_id, variant.variant_id, snapshot.snapshot_id),
                     run_id=run_id,
                     variant_id=variant.variant_id,
                     model_id=variant.model_id,
                     snapshot_id=snapshot.snapshot_id,
                     question_id=snapshot.question_id,
-                    iteration_number=iteration_number,
+                    iteration_number=1,  # Fixed at 1 - no iteration concept in TO-BE
                     question_payload=question_payload,
                 )
                 items.append(item)
@@ -476,7 +474,7 @@ class Planner:
     ) -> set:
         """Get set of existing response keys for deduplication.
 
-        Key: (run_id, variant_id, snapshot_id, iteration_number)
+        Key: (run_id, variant_id, snapshot_id)
 
         Args:
             run_id: Run identifier
@@ -491,7 +489,7 @@ class Planner:
             # Get all responses for this run and variant
             responses = self._response_repo.get_by_run_and_model(run_id, variant.model_id)
             for response in responses:
-                key = (run_id, variant.variant_id, response.snapshot_id, response.iteration)
+                key = (run_id, variant.variant_id, response.snapshot_id)
                 existing_keys.add(key)
 
         return existing_keys

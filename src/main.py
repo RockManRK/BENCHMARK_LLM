@@ -505,8 +505,12 @@ class BenchmarkRunner:
                 return self._handle_remove_model_from_experiment(experiment_name)
             elif hasattr(self.args, 'create_run') and self.args.create_run:
                 return self._handle_create_run(experiment_name)
-            elif hasattr(self.args, 'execute_run') and self.args.execute_run:
-                return self._handle_execute_run(experiment_name)
+            elif hasattr(self.args, 'run') and self.args.run and hasattr(self.args, 'execute') and self.args.execute:
+                # Execute specific run: --run RUN_NAME --execute
+                return self._handle_execute_run(experiment_name, self.args.run)
+            elif hasattr(self.args, 'run') and self.args.run:
+                # Show run details (without --execute)
+                return self._handle_show_run(experiment_name, self.args.run)
             else:
                 # Default: show experiment details
                 return self._handle_show_experiment(experiment_name)
@@ -783,7 +787,67 @@ class BenchmarkRunner:
             if 'db_manager' in locals():
                 db_manager.close()
 
-    def _handle_execute_run(self, experiment_name: str) -> int:
+    def _handle_show_run(self, experiment_name: str, run_name: str) -> int:
+        """Show run details.
+
+        Args:
+            experiment_name: Name of the experiment.
+            run_name: Run name to show.
+
+        Returns:
+            Exit code (0 for success, non-zero for errors).
+        """
+        try:
+            from src.db.repository import RunRepository, ResponseRepository
+            from src.db.schema import DatabaseManager
+            from rich.table import Table
+
+            # Initialize database
+            settings = get_settings()
+            db_manager = DatabaseManager(settings.database_path)
+            db_manager.initialize()
+
+            # Get run details
+            run_repo = RunRepository(db_manager)
+            
+            # Find run by name pattern
+            all_runs = run_repo.get_all()
+            run = None
+            for r in all_runs:
+                if r.run_id == run_name or r.run_id.endswith(run_name):
+                    run = r
+                    break
+            
+            if not run:
+                console.print(f"[red]Run '{run_name}' not found[/red]")
+                return 1
+
+            # Get response count
+            response_repo = ResponseRepository(db_manager)
+            responses = response_repo.get_by_run(run.run_id)
+            
+            console.print()
+            console.print(Panel(
+                f"[bold]Run ID:[/bold] {run.run_id}\n"
+                f"[bold]Experiment:[/bold] {experiment_name}\n"
+                f"[bold]Status:[/bold] {run.status}\n"
+                f"[bold]Seed:[/bold] {run.seed if run.seed else 'None'}\n"
+                f"[bold]Responses:[/bold] {len(responses)}",
+                title="📋 Run Details",
+                border_style="blue",
+            ))
+            
+            return 0
+
+        except Exception as e:
+            logger.exception(f"Show run failed: {e}")
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if 'db_manager' in locals():
+                db_manager.close()
+
+    def _handle_execute_run(self, experiment_name: str, run_name: str | None = None) -> int:
         """Execute experiment run using new execution axis.
 
         NEW EXECUTION FLOW:
@@ -795,6 +859,7 @@ class BenchmarkRunner:
 
         Args:
             experiment_name: Name of the experiment.
+            run_name: Optional specific run name to execute (None = all pending runs).
 
         Returns:
             Exit code (0 for success, non-zero for errors).
@@ -811,6 +876,8 @@ class BenchmarkRunner:
             from src.core.result_writer import ResultWriter
             from src.api.client import OpenRouterClient
             from src.core.randomizer import AnswerRandomizer
+            from rich.console import Console
+            console = Console()
 
             # Get filters from CLI args
             models_filter = getattr(self.args, 'models', None)
@@ -822,7 +889,7 @@ class BenchmarkRunner:
             planner = Planner(db_manager)
             plan = planner.build_plan(
                 experiment_name=experiment_name,
-                run_name=None,  # Execute all pending runs
+                run_name=run_name,  # Execute specific run or all pending
                 model_filter=models_filter,
                 question_filter=questions_filter,
             )
@@ -848,7 +915,7 @@ class BenchmarkRunner:
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
             )
-            randomizer = AnswerRandomizer(settings.random_seed if settings else None)
+            randomizer = AnswerRandomizer(run_id=0)  # Initial seed doesn't matter - will be reset per run
 
             # Create engine WITHOUT db_manager - pure execution only
             engine = ExecutionEngine(

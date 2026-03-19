@@ -273,7 +273,7 @@ class QuestionSnapshot:
     question_id: str
     question_payload: str
     experiment_id: str
-    snapshot_id: Optional[int] = None
+    snapshot_id: Optional[int | str] = None  # Can be int (SQLite rowid) or TEXT (future UUID)
     created_at: Optional[datetime] = None
 
 
@@ -296,7 +296,6 @@ class Response:
         snapshot_id: ID of the question snapshot being answered (authoritative).
         question_id: ID of the question (semantic redundancy for convenience).
         variant_id: ID of the model variant that generated the response.
-        iteration: Iteration number (1-based) within the run.
         selected_answer: The answer letter selected by the model.
         response_text: Full text response from the model.
         is_correct: Whether the selected answer is correct.
@@ -323,7 +322,6 @@ class Response:
         ...     snapshot_id=1,
         ...     question_id="Q001",
         ...     variant_id="var-abc123",
-        ...     iteration=1,
         ...     selected_answer="B",
         ...     is_correct=True,
         ...     input_tokens=50,
@@ -340,7 +338,7 @@ class Response:
     question_id: str
     model_id: str  # Base model ID (for backward compatibility and easier querying)
     variant_id: str
-    iteration: int = 1
+    # iteration: int = 1  # REMOVED in TO-BE - multiple runs instead of multiple iterations
     response_id: Optional[int] = None
     selected_answer: Optional[str] = None
     response_text: str = ""

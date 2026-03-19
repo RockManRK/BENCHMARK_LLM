@@ -137,7 +137,7 @@ class ExecutionEngine:
         # Initialize randomizer with run seed (only if seed is not None)
         # seed=None means "no randomization, preserve natural order"
         if self.randomizer and plan_run.seed_effective is not None:
-            self.randomizer.set_seed(plan_run.seed_effective)
+            self.randomizer.reset_seed(plan_run.seed_effective)
             logger.debug(f"Randomizer initialized with seed={plan_run.seed_effective}")
         elif self.randomizer:
             logger.debug("seed_effective is None, skipping randomization (natural order)")

@@ -257,22 +257,21 @@ def generate_plan_id(experiment_id: str, timestamp: Optional[datetime] = None) -
     return f"plan-{timestamp_str}-{hash_hex}"
 
 
-def generate_item_id(run_id: str, variant_id: str, snapshot_id: int, iteration: int) -> str:
+def generate_item_id(run_id: str, variant_id: str, snapshot_id: int) -> str:
     """Generate unique item identifier.
 
-    Format: {run_id}::{variant_id}::{snapshot_id}::it-{iteration}
+    Format: {run_id}::{variant_id}::{snapshot_id}
 
     Args:
         run_id: Run identifier
         variant_id: Model variant identifier
         snapshot_id: Question snapshot identifier
-        iteration: Iteration number
 
     Returns:
         Unique item identifier
 
     Example:
-        >>> generate_item_id("run-001", "var-abc", 123, 1)
-        'run-001::var-abc::123::it-1'
+        >>> generate_item_id("run-001", "var-abc", 123)
+        'run-001::var-abc::123'
     """
-    return f"{run_id}::{variant_id}::{snapshot_id}::it-{iteration}"
+    return f"{run_id}::{variant_id}::{snapshot_id}"

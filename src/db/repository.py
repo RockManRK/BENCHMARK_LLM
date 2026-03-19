@@ -1597,11 +1597,12 @@ class ResponseRepository:
             # Check which FK is failing
             run_exists = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (response.run_id,)).fetchone() is not None
             snapshot_exists = conn.execute("SELECT 1 FROM question_snapshots WHERE snapshot_id = ?", (response.snapshot_id,)).fetchone() is not None
-            question_exists = conn.execute("SELECT 1 FROM questions WHERE question_id = ?", (response.question_id,)).fetchone() is not None
+            # Note: questions table does NOT exist in TO-BE architecture - questions are loaded from JSON
+            # question_id is just a reference string, no FK validation needed
             variant_exists = conn.execute("SELECT 1 FROM model_variants WHERE variant_id = ?", (response.variant_id,)).fetchone() is not None
             logger.error(
                 f"FK check: run_exists={run_exists}, snapshot_exists={snapshot_exists}, "
-                f"question_exists={question_exists}, variant_exists={variant_exists}"
+                f"variant_exists={variant_exists}"
             )
             conn.rollback()
             raise
@@ -1874,13 +1875,12 @@ class ResponseRepository:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT response_id, run_id, snapshot_id, model_id, iteration,
+                SELECT response_id, run_id, snapshot_id, model_id,
                        selected_answer, response_text, is_correct,
-                       status, finish_reason, error_details, latency_ms,
-                       input_tokens, response_tokens, total_tokens, reasoning_tokens, effective_tokens,
-                       cost, raw_response_json, timestamp,
+                       status, finish_reason, latency_ms,
+                       input_tokens, output_tokens, total_tokens, cost,
                        parse_confidence, needs_review, manual_answer
-                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY iteration, snapshot_id
+                FROM responses WHERE run_id = ? AND model_id = ? ORDER BY snapshot_id
                 """,
                 (run_id, model_id),
             )
@@ -1892,24 +1892,24 @@ class ResponseRepository:
                         run_id=row["run_id"],
                         snapshot_id=row["snapshot_id"],
                         model_id=row["model_id"],
-                        iteration=row["iteration"],
+                        iteration=1,  # Fixed at 1 - no iteration concept in TO-BE
                         selected_answer=row["selected_answer"],
                         response_text=row["response_text"],
                         is_correct=row["is_correct"],
                         status=row["status"],
                         finish_reason=row["finish_reason"],
-                        error_details=row["error_details"],
+                        error_details=None,  # Not in TO-BE schema
                         latency_ms=row["latency_ms"],
                         input_tokens=row["input_tokens"],
-                        response_tokens=row["response_tokens"],
+                        response_tokens=row["output_tokens"],
                         total_tokens=row["total_tokens"],
-                        reasoning_tokens=row["reasoning_tokens"],
-                        effective_tokens=row["effective_tokens"],
+                        reasoning_tokens=None,  # Not in TO-BE schema
+                        effective_tokens=None,  # Not in TO-BE schema
                         cost=row["cost"],
-                        raw_response_json=row["raw_response_json"],
-                        timestamp=datetime.fromisoformat(row["timestamp"]),
+                        raw_response_json=None,  # Not in TO-BE schema
+                        timestamp=None,  # Not in TO-BE schema (uses created_at)
                         parse_confidence=row["parse_confidence"] if row["parse_confidence"] else "unknown",
-                        needs_review=bool(row["needs_review"]),
+                        needs_review=bool(row["needs_review"]) if row["needs_review"] is not None else False,
                         manual_answer=row["manual_answer"],
                     )
                 )

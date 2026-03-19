@@ -36,10 +36,7 @@ from rich.text import Text
 from src.db.models import Experiment, ModelVariant, Run, RunModel
 from src.db.repository import (
     ExperimentRepository,
-    ExperimentModelRepository,
-    ModelRepository,
     ModelVariantRepository,
-    QuestionRepository,
     QuestionSnapshotRepository,
     RunModelRepository,
     RunRepository,
@@ -60,11 +57,8 @@ class ExperimentManager:
     Attributes:
         db_manager: DatabaseManager instance for database operations.
         experiment_repo: ExperimentRepository for experiment CRUD.
-        model_repo: ModelRepository for model registry.
         variant_repo: ModelVariantRepository for variant management.
-        exp_model_repo: ExperimentModelRepository for experiment-model association.
         snapshot_repo: QuestionSnapshotRepository for snapshot creation.
-        question_repo: QuestionRepository for question access.
 
     Example:
         >>> manager = ExperimentManager(db_manager)
@@ -87,11 +81,8 @@ class ExperimentManager:
         """
         self.db_manager = db_manager
         self.experiment_repo = ExperimentRepository(db_manager)
-        self.model_repo = ModelRepository(db_manager)
         self.variant_repo = ModelVariantRepository(db_manager)
-        self.exp_model_repo = ExperimentModelRepository(db_manager)
         self.snapshot_repo = QuestionSnapshotRepository(db_manager)
-        self.question_repo = QuestionRepository(db_manager)
         logger.info("ExperimentManager initialized")
 
     def create_experiment(
@@ -155,36 +146,32 @@ class ExperimentManager:
         logger.info(f"Created experiment: {created.name} (hash={config_hash})")
 
         # Create question snapshots
-        # CRITICAL: Load questions from JSON dataset (SOURCE OF TRUTH), not from database
-        # If questions_filter is empty, use ALL questions from JSON
+        # CRITICAL: Load questions from JSON dataset (SOURCE OF TRUTH)
+        # Questions are NOT persisted to a separate table - only as snapshots
         from src.core.loader import QuestionLoader
-        import sqlite3
-        
+
+        # Step 1: Load ALL questions from JSON dataset (source of truth)
+        loader = QuestionLoader(str(settings.questionnaire_path))
+        all_questions = loader.load()
+
+        # Step 2: Determine which questions to snapshot
         if not questions_filter:
-            # Load ALL questions from JSON dataset
-            loader = QuestionLoader(str(settings.questionnaire_path))
-            all_questions = loader.load()
             question_ids = [q.question_id for q in all_questions]
-            
-            # Persist questions to database (idempotent - won't duplicate)
-            question_repo = QuestionRepository(self.db_manager)
-            for q in all_questions:
-                try:
-                    question_repo.create(q)
-                except sqlite3.IntegrityError:
-                    # Question already exists
-                    pass
-            
             logger.info(f"No questions specified, using all {len(question_ids)} available questions from {settings.questionnaire_path}")
         else:
             question_ids = self._expand_question_filters(questions_filter)
-        
+            logger.info(f"Using filtered questions: {question_ids}")
+
+        # Step 3: Build question lookup from loaded data
+        question_lookup = {q.question_id: q for q in all_questions}
+
+        # Step 4: Create question snapshots
         snapshots_created = 0
 
         for question_id in question_ids:
-            question = self.question_repo.get_by_id(question_id)
+            question = question_lookup.get(question_id)
             if not question:
-                logger.warning(f"Question {question_id} not found, skipping")
+                logger.warning(f"Question {question_id} not found in dataset, skipping")
                 continue
 
             # Build question JSON for snapshot
@@ -194,7 +181,7 @@ class ExperimentManager:
             self.snapshot_repo.create_if_not_exists(
                 experiment_id=created.experiment_id,
                 question_id=question_id,
-                question_json=question_json,
+                question_payload=question_json,
             )
             snapshots_created += 1
 
@@ -246,14 +233,20 @@ class ExperimentManager:
         # Get settings for snapshot creation
         settings = get_settings()
 
+        # Load questions from JSON dataset (SOURCE OF TRUTH)
+        from src.core.loader import QuestionLoader
+        loader = QuestionLoader(str(settings.questionnaire_path))
+        all_questions = loader.load()
+        question_lookup = {q.question_id: q for q in all_questions}
+
         # Create question snapshots (only for NEW questions)
         # The create_if_not_exists method ensures existing snapshots are NOT recreated
         existing_snapshot_count = len(self.snapshot_repo.get_by_experiment(experiment.experiment_id))
 
         for question_id in question_ids:
-            question = self.question_repo.get_by_id(question_id)
+            question = question_lookup.get(question_id)
             if not question:
-                logger.warning(f"Question {question_id} not found, skipping")
+                logger.warning(f"Question {question_id} not found in dataset, skipping")
                 continue
 
             # Build question JSON for snapshot
@@ -264,7 +257,7 @@ class ExperimentManager:
             self.snapshot_repo.create_if_not_exists(
                 experiment_id=experiment.experiment_id,
                 question_id=question_id,
-                question_json=question_json,
+                question_payload=question_json,
             )
 
         # Get total snapshots after operation
@@ -406,22 +399,24 @@ class ExperimentManager:
         self._show_experiment_models(experiment.experiment_id)
 
     def _show_experiment_models(self, experiment_id: str) -> None:
-        """Display models configured in an experiment.
+        """Display all model variants (global, not experiment-specific).
+
+        Note: In TO-BE architecture, variants are GLOBAL.
 
         Args:
-            experiment_id: ID of the experiment.
+            experiment_id: ID of the experiment (unused).
         """
-        console.print("\n[bold]Models:[/bold]")
+        console.print("\n[bold]Model Variants (Global):[/bold]")
 
-        # Get all models from experiment_models (NEW - direct association)
-        variants = self.exp_model_repo.get_by_experiment(experiment_id)
+        # Get all variants (global, not experiment-specific)
+        variants = self.variant_repo.get_all()
 
         if not variants:
-            console.print("  [dim]No models configured[/dim]")
+            console.print("  [dim]No model variants configured[/dim]")
             return
 
-        # Display models with index
-        console.print(f"  {len(variants)} model variant(s) configured:\n")
+        # Display variants
+        console.print(f"  {len(variants)} variant(s) configured:\n")
 
         for idx, variant in enumerate(variants, start=1):
             # Build model info string
@@ -432,24 +427,26 @@ class ExperimentManager:
                 info_parts.append("reasoning=off")
             if variant.vision_enabled:
                 info_parts.append("vision")
-            if variant.structured_enabled:
+            if variant.structured_output:
                 info_parts.append("structured")
 
             info_str = f" ({', '.join(info_parts)})" if info_parts else ""
-            console.print(f"  [cyan][{idx}][/cyan] {variant.model_id}{info_str}")
+            console.print(f"  [cyan][{idx}][/cyan] {variant.model_id} → {variant.variant_id}{info_str}")
 
     def _show_all_experiment_models(self, experiment_id: str) -> None:
-        """Display all models configured in an experiment (for UX after add-model).
+        """Display all model variants (for UX after add-model).
+
+        Note: In TO-BE architecture, variants are GLOBAL.
 
         Args:
-            experiment_id: ID of the experiment.
+            experiment_id: ID of the experiment (unused).
         """
-        variants = self.exp_model_repo.get_by_experiment(experiment_id)
+        variants = self.variant_repo.get_all()
 
         if not variants:
             return
 
-        console.print("\n[bold]Models configured:[/bold]")
+        console.print("\n[bold]Model Variants Available:[/bold]")
         for idx, variant in enumerate(variants, start=1):
             info_parts = []
             if variant.reasoning_effort:
@@ -458,7 +455,7 @@ class ExperimentManager:
                 info_parts.append("reasoning=off")
             if variant.vision_enabled:
                 info_parts.append("vision")
-            if variant.structured_enabled:
+            if variant.structured_output:
                 info_parts.append("structured")
 
             info_str = f" ({', '.join(info_parts)})" if info_parts else ""
@@ -510,10 +507,9 @@ class ExperimentManager:
         added_variants = []
 
         for model_id in models:
-            # Register base model if needed
-            self._register_base_model(model_id)
-
             # Create variant with specified parameters
+            # Note: model_id is just a string identifier in model_variants table
+            # No separate base model registration needed in TO-BE architecture
             variant = self._create_model_variant(
                 model_id=model_id,
                 reasoning_mode=reasoning_mode,
@@ -523,22 +519,15 @@ class ExperimentManager:
                 structured_enabled=structured_enabled,
             )
 
-            # Associate variant with experiment (NEW - conceptual fix)
-            try:
-                logger.info(f"Associating variant {variant.variant_id} with experiment {experiment.experiment_id}")
-                self.exp_model_repo.add_variant(experiment.experiment_id, variant.variant_id)
-                logger.info(f"Association successful")
-            except Exception as e:
-                # Association might already exist
-                logger.error(f"Failed to associate variant {variant.variant_id} with experiment: {e}")
-                logger.debug(f"Variant {variant.variant_id} already associated with experiment")
+            # Note: In TO-BE architecture, variants are GLOBAL (not tied to experiments)
+            # Variants are filtered at execution time via --models flag
+            # No association table needed
 
             added_variants.append(variant)
             logger.info(f"Registered variant: {variant.variant_id} for model {model_id}")
 
-        # Display success message with full model list (NEW UX)
+        # Display success message with full model list
         self._show_models_added_summary(experiment_name, added_variants)
-        self._show_all_experiment_models(experiment.experiment_id)
 
     def remove_model_from_experiment(
         self,
@@ -547,51 +536,21 @@ class ExperimentManager:
     ) -> None:
         """Remove a model variant from an experiment.
 
-        This method removes a model variant from the experiment if:
-        - The variant exists
-        - The variant is associated with the experiment
+        Note: In TO-BE architecture, variants are GLOBAL and not associated with experiments.
+        This command is deprecated - variant filtering happens at execution time via --models flag.
 
         Args:
             experiment_name: Name of the experiment.
-            model_id: Model ID to remove. Can be:
-                     - Single ID: "openai/gpt-4"
-                     - Interactive: "?" to enter interactive mode
+            model_id: Model ID (ignored in TO-BE architecture).
 
         Raises:
-            ValueError: If experiment not found or model cannot be removed.
-
-        Example:
-            >>> manager.remove_model_from_experiment(
-            ...     experiment_name="my_exp",
-            ...     model_id="openai/gpt-4"
-            ... )
+            ValueError: Always raises - this operation is not supported.
         """
-        # Verify experiment exists
-        experiment = self.experiment_repo.get_by_name(experiment_name)
-        if not experiment:
-            raise ValueError(f"Experiment '{experiment_name}' not found")
-
-        # Check for interactive mode
-        if model_id == "?":
-            self._remove_model_interactive(experiment_name, experiment.experiment_id)
-            return
-
-        # Find variant by model_id (may have multiple variants)
-        variants = self.variant_repo.get_by_model(model_id)
-        if not variants:
-            raise ValueError(f"No variants found for model '{model_id}'")
-
-        # Remove all variants of this model from experiment
-        removed_count = 0
-        for variant in variants:
-            if self.exp_model_repo.remove_variant(experiment.experiment_id, variant.variant_id):
-                removed_count += 1
-
-        if removed_count == 0:
-            raise ValueError(f"Model '{model_id}' is not associated with experiment '{experiment_name}'")
-
-        # Display removal message
-        console.print(f"\n[yellow]⚠ Removed {removed_count} variant(s) for model {model_id} from experiment {experiment_name}[/yellow]")
+        raise ValueError(
+            "Removing models from experiments is not supported in TO-BE architecture. "
+            "Variants are global and filtered at execution time via --models flag. "
+            "Example: bcllm.py --experiment NAME --run --models openai/gpt-4"
+        )
 
     def _remove_model_interactive(self, experiment_name: str, experiment_id: str) -> None:
         """Interactive mode for removing models.
@@ -827,37 +786,6 @@ class ExperimentManager:
             "status": question.status,
         }, sort_keys=True, default=str)
 
-    def _register_base_model(self, model_id: str) -> None:
-        """Register base model if it doesn't exist.
-
-        Args:
-            model_id: Model identifier (e.g., "openai/gpt-4").
-        """
-        existing = self.model_repo.get_by_id(model_id)
-        if not existing:
-            # Extract provider and model name
-            if "/" in model_id:
-                parts = model_id.split("/", 1)
-                provider = parts[0]
-                model_name = parts[1] if len(parts) > 1 else model_id
-            else:
-                provider = "unknown"
-                model_name = model_id
-
-            from src.db.models import Model
-            model = Model(
-                model_id=model_id,
-                provider=provider,
-                model_name=model_name,
-            )
-
-            try:
-                self.model_repo.create(model)
-                logger.debug(f"Registered base model: {model_id}")
-            except Exception:
-                # Model might have been registered concurrently
-                logger.debug(f"Base model registration conflict (ignored): {model_id}")
-
     def _create_model_variant(
         self,
         model_id: str,
@@ -910,14 +838,16 @@ class ExperimentManager:
             return existing
 
         # Create variant record
+        # Note: reasoning_max_tokens is NOT persisted - it's execution-time only
+        # Only max_output_tokens (total output limit) is part of variant identity
         variant = ModelVariant(
             variant_id=variant_id,
             model_id=model_id,
             reasoning_mode=variant_config.reasoning_mode,
             reasoning_effort=variant_config.reasoning_effort,
-            reasoning_max_tokens=variant_config.reasoning_max_tokens,
+            # max_output_tokens is NOT set here - it's a separate parameter if needed
             vision_enabled=variant_config.vision_enabled,
-            structured_enabled=variant_config.structured_enabled,
+            structured_output=variant_config.structured_enabled,  # Note: ModelVariant uses structured_output
             variant_signature=variant_signature,
         )
 
@@ -1018,7 +948,6 @@ class RunManager:
         self.run_repo = RunRepository(db_manager)
         self.run_model_repo = RunModelRepository(db_manager)
         self.experiment_repo = ExperimentRepository(db_manager)
-        self.exp_model_repo = ExperimentModelRepository(db_manager)
         self.variant_repo = ModelVariantRepository(db_manager)
         logger.info("RunManager initialized")
 
@@ -1076,7 +1005,6 @@ class RunManager:
             run_id=run_id,
             experiment_id=experiment.experiment_id,
             seed=seed_value,
-            is_dev=False,
             started_at=datetime.now(),
             status="running",
         )
@@ -1085,19 +1013,9 @@ class RunManager:
         self.run_repo.create(run)
         logger.info(f"Created run {run_id} for experiment {experiment_name}")
 
-        # Associate model variants from experiment (NEW - copy from experiment_models)
-        experiment_models = self.exp_model_repo.get_by_experiment(experiment.experiment_id)
-
-        for variant in experiment_models:
-            try:
-                self.run_model_repo.add(
-                    run_id=run.run_id,
-                    variant_id=variant.variant_id,
-                )
-                logger.debug(f"Associated variant {variant.variant_id} with run {run.run_id}")
-            except Exception:
-                # Association might already exist
-                logger.debug(f"Variant {variant.variant_id} already associated with run")
+        # Note: In TO-BE architecture, variants are NOT associated with runs at creation time.
+        # Variant filtering happens at execution time via --models flag.
+        # The Planner resolves which variants to execute based on the model_filter parameter.
 
         # Display success message
         self._show_run_creation_summary(run, experiment_name, seed_value, seed_source)
@@ -1242,37 +1160,6 @@ class RunManager:
 
         logger.warning(f"Invalid seed value: {seed}, using None")
         return None, "using default (off)"
-
-    def _register_base_model(self, model_id: str) -> None:
-        """Register base model if it doesn't exist.
-
-        Args:
-            model_id: Model identifier.
-        """
-        model_repo = ModelRepository(self.db_manager)
-        existing = model_repo.get_by_id(model_id)
-        if not existing:
-            from src.db.models import Model
-
-            if "/" in model_id:
-                parts = model_id.split("/", 1)
-                provider = parts[0]
-                model_name = parts[1] if len(parts) > 1 else model_id
-            else:
-                provider = "unknown"
-                model_name = model_id
-
-            model = Model(
-                model_id=model_id,
-                provider=provider,
-                model_name=model_name,
-            )
-
-            try:
-                model_repo.create(model)
-                logger.debug(f"Registered base model: {model_id}")
-            except Exception:
-                logger.debug(f"Base model registration conflict (ignored): {model_id}")
 
     def _create_model_variant(
         self,

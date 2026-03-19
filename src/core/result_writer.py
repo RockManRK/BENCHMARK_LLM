@@ -197,7 +197,6 @@ class ResultWriter:
             question_id=result.question_id,
             model_id=result.model_id,
             variant_id=result.variant_id,
-            iteration=result.iteration_number,
             selected_answer=result.selected_answer,
             response_text=result.response_text,
             is_correct=result.is_correct,
@@ -273,7 +272,7 @@ class ResultWriter:
     def _response_exists(self, result: ExecutionResult) -> bool:
         """Check if response already exists (idempotency check).
 
-        Key: (run_id, variant_id, snapshot_id, iteration_number)
+        Key: (run_id, variant_id, snapshot_id)
 
         Args:
             result: ExecutionResult to check
@@ -288,9 +287,9 @@ class ResultWriter:
             cursor.execute(
                 """
                 SELECT 1 FROM responses
-                WHERE run_id = ? AND variant_id = ? AND snapshot_id = ? AND iteration = ?
+                WHERE run_id = ? AND variant_id = ? AND snapshot_id = ?
                 """,
-                (result.run_id, result.variant_id, result.snapshot_id, result.iteration_number),
+                (result.run_id, result.variant_id, result.snapshot_id),
             )
             return cursor.fetchone() is not None
         finally:
@@ -300,7 +299,7 @@ class ResultWriter:
     def _error_exists(self, result: ExecutionResult) -> bool:
         """Check if error already exists (idempotency check).
 
-        Key: (run_id, variant_id, snapshot_id, iteration_number)
+        Key: (run_id, variant_id, snapshot_id)
 
         Args:
             result: ExecutionResult to check

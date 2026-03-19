@@ -145,9 +145,15 @@ Incremental Flow (add models to existing run):
 
         parser.add_argument(
             "--run",
+            type=str,
+            metavar="RUN_NAME",
+            help="Specify a run to execute. Use with --experiment. Example: --run run-001",
+        )
+
+        parser.add_argument(
+            "--execute",
             action="store_true",
-            dest="execute_run",
-            help="Execute the experiment run. Use with --experiment. Supports --models and --questions for filtering.",
+            help="Execute the specified run. Must be used with --run. Example: --run run-001 --execute",
         )
 
         # Manual review commands
