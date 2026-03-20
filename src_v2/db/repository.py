@@ -150,8 +150,7 @@ class ExperimentRepository:
         """
         cursor = self.conn.cursor()
         cursor.execute("""
-            UPDATE experiments
-            SET is_active = FALSE
+            UPDATE experiments SET is_active = FALSE
             WHERE experiment_id = ?
         """, (experiment_id,))
         self.conn.commit()
@@ -184,7 +183,7 @@ class VariantRepository:
         self.conn = conn
 
     def save(self, variant: ModelVariant) -> None:
-        """Insert or update model variant."""
+        """Insert or update variant."""
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO model_variants (
@@ -201,11 +200,11 @@ class VariantRepository:
             variant.reasoning_mode,
             variant.reasoning_effort,
             variant.max_output_tokens,
-            variant.vision_enabled,
-            variant.structured_output,
-            variant.web_access_enabled,
+            1 if variant.vision_enabled else 0,
+            1 if variant.structured_output else 0,
+            1 if variant.web_access_enabled else 0,
             variant.created_at,
-            variant.is_active,
+            1 if variant.is_active else 0,
         ))
         self.conn.commit()
 
@@ -225,16 +224,8 @@ class VariantRepository:
             return None
         return self._row_to_variant(row)
 
-    def get_by_signature(self, experiment_id: str, variant_signature: str) -> ModelVariant | None:
-        """Get variant by signature within an experiment.
-
-        Args:
-            experiment_id: Parent experiment ID.
-            variant_signature: Human-readable variant identity.
-
-        Returns:
-            ModelVariant dataclass or None if not found.
-        """
+    def get_by_signature(self, experiment_id: str, signature: str) -> ModelVariant | None:
+        """Get variant by signature within an experiment."""
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT variant_id, experiment_id, model_id, variant_signature,
@@ -243,22 +234,14 @@ class VariantRepository:
                    created_at, is_active
             FROM model_variants
             WHERE experiment_id = ? AND variant_signature = ?
-        """, (experiment_id, variant_signature))
+        """, (experiment_id, signature))
         row = cursor.fetchone()
         if row is None:
             return None
         return self._row_to_variant(row)
 
     def list_by_experiment(self, experiment_id: str, active_only: bool = True) -> list[ModelVariant]:
-        """List variants for an experiment.
-
-        Args:
-            experiment_id: Foreign key to filter by.
-            active_only: If True, only return active variants.
-
-        Returns:
-            List of ModelVariant dataclasses.
-        """
+        """List variants for an experiment."""
         cursor = self.conn.cursor()
         if active_only:
             cursor.execute("""
@@ -286,8 +269,7 @@ class VariantRepository:
         """Soft delete: set is_active = FALSE."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            UPDATE model_variants
-            SET is_active = FALSE
+            UPDATE model_variants SET is_active = FALSE
             WHERE variant_id = ?
         """, (variant_id,))
         self.conn.commit()
@@ -323,7 +305,7 @@ class SnapshotRepository:
         self.conn = conn
 
     def save(self, snapshot: QuestionSnapshot) -> None:
-        """Insert or update question snapshot."""
+        """Insert or update snapshot."""
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO question_snapshots (
@@ -336,7 +318,7 @@ class SnapshotRepository:
             snapshot.question_id,
             snapshot.question_payload,
             snapshot.created_at,
-            snapshot.is_active,
+            1 if snapshot.is_active else 0,
         ))
         self.conn.commit()
 
@@ -355,15 +337,7 @@ class SnapshotRepository:
         return self._row_to_snapshot(row)
 
     def get_by_experiment_and_question(self, experiment_id: str, question_id: str) -> QuestionSnapshot | None:
-        """Get snapshot by experiment and question ID.
-
-        Args:
-            experiment_id: Foreign key to experiments.
-            question_id: Original question identifier.
-
-        Returns:
-            QuestionSnapshot dataclass or None if not found.
-        """
+        """Get snapshot by experiment and question ID."""
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT snapshot_id, experiment_id, question_id, question_payload,
@@ -401,8 +375,7 @@ class SnapshotRepository:
         """Soft delete: set is_active = FALSE."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            UPDATE question_snapshots
-            SET is_active = FALSE
+            UPDATE question_snapshots SET is_active = FALSE
             WHERE snapshot_id = ?
         """, (snapshot_id,))
         self.conn.commit()
@@ -436,7 +409,8 @@ class RunRepository:
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO runs (
-                run_id, experiment_id, seed, status, started_at, finished_at, created_at
+                run_id, experiment_id, seed, status, started_at,
+                finished_at, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             run.run_id,
@@ -453,7 +427,8 @@ class RunRepository:
         """Get run by ID."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT run_id, experiment_id, seed, status, started_at, finished_at, created_at
+            SELECT run_id, experiment_id, seed, status, started_at,
+                   finished_at, created_at
             FROM runs
             WHERE run_id = ?
         """, (run_id,))
@@ -466,35 +441,19 @@ class RunRepository:
         """List runs for an experiment."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT run_id, experiment_id, seed, status, started_at, finished_at, created_at
+            SELECT run_id, experiment_id, seed, status, started_at,
+                   finished_at, created_at
             FROM runs
             WHERE experiment_id = ?
             ORDER BY created_at ASC
         """, (experiment_id,))
         return [self._row_to_run(row) for row in cursor.fetchall()]
 
-    def list_pending(self) -> list[Run]:
-        """List all pending runs."""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT run_id, experiment_id, seed, status, started_at, finished_at, created_at
-            FROM runs
-            WHERE status = 'pending'
-            ORDER BY created_at ASC
-        """)
-        return [self._row_to_run(row) for row in cursor.fetchall()]
-
     def update_status(self, run_id: str, status: str) -> None:
-        """Update run status.
-
-        Args:
-            run_id: Primary key.
-            status: New status ('pending', 'running', 'completed', 'failed', 'partial_failed').
-        """
+        """Update run status."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            UPDATE runs
-            SET status = ?
+            UPDATE runs SET status = ?
             WHERE run_id = ?
         """, (status, run_id))
         self.conn.commit()
@@ -612,6 +571,57 @@ class ResponseRepository:
         """)
         return [self._row_to_response(row) for row in cursor.fetchall()]
 
+    def update_manual_answer(self, response_id: str, manual_answer: str) -> None:
+        """Update manual answer and recalculate is_correct.
+
+        Args:
+            response_id: Response primary key.
+            manual_answer: Human-provided correct answer (A/B/C/D).
+
+        This method:
+        1. Sets manual_answer field
+        2. Recalculates is_correct by comparing manual_answer with answer_key
+        3. Preserves original parse_confidence
+
+        Note: The answer_key lookup requires joining with question_snapshots.
+        """
+        cursor = self.conn.cursor()
+
+        # Get the response to find snapshot_id
+        cursor.execute("""
+            SELECT snapshot_id FROM responses
+            WHERE response_id = ?
+        """, (response_id,))
+        row = cursor.fetchone()
+        if not row:
+            return
+
+        snapshot_id = row[0]
+
+        # Get answer_key from snapshot
+        cursor.execute("""
+            SELECT question_payload FROM question_snapshots
+            WHERE snapshot_id = ?
+        """, (snapshot_id,))
+        snap_row = cursor.fetchone()
+        if not snap_row:
+            return
+
+        import json
+        payload = json.loads(snap_row[0])
+        answer_key = payload.get('answer_key', '')
+
+        # Calculate is_correct
+        is_correct = manual_answer.upper() == answer_key.upper() if answer_key else None
+
+        # Update response
+        cursor.execute("""
+            UPDATE responses
+            SET manual_answer = ?, is_correct = ?
+            WHERE response_id = ?
+        """, (manual_answer.upper(), is_correct, response_id))
+        self.conn.commit()
+
     @staticmethod
     def _calculate_needs_review(parse_confidence: str | None, selected_answer: str | None) -> bool:
         """Calculate needs_review flag.
@@ -639,7 +649,7 @@ class ResponseRepository:
             question_id=row["question_id"],
             response_text=row["response_text"],
             selected_answer=row["selected_answer"],
-            is_correct=row["is_correct"],
+            is_correct=bool(row["is_correct"]) if row["is_correct"] is not None else None,
             parse_confidence=row["parse_confidence"],
             needs_review=bool(row["needs_review"]),
             manual_answer=row["manual_answer"],
