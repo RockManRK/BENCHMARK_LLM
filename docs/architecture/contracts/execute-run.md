@@ -88,27 +88,26 @@ pertencentes a um experimento, respeitando:
 
 ## 8. Fase E — Construir ExecutionPlan (DB READ)
 
-12. Para cada combinação:
+12. Para cada run elegível:
+    - Para cada variante ativa:
+        - Para cada snapshot:
+            - Construir combinação `(run_id, variant_id, snapshot_id)`
+
+13. Verificar se já existe resposta persistida (deduplicação **por run**, não cruzada):
 
 ```
-(run_id, variant_id, snapshot_id)
-```
-
-13. Verificar se já existe resposta persistida:
-
-```
-WHERE run_id
-  AND variant_id
-  AND snapshot_id
+WHERE run_id = ? AND variant_id = ? AND snapshot_id = ?
 ```
 
 14. Se não existir:
-   - incluir item no ExecutionPlan
+   - incluir item na lista **deste run**
 
 15. Se o plano estiver vazio:
-   - encerrar com mensagem “Tudo já foi processado”
+   - encerrar com mensagem "Tudo já foi processado"
 
 📌 O ExecutionPlan é **imutável e auto‑suficiente**
+
+📌 **Estrutura do plano**: Cada run contém sua própria lista plana de items. **Não há deduplicação cruzada entre runs**. A chave de unicidade é `(run_id, variant_id, snapshot_id)` dentro do contexto de um único run.
 
 ---
 

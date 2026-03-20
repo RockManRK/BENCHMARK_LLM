@@ -117,6 +117,7 @@ It:
 - updates run status
 - guarantees idempotency
 - supports partial reexecution
+- **calculates `needs_review`** from `parse_confidence` and `selected_answer`
 
 It:
 - does not execute models
@@ -124,6 +125,24 @@ It:
 - does not create identity
 
 📄 See: `docs/architecture/result-writer.md`
+
+#### Review Fields (Manual Review Workflow)
+
+The ResultWriter handles review-related fields in the `responses` table:
+
+| Field | Purpose | Set By |
+|-------|---------|--------|
+| `parse_confidence` | Parser confidence level | ExecutionEngine |
+| `selected_answer` | Parsed answer (A/B/C/D) | ExecutionEngine |
+| `needs_review` | Derived flag for human review | **ResultWriter** (calculated) |
+| `manual_answer` | Human-corrected answer | Reviewer (post-execution) |
+
+The `needs_review` flag is calculated as:
+```
+needs_review = TRUE if (parse_confidence != 'clear' OR selected_answer IS NULL)
+```
+
+📄 See: `docs/architecture/contracts/domain-review-contract.md`
 
 ---
 

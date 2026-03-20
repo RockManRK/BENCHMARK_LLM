@@ -1,1 +1,1 @@
-"""Test module for benchmark_llm project."""
+"""Test package for benchmark_llm project."""

@@ -130,15 +130,15 @@ Reviewed 7 architectural documents for internal conflicts, ambiguities, and gaps
 
 ## Approval Status
 
-- [ ] Ready for Phase 2 (no critical conflicts)
-- [x] Needs resolution (critical conflicts found)
+- [x] Ready for Phase 2 (no critical conflicts)
+- [ ] Needs resolution (critical conflicts found)
 
-**Rationale**: Three critical conflicts were identified that would cause implementation confusion:
-1. ExecutionPlan structure ambiguity would lead to incorrect data modeling
-2. Run status mismatch would cause state machine bugs
-3. Review field ownership ambiguity would cause incorrect responsibility assignment
+**Resolution Log** (2026-03-20):
+- ✅ **Conflict 1** (ExecutionPlan structure): Resolved — Added explicit statement to `execute-run.md` clarifying per-run deduplication, no cross-run.
+- ✅ **Conflict 2** (Run status lifecycle): Resolved — Added `pending` status to `result-writer.md` with full lifecycle table and transition rules.
+- ✅ **Conflict 3** (Review field ownership): Resolved — Added Section 10 to `result-writer.md` explicitly stating ResultWriter calculates `needs_review`. Updated QWEN.md to include review fields.
 
-These must be resolved before Phase 2 (AS-IS Inventory) begins, as the legacy code analysis will be guided by these contracts.
+**Current Status**: All critical conflicts resolved. **Phase 2 is cleared to begin.**
 
 ---
 

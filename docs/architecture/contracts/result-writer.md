@@ -130,9 +130,17 @@ errors
 
 ### 7. Atualização de Status do Run
 
-Após persistir todos os resultados de um run:
+#### Ciclo de vida completo do status
 
-#### Regras de status
+| Status | Quando ocorre | Transição seguinte |
+|--------|---------------|-------------------|
+| `pending` | Run criado pelo `--create-run` | → `running` (quando Planner emite ExecutionPlan) |
+| `running` | ExecutionPlan emitido, execução em andamento | → `completed`, `partial_failed`, ou `failed` |
+| `completed` | Todos os items processados com sucesso | (terminal) |
+| `partial_failed` | Alguns items falharam, outros succeeded | → `running` (reexecução parcial) |
+| `failed` | Todos os items falharam | → `running` (reexecução) |
+
+#### Regras de atualização (após persistir resultados)
 
 | Condição | Status |
 |--------|--------|
@@ -142,6 +150,8 @@ Após persistir todos os resultados de um run:
 | Ainda há itens pendentes | `running` |
 
 📌 O ResultWriter **não cria novos runs**.
+
+📌 **Transição `pending` → `running`**: Ocorre quando o Planner emite o ExecutionPlan com sucesso. Se o Planner falhar (ex: sem modelos, sem snapshots), o run permanece `pending` até que as condições sejam resolvidas.
 
 ---
 
@@ -172,5 +182,43 @@ Isso permite:
 - ResultWriter não depende de settings globais
 - ResultWriter não conhece ExecutionEngine
 - ResultWriter não conhece CLI
+
+---
+
+### 10. Campos de Review (Manual Review Workflow)
+
+O ResultWriter é responsável por calcular e persistir campos relacionados ao review manual de respostas.
+
+#### Campos de review na tabela `responses`
+
+| Campo | Tipo | Quem define | Quando |
+|-------|------|-------------|--------|
+| `parse_confidence` | TEXT | ExecutionEngine | Durante parsing da resposta |
+| `selected_answer` | TEXT | ExecutionEngine | Durante parsing da resposta |
+| `needs_review` | BOOLEAN | **ResultWriter** (derivado) | Antes do INSERT |
+| `manual_answer` | TEXT | Reviewer humano | Pós-execução (opcional) |
+
+#### Regra de cálculo: `needs_review`
+
+O ResultWriter **calcula** `needs_review` antes de persistir:
+
+```python
+needs_review = (
+    parse_confidence in ('ambiguous', 'no_answer', 'low_confidence')
+    OR selected_answer IS NULL
+)
+```
+
+| `parse_confidence` | `selected_answer` | `needs_review` |
+|--------------------|-------------------|----------------|
+| `'clear'` | não-NULL | FALSE |
+| `'ambiguous'` | qualquer | TRUE |
+| `'no_answer'` | qualquer | TRUE |
+| `'low_confidence'` | qualquer | TRUE |
+| qualquer | NULL | TRUE |
+
+📌 **Importante**: O ExecutionEngine retorna `parse_confidence` e `selected_answer`. O ResultWriter **deriva** `needs_review` antes do INSERT. O campo `is_correct` é derivado em query-time baseado em `manual_answer` (se existir) ou `selected_answer`.
+
+📄 Ver: `docs/architecture/contracts/domain-review-contract.md`
 
 ---
