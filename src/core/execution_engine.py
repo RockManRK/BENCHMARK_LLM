@@ -138,9 +138,9 @@ class ExecutionEngine:
         # seed=None means "no randomization, preserve natural order"
         if self.randomizer and plan_run.seed_effective is not None:
             self.randomizer.reset_seed(plan_run.seed_effective)
-            logger.debug(f"Randomizer initialized with seed={plan_run.seed_effective}")
+            logger.debug(f"Randomizer set seed={plan_run.seed_effective}")
         elif self.randomizer:
-            logger.debug("seed_effective is None, skipping randomization (natural order)")
+            logger.debug("seed_effective is None, randomization disabled (natural order)")
 
         # Execute all items
         for item in plan_run.items:
@@ -200,9 +200,18 @@ class ExecutionEngine:
 
             if should_randomize:
                 # Randomize options and get new correct answer
-                randomized = self.randomizer._randomize_options(options, correct_answer)
+                randomized = self.randomizer.randomize_options(options, correct_answer)
                 randomized_options = randomized["options"]
                 randomized_correct = randomized["correct_answer"]
+
+                # Build reverse mapping: randomized letter -> canonical letter
+                # This is needed to store canonical answer in database
+                reverse_mapping = {}
+                for canonical_letter, option_text in options.items():
+                    for randomized_letter, randomized_text in randomized_options.items():
+                        if option_text == randomized_text:
+                            reverse_mapping[randomized_letter] = canonical_letter
+                            break
 
                 # Rebuild options text with randomized order
                 options_text = "\n".join([f"{k}) {v}" for k, v in randomized_options.items()])
@@ -220,6 +229,7 @@ class ExecutionEngine:
             else:
                 # No randomization: use original order
                 randomized_correct = correct_answer
+                reverse_mapping = None  # No mapping needed
                 if plan_run.seed_effective is None:
                     logger.debug(f"Question {item.question_id}: no randomization (seed=None)")
 
@@ -270,8 +280,15 @@ class ExecutionEngine:
                     )
                 )
 
-            # Parse response
+            # Parse response (compares against randomized_correct)
             parsed = self._parse_api_response(api_response, randomized_correct)
+
+            # Map randomized answer back to canonical letter for storage
+            # Database stores ONLY canonical answers (per contract)
+            canonical_selected_answer = parsed.get("selected_answer")
+            if reverse_mapping and canonical_selected_answer:
+                canonical_selected_answer = reverse_mapping.get(canonical_selected_answer, canonical_selected_answer)
+                logger.debug(f"Mapped randomized answer {parsed.get('selected_answer')} -> canonical {canonical_selected_answer}")
 
             # Calculate latency
             latency_ms = int((time.time() - start_time) * 1000)
@@ -279,7 +296,7 @@ class ExecutionEngine:
             # Extract token usage
             tokens = self._extract_token_usage(api_response)
 
-            # Build execution result
+            # Build execution result (with CANONICAL selected_answer)
             result = ExecutionResult(
                 item_id=item.item_id,
                 run_id=item.run_id,
@@ -290,8 +307,8 @@ class ExecutionEngine:
                 iteration_number=item.iteration_number,
                 status="success",
                 response_text=parsed.get("response_text", ""),
-                selected_answer=parsed.get("selected_answer"),
-                is_correct=parsed.get("is_correct"),
+                selected_answer=canonical_selected_answer,  # Canonical, not randomized
+                is_correct=parsed.get("is_correct"),  # Evaluated against randomized (correct for the model's view)
                 latency_ms=latency_ms,
                 input_tokens=tokens.get("input_tokens", 0),
                 output_tokens=tokens.get("output_tokens", 0),

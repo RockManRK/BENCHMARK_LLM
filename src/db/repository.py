@@ -1318,7 +1318,7 @@ class QuestionSnapshotRepository:
 
     def create_if_not_exists(
         self, experiment_id: str, question_id: str, question_payload: str
-    ) -> int:
+    ) -> str:
         """Create a snapshot if it doesn't exist, return snapshot_id.
 
         This is the primary method for ensuring snapshot immutability.
@@ -1334,7 +1334,7 @@ class QuestionSnapshotRepository:
             question_payload: Complete JSON representation of the question.
 
         Returns:
-            The snapshot_id (either newly created or existing).
+            The snapshot_id (string, generated explicitly).
 
         Raises:
             ValueError: If experiment_id is None or empty.
@@ -1347,7 +1347,7 @@ class QuestionSnapshotRepository:
             ...     question_payload='{"id": "Q001", "stem": "What is 2+2?"}'
             ... )
             >>> print(snapshot_id)
-            1
+            'snap-20260319-abc123'
         """
         if not experiment_id:
             raise ValueError("experiment_id is required and cannot be None or empty")
@@ -1371,16 +1371,23 @@ class QuestionSnapshotRepository:
                 )
                 return existing["snapshot_id"]
 
-            # Create new snapshot
+            # Generate snapshot_id explicitly (TEXT PRIMARY KEY)
+            import hashlib
+            import time
+            timestamp = str(int(time.time() * 1000))  # milliseconds
+            hash_input = f"{experiment_id}:{question_id}:{timestamp}"
+            hash_hex = hashlib.sha256(hash_input.encode()).hexdigest()[:8]
+            snapshot_id = f"snap-{timestamp}-{hash_hex}"
+
+            # Create new snapshot with explicit snapshot_id
             cursor.execute(
                 """
-                INSERT INTO question_snapshots (experiment_id, question_id, question_payload)
-                VALUES (?, ?, ?)
+                INSERT INTO question_snapshots (snapshot_id, experiment_id, question_id, question_payload)
+                VALUES (?, ?, ?, ?)
                 """,
-                (experiment_id, question_id, question_payload),
+                (snapshot_id, experiment_id, question_id, question_payload),
             )
             conn.commit()
-            snapshot_id = cursor.lastrowid
             logger.info(
                 f"Created snapshot {snapshot_id} for experiment={experiment_id}, question={question_id}"
             )
@@ -1394,8 +1401,15 @@ class QuestionSnapshotRepository:
             if self.db_manager.should_close_connection():
                 conn.close()
 
-    def get_by_id(self, snapshot_id: int) -> Optional[QuestionSnapshot]:
-        """Retrieve a snapshot by its ID."""
+    def get_by_id(self, snapshot_id: str) -> Optional[QuestionSnapshot]:
+        """Retrieve a snapshot by its ID.
+
+        Args:
+            snapshot_id: String identifier of the snapshot.
+
+        Returns:
+            QuestionSnapshot if found, None otherwise.
+        """
         conn = self.db_manager.get_connection()
         try:
             cursor = conn.cursor()
@@ -1409,8 +1423,10 @@ class QuestionSnapshotRepository:
             row = cursor.fetchone()
             if row is None:
                 return None
+            # Convert snapshot_id to string (may be int from legacy or str from new format)
+            result_snapshot_id = str(row["snapshot_id"]) if row["snapshot_id"] is not None else ""
             return QuestionSnapshot(
-                snapshot_id=row["snapshot_id"],
+                snapshot_id=result_snapshot_id,
                 experiment_id=row["experiment_id"],
                 question_id=row["question_id"],
                 question_payload=row["question_payload"],
@@ -1435,9 +1451,11 @@ class QuestionSnapshotRepository:
             )
             snapshots = []
             for row in cursor.fetchall():
+                # Convert snapshot_id to string (may be int from legacy or str from new format)
+                snapshot_id = str(row["snapshot_id"]) if row["snapshot_id"] is not None else ""
                 snapshots.append(
                     QuestionSnapshot(
-                        snapshot_id=row["snapshot_id"],
+                        snapshot_id=snapshot_id,
                         experiment_id=row["experiment_id"],
                         question_id=row["question_id"],
                         question_payload=row["question_payload"],

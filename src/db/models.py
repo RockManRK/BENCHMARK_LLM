@@ -273,7 +273,7 @@ class QuestionSnapshot:
     question_id: str
     question_payload: str
     experiment_id: str
-    snapshot_id: Optional[int | str] = None  # Can be int (SQLite rowid) or TEXT (future UUID)
+    snapshot_id: str  # TEXT PRIMARY KEY - generated explicitly by application
     created_at: Optional[datetime] = None
 
 
@@ -364,12 +364,10 @@ class Response:
     def __post_init__(self) -> None:
         """Validate response data after initialization.
 
-        Ensures consistency between snapshot_id and question_id.
+        Ensures snapshot_id is a non-empty string.
         """
-        # Note: Full validation (checking snapshot JSON) requires database access
-        # and should be done in the repository layer. This is a basic sanity check.
-        if not self.snapshot_id or self.snapshot_id <= 0:
-            raise ValueError("snapshot_id must be a positive integer")
+        if not self.snapshot_id or not isinstance(self.snapshot_id, str):
+            raise ValueError("snapshot_id must be a non-empty string")
         if not self.question_id or not isinstance(self.question_id, str):
             raise ValueError("question_id must be a non-empty string")
 

@@ -35,23 +35,32 @@ class AnswerRandomizer:
         '{"A": "Option C", "B": "Option A", "C": "Option D", "D": "Option B"}'
     """
 
-    def __init__(self, run_id: int) -> None:
+    def __init__(self, run_id: Optional[int] = None) -> None:
         """Initialize the AnswerRandomizer.
 
         Sets the global random seed for reproducibility based on run_id.
         The run_id should come from run.seed (single source of truth).
 
+        If run_id is None, randomization is DISABLED (natural order preserved).
+
         Args:
             run_id: Unique identifier used as random seed for reproducibility.
                    Should be the value from run.seed database field.
+                   If None, randomization is disabled.
 
         Example:
             >>> randomizer = AnswerRandomizer(run_id=12345)
             >>> # Same run_id will always produce same randomization
+            >>> randomizer_disabled = AnswerRandomizer(run_id=None)
+            >>> # No randomization applied
         """
         self.run_id = run_id
-        random.seed(run_id)
-        logger.debug(f"AnswerRandomizer initialized with seed {run_id}")
+        self._randomization_enabled = run_id is not None
+        if self._randomization_enabled:
+            random.seed(run_id)
+            logger.debug(f"AnswerRandomizer initialized with seed {run_id}")
+        else:
+            logger.debug("AnswerRandomizer initialized with randomization DISABLED (run_id=None)")
 
     def randomize(self, question: Question) -> Question:
         """Randomize the answer options for a question.
@@ -60,18 +69,26 @@ class AnswerRandomizer:
         tracking the original mapping. The correct answer is remapped
         to point to the new letter containing the original correct text.
 
+        If randomization is disabled (run_id=None), returns the original
+        question unchanged (deep copy).
+
         Args:
             question: The Question object to randomize.
 
         Returns:
-            A new Question object with randomized options and remapped
-            correct answer. The original question is not modified.
+            A new Question object with randomized options (or unchanged if
+            randomization is disabled). The original question is not modified.
 
         Example:
             >>> randomizer = AnswerRandomizer(run_id=42)
             >>> randomized = randomizer.randomize(question)
             >>> # Original correct answer "A" might now be at position "C"
         """
+        # If randomization is disabled, return unchanged copy
+        if not self._randomization_enabled:
+            logger.debug(f"Randomization disabled, returning question {question.question_id} unchanged")
+            return deepcopy(question)
+
         # Parse options from JSON
         original_options = json.loads(question.options_json)
         original_correct_answer = question.correct_answer
@@ -93,7 +110,7 @@ class AnswerRandomizer:
 
         # Create a deep copy to avoid modifying the original
         randomized_question = deepcopy(question)
-        
+
         # Update the randomized question with new options JSON
         randomized_question.options_json = json.dumps(new_options)
         randomized_question.correct_answer = new_correct_answer
@@ -182,6 +199,65 @@ class AnswerRandomizer:
                     break
 
         return mapping
+
+    def randomize_options(
+        self, options: dict[str, str], correct_answer: str
+    ) -> dict[str, dict[str, str] | str]:
+        """Randomize answer options and return mapping.
+
+        This method shuffles the option values using Fisher-Yates algorithm
+        and returns the new options dictionary with the remapped correct answer.
+
+        If randomization is disabled (run_id=None), returns options unchanged.
+
+        Args:
+            options: Dictionary of option letter -> text (e.g., {"A": "Paris", "B": "London"}).
+            correct_answer: The letter of the correct answer (e.g., "A").
+
+        Returns:
+            Dictionary with:
+            - "options": New options dictionary with shuffled values
+            - "correct_answer": New letter that contains the correct answer text
+
+        Example:
+            >>> randomizer = AnswerRandomizer(run_id=42)
+            >>> result = randomizer.randomize_options(
+            ...     {"A": "Paris", "B": "London", "C": "Berlin", "D": "Madrid"},
+            ...     "A"
+            ... )
+            >>> # result["options"] might be {"A": "London", "B": "Paris", ...}
+            >>> # result["correct_answer"] would be "B" (where "Paris" moved to)
+        """
+        # If randomization is disabled, return unchanged
+        if not self._randomization_enabled:
+            return {
+                "options": options,
+                "correct_answer": correct_answer,
+            }
+
+        # Get the text of the correct answer
+        correct_answer_text = options.get(correct_answer, "")
+
+        # Fisher-Yates shuffle on the option values
+        option_values = list(options.values())
+        shuffled_values = self._fisher_yates_shuffle(option_values)
+
+        # Create new options dictionary with standard letters
+        new_options = {}
+        for i, letter in enumerate(OPTION_LETTERS[: len(shuffled_values)]):
+            new_options[letter] = shuffled_values[i]
+
+        # Find the new letter that contains the correct answer
+        new_correct_answer = self._find_correct_letter(new_options, correct_answer_text)
+
+        logger.debug(
+            f"Randomized options: original correct={correct_answer}, new correct={new_correct_answer}"
+        )
+
+        return {
+            "options": new_options,
+            "correct_answer": new_correct_answer,
+        }
 
     def reset_seed(self, run_id: Optional[int] = None) -> None:
         """Reset the random seed.

@@ -915,7 +915,7 @@ class BenchmarkRunner:
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
             )
-            randomizer = AnswerRandomizer(run_id=0)  # Initial seed doesn't matter - will be reset per run
+            randomizer = AnswerRandomizer(run_id=None)  # Will be set per-run from plan_run.seed_effective
 
             # Create engine WITHOUT db_manager - pure execution only
             engine = ExecutionEngine(
