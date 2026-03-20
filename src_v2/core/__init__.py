@@ -34,6 +34,11 @@ from src_v2.core.result_writer import (
     WriteReport,
 )
 
+from src_v2.core.planner import (
+    Planner,
+    PlannerValidationError,
+)
+
 __all__ = [
     # Execution Plan
     'ExecutionPlan',
@@ -55,4 +60,7 @@ __all__ = [
     # Result Writer
     'ResultWriter',
     'WriteReport',
+    # Planner
+    'Planner',
+    'PlannerValidationError',
 ]
