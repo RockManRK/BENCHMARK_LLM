@@ -12,7 +12,7 @@ Key Principles:
 Example:
     >>> import sqlite3
     >>> from src_v2.core.result_writer import ResultWriter
-    >>> 
+    >>>
     >>> conn = sqlite3.connect(':memory:')
     >>> writer = ResultWriter(conn)
     >>> report = writer.write_results(results)
@@ -178,6 +178,50 @@ class ResultWriter:
         # Clear confidence with answer = no review needed
         return False
 
+    def _generate_response_id(
+        self,
+        run_id: str,
+        variant_id: str,
+        snapshot_id: str,
+    ) -> str:
+        """Generate deterministic response ID from item components.
+
+        Args:
+            run_id: Run identifier
+            variant_id: Variant identifier
+            snapshot_id: Snapshot identifier
+
+        Returns:
+            Response ID in format 'resp-{run_id}-{variant_id}-{snapshot_id}'
+
+        Example:
+            >>> response_id = writer._generate_response_id('run-001', 'var-abc', 'snap-xyz')
+            >>> assert response_id == 'resp-run-001-var-abc-snap-xyz'
+        """
+        return f"resp-{run_id}-{variant_id}-{snapshot_id}"
+
+    def _generate_error_id(
+        self,
+        run_id: str,
+        variant_id: str,
+        snapshot_id: str,
+    ) -> str:
+        """Generate deterministic error ID from item components.
+
+        Args:
+            run_id: Run identifier
+            variant_id: Variant identifier
+            snapshot_id: Snapshot identifier
+
+        Returns:
+            Error ID in format 'err-{run_id}-{variant_id}-{snapshot_id}'
+
+        Example:
+            >>> error_id = writer._generate_error_id('run-001', 'var-abc', 'snap-xyz')
+            >>> assert error_id == 'err-run-001-var-abc-snap-xyz'
+        """
+        return f"err-{run_id}-{variant_id}-{snapshot_id}"
+
     def _write_response(self, result: ExecutionResult) -> bool:
         """Write single response with idempotency.
 
@@ -209,7 +253,11 @@ class ResultWriter:
         model_id = self._get_model_id_from_variant(result.variant_id)
 
         # Generate response_id (deterministic from item components)
-        response_id = f"resp-{result.run_id}-{result.variant_id}-{result.snapshot_id}"
+        response_id = self._generate_response_id(
+            result.run_id,
+            result.variant_id,
+            result.snapshot_id,
+        )
 
         # INSERT OR IGNORE (idempotency via UNIQUE constraint)
         cursor.execute("""
@@ -255,7 +303,11 @@ class ResultWriter:
         model_id = self._get_model_id_from_variant(result.variant_id)
 
         # Generate error_id
-        error_id = f"err-{result.run_id}-{result.variant_id}-{result.snapshot_id}"
+        error_id = self._generate_error_id(
+            result.run_id,
+            result.variant_id,
+            result.snapshot_id,
+        )
 
         cursor.execute("""
             INSERT INTO errors (
