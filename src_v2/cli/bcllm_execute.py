@@ -29,10 +29,9 @@ CRITICAL: This module is ORCHESTRATION ONLY.
 """
 
 import argparse
-import sqlite3
 import sys
 
-from src_v2.db import create_schema
+from src_v2.cli.database import get_database_connection
 from src_v2.db.repository import ExperimentRepository, RunRepository
 from src_v2.core.planner import Planner, PlannerValidationError
 from src_v2.core.execution_engine import ExecutionEngine
@@ -194,11 +193,7 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
-    # Initialize database connection
-    # Note: In production, this would use a real database file
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    create_schema(conn)
+    conn = get_database_connection()
 
     try:
         if args.execute:
@@ -210,10 +205,7 @@ def main() -> int:
         print("\nExecution interrupted by user.", file=sys.stderr)
         return 130
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass  # Ignore errors closing in-memory DB
+        conn.close()
 
 
 if __name__ == "__main__":

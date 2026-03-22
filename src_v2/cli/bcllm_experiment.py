@@ -19,12 +19,10 @@ Exit Codes:
 """
 
 import argparse
-import sqlite3
 import sys
 import uuid
-from pathlib import Path
 
-from src_v2.db import create_schema
+from src_v2.cli.database import get_database_connection
 from src_v2.db.repository import ExperimentRepository
 from src_v2.db.models import Experiment
 
@@ -200,19 +198,19 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
-    # Initialize database connection
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    create_schema(conn)
+    conn = get_database_connection()
 
-    if args.create_experiment:
-        return handle_create_experiment(args, conn)
-    elif args.experiment:
-        return handle_show_experiment(args, conn)
-    elif args.list_experiments:
-        return handle_list_experiments(args, conn)
-    elif args.remove_experiment:
-        return handle_remove_experiment(args, conn)
-    else:
-        parser.print_help()
-        return 1
+    try:
+        if args.create_experiment:
+            return handle_create_experiment(args, conn)
+        elif args.experiment:
+            return handle_show_experiment(args, conn)
+        elif args.list_experiments:
+            return handle_list_experiments(args, conn)
+        elif args.remove_experiment:
+            return handle_remove_experiment(args, conn)
+        else:
+            parser.print_help()
+            return 1
+    finally:
+        conn.close()

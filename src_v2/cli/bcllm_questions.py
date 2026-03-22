@@ -19,11 +19,10 @@ Exit Codes:
 import argparse
 import json
 import re
-import sqlite3
 import sys
 import uuid
 
-from src_v2.db import create_schema
+from src_v2.cli.database import get_database_connection
 from src_v2.db.models import QuestionSnapshot
 from src_v2.db.repository import ExperimentRepository, SnapshotRepository
 
@@ -279,20 +278,20 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
-    # Initialize database connection
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    create_schema(conn)
+    conn = get_database_connection()
 
-    if args.add_questions:
-        return handle_add_questions(args, conn)
-    elif args.list_questions:
-        return handle_list_questions(args, conn)
-    elif args.remove_question:
-        return handle_remove_question(args, conn)
-    else:
-        parser.print_help()
-        return 1
+    try:
+        if args.add_questions:
+            return handle_add_questions(args, conn)
+        elif args.list_questions:
+            return handle_list_questions(args, conn)
+        elif args.remove_question:
+            return handle_remove_question(args, conn)
+        else:
+            parser.print_help()
+            return 1
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
