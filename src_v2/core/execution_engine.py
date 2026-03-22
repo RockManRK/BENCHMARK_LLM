@@ -370,6 +370,11 @@ class ExecutionEngine:
         """
         import asyncio
 
+        # Build response_format if structured_output is enabled
+        response_format: dict[str, Any] | None = None
+        if model_config.structured_output:
+            response_format = {"type": "json_object"}
+
         try:
             # Try to get the current event loop
             loop = asyncio.get_event_loop()
@@ -385,6 +390,7 @@ class ExecutionEngine:
                             temperature=model_config.temperature,
                             top_p=model_config.top_p,
                             max_tokens=model_config.max_output_tokens,
+                            response_format=response_format,
                         )
                     )
                     return future.result()
@@ -397,6 +403,7 @@ class ExecutionEngine:
                         temperature=model_config.temperature,
                         top_p=model_config.top_p,
                         max_tokens=model_config.max_output_tokens,
+                        response_format=response_format,
                     )
                 )
         except RuntimeError:
@@ -408,6 +415,7 @@ class ExecutionEngine:
                     temperature=model_config.temperature,
                     top_p=model_config.top_p,
                     max_tokens=model_config.max_output_tokens,
+                    response_format=response_format,
                 )
             )
 

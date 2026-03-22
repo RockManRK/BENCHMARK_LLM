@@ -43,7 +43,7 @@ def test_add_model_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -69,7 +69,7 @@ def test_add_model_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -99,7 +99,7 @@ def test_add_model_invalid_model_id_format(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -110,6 +110,96 @@ def test_add_model_invalid_model_id_format(in_memory_db, capsys):
             captured = capsys.readouterr()
             assert "invalid" in captured.err.lower()
             assert "model id" in captured.err.lower()
+
+
+@pytest.mark.domain_rule
+def test_add_model_with_dots_in_model_name(in_memory_db, capsys):
+    """--add-model succeeds with dots in model name (e.g., gemini-3.1)."""
+    # Arrange
+    from src_v2.cli.bcllm_model import main as model_main
+
+    # Pre-create experiment
+    exp = ExperimentFactory.create(name="test-exp")
+    _insert_experiment(in_memory_db, exp)
+
+    test_args = [
+        "bcllm_model.py",
+        "--experiment", "test-exp",
+        "--add-model", "google/gemini-3.1-flash-lite-preview",
+    ]
+
+    with patch.object(sys, "argv", test_args):
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            mock_connect.return_value = in_memory_db
+
+            # Act
+            result = model_main()
+
+            # Assert
+            assert result == 0
+            captured = capsys.readouterr()
+            assert "added" in captured.out.lower()
+            assert "google/gemini-3.1-flash-lite-preview" in captured.out
+
+
+@pytest.mark.domain_rule
+def test_add_model_with_colon_suffix(in_memory_db, capsys):
+    """--add-model succeeds with colon suffix (e.g., :free)."""
+    # Arrange
+    from src_v2.cli.bcllm_model import main as model_main
+
+    # Pre-create experiment
+    exp = ExperimentFactory.create(name="test-exp")
+    _insert_experiment(in_memory_db, exp)
+
+    test_args = [
+        "bcllm_model.py",
+        "--experiment", "test-exp",
+        "--add-model", "stepfun/step-3.5-flash:free",
+    ]
+
+    with patch.object(sys, "argv", test_args):
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            mock_connect.return_value = in_memory_db
+
+            # Act
+            result = model_main()
+
+            # Assert
+            assert result == 0
+            captured = capsys.readouterr()
+            assert "added" in captured.out.lower()
+            assert "stepfun/step-3.5-flash:free" in captured.out
+
+
+@pytest.mark.domain_rule
+def test_add_model_with_multiple_special_chars(in_memory_db, capsys):
+    """--add-model succeeds with mixed special characters."""
+    # Arrange
+    from src_v2.cli.bcllm_model import main as model_main
+
+    # Pre-create experiment
+    exp = ExperimentFactory.create(name="test-exp")
+    _insert_experiment(in_memory_db, exp)
+
+    test_args = [
+        "bcllm_model.py",
+        "--experiment", "test-exp",
+        "--add-model", "nvidia/nemotron-3-super-120b-a12b:free",
+    ]
+
+    with patch.object(sys, "argv", test_args):
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            mock_connect.return_value = in_memory_db
+
+            # Act
+            result = model_main()
+
+            # Assert
+            assert result == 0
+            captured = capsys.readouterr()
+            assert "added" in captured.out.lower()
+            assert "nvidia/nemotron-3-super-120b-a12b:free" in captured.out
 
 
 @pytest.mark.domain_rule
@@ -138,7 +228,7 @@ def test_add_model_variant_signature_collision(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -170,7 +260,7 @@ def test_list_models_empty(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -219,7 +309,7 @@ def test_list_models_with_data(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -265,7 +355,7 @@ def test_list_models_for_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -307,7 +397,7 @@ def test_remove_model_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -343,7 +433,7 @@ def test_remove_model_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -383,7 +473,7 @@ def test_remove_model_from_wrong_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -417,7 +507,7 @@ class TestAddModelIntegration:
             "--add-model", "openai/gpt-4",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0
@@ -430,7 +520,7 @@ class TestAddModelIntegration:
             "--list-models",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0
@@ -452,14 +542,14 @@ class TestAddModelIntegration:
             "--add-model", "openai/gpt-4",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0
 
         # Try to add same model again
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 1
@@ -485,7 +575,7 @@ class TestRemoveModelIntegration:
             "--add-model", "openai/gpt-4",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 model_main()
 
@@ -501,7 +591,7 @@ class TestRemoveModelIntegration:
             "--remove-model", variant_id,
         ]
         with patch.object(sys, "argv", remove_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 model_main()
 
@@ -515,7 +605,7 @@ class TestRemoveModelIntegration:
             "--list-models",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.bcllm_model.sqlite3.connect") as mock_connect:
+            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0

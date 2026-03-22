@@ -17,13 +17,13 @@ Exit Codes:
 """
 
 import argparse
-import re
 import sys
 import uuid
 
 from src_v2.cli.database import get_database_connection
 from src_v2.db.models import ModelVariant
 from src_v2.db.repository import ExperimentRepository, VariantRepository
+from src_v2.validators.model_id_validator import validate_model_id
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -98,19 +98,6 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     return parser
-
-
-def validate_model_id(model_id: str) -> bool:
-    """Validate model ID format (provider/model-name).
-
-    Args:
-        model_id: Model identifier to validate.
-
-    Returns:
-        True if format is valid, False otherwise.
-    """
-    pattern = r'^[a-z0-9_-]+/[a-z0-9_-]+$'
-    return bool(re.match(pattern, model_id, re.IGNORECASE))
 
 
 def handle_add_model(args, conn) -> int:

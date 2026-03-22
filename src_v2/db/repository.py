@@ -13,9 +13,6 @@ Each repository:
 - Provides save(), get_by_id(), list_all() methods
 - Supports soft delete via deactivate()
 - Uses dataclasses for type-safe I/O
-
-PHASE1_TRACKING: ~690 lines (exceeds 400-500 target - contains all 6 repositories)
-Consider splitting into separate files per repository in future phases.
 """
 
 import sqlite3
@@ -404,27 +401,43 @@ class RunRepository:
         """Initialize with database connection."""
         self.conn = conn
 
-    def save(self, run: Run) -> None:
-        """Insert or update run."""
+    def save(self, run: Run, system_prompt: str = "", user_prompt: str = "") -> None:
+        """Insert or update run.
+
+        Args:
+            run: Run dataclass to save.
+            system_prompt: System prompt for this run (inherits from experiment if empty).
+            user_prompt: User prompt for this run (inherits from experiment if empty).
+        """
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO runs (
-                run_id, experiment_id, seed, status, started_at,
-                finished_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                run_id, experiment_id, seed, system_prompt, user_prompt,
+                status, started_at, finished_at, created_at, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             run.run_id,
             run.experiment_id,
             run.seed,
+            system_prompt,
+            user_prompt,
             run.status,
             run.started_at,
             run.finished_at,
             run.created_at,
+            True,
         ))
         self.conn.commit()
 
     def get_by_id(self, run_id: str) -> Run | None:
-        """Get run by ID."""
+        """Get run by ID.
+
+        Args:
+            run_id: Primary key.
+
+        Returns:
+            Run dataclass or None if not found.
+        """
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT run_id, experiment_id, seed, status, started_at,
@@ -437,25 +450,96 @@ class RunRepository:
             return None
         return self._row_to_run(row)
 
-    def list_by_experiment(self, experiment_id: str) -> list[Run]:
-        """List runs for an experiment."""
+    def get_by_id_with_prompts(self, run_id: str) -> dict | None:
+        """Get run by ID with prompt fields.
+
+        Args:
+            run_id: Primary key.
+
+        Returns:
+            Dictionary with run data including prompts, or None if not found.
+        """
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT run_id, experiment_id, seed, status, started_at,
-                   finished_at, created_at
+            SELECT run_id, experiment_id, seed, system_prompt, user_prompt,
+                   status, started_at, finished_at, created_at, is_active
             FROM runs
-            WHERE experiment_id = ?
-            ORDER BY created_at ASC
-        """, (experiment_id,))
+            WHERE run_id = ?
+        """, (run_id,))
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "run_id": row["run_id"],
+            "experiment_id": row["experiment_id"],
+            "seed": row["seed"],
+            "system_prompt": row["system_prompt"],
+            "user_prompt": row["user_prompt"],
+            "status": row["status"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "created_at": row["created_at"],
+            "is_active": bool(row["is_active"]),
+        }
+
+    def list_by_experiment(self, experiment_id: str, active_only: bool = True) -> list[Run]:
+        """List runs for an experiment.
+
+        Args:
+            experiment_id: Parent experiment ID.
+            active_only: If True, only return active runs.
+
+        Returns:
+            List of Run dataclasses.
+        """
+        cursor = self.conn.cursor()
+        if active_only:
+            cursor.execute("""
+                SELECT run_id, experiment_id, seed, status, started_at,
+                       finished_at, created_at
+                FROM runs
+                WHERE experiment_id = ? AND is_active = TRUE
+                ORDER BY created_at ASC
+            """, (experiment_id,))
+        else:
+            cursor.execute("""
+                SELECT run_id, experiment_id, seed, status, started_at,
+                       finished_at, created_at
+                FROM runs
+                WHERE experiment_id = ?
+                ORDER BY created_at ASC
+            """, (experiment_id,))
         return [self._row_to_run(row) for row in cursor.fetchall()]
 
     def update_status(self, run_id: str, status: str) -> None:
-        """Update run status."""
+        """Update run status.
+
+        Args:
+            run_id: Run primary key.
+            status: New status value.
+        """
         cursor = self.conn.cursor()
         cursor.execute("""
             UPDATE runs SET status = ?
             WHERE run_id = ?
         """, (status, run_id))
+        self.conn.commit()
+
+    def deactivate(self, run_id: str) -> None:
+        """Soft delete: set is_active = FALSE.
+
+        Args:
+            run_id: Primary key.
+
+        Notes:
+            - Does not delete historical response/error data
+            - Prevents future execution of this run
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE runs SET is_active = FALSE
+            WHERE run_id = ?
+        """, (run_id,))
         self.conn.commit()
 
     @staticmethod
@@ -491,7 +575,6 @@ class ResponseRepository:
         - needs_review = True if selected_answer is None
         - needs_review = False otherwise
         """
-        # Calculate needs_review if not explicitly set
         needs_review = response.needs_review
         if not needs_review:
             needs_review = self._calculate_needs_review(
@@ -572,22 +655,9 @@ class ResponseRepository:
         return [self._row_to_response(row) for row in cursor.fetchall()]
 
     def update_manual_answer(self, response_id: str, manual_answer: str) -> None:
-        """Update manual answer and recalculate is_correct.
-
-        Args:
-            response_id: Response primary key.
-            manual_answer: Human-provided correct answer (A/B/C/D).
-
-        This method:
-        1. Sets manual_answer field
-        2. Recalculates is_correct by comparing manual_answer with answer_key
-        3. Preserves original parse_confidence
-
-        Note: The answer_key lookup requires joining with question_snapshots.
-        """
+        """Update manual answer and recalculate is_correct."""
         cursor = self.conn.cursor()
 
-        # Get the response to find snapshot_id
         cursor.execute("""
             SELECT snapshot_id FROM responses
             WHERE response_id = ?
@@ -598,7 +668,6 @@ class ResponseRepository:
 
         snapshot_id = row[0]
 
-        # Get answer_key from snapshot
         cursor.execute("""
             SELECT question_payload FROM question_snapshots
             WHERE snapshot_id = ?
@@ -611,10 +680,8 @@ class ResponseRepository:
         payload = json.loads(snap_row[0])
         answer_key = payload.get('answer_key', '')
 
-        # Calculate is_correct
         is_correct = manual_answer.upper() == answer_key.upper() if answer_key else None
 
-        # Update response
         cursor.execute("""
             UPDATE responses
             SET manual_answer = ?, is_correct = ?
@@ -624,13 +691,7 @@ class ResponseRepository:
 
     @staticmethod
     def _calculate_needs_review(parse_confidence: str | None, selected_answer: str | None) -> bool:
-        """Calculate needs_review flag.
-
-        Rules:
-        - needs_review = True if parse_confidence in ('ambiguous', 'no_answer', 'low_confidence')
-        - needs_review = True if selected_answer is None
-        - needs_review = False otherwise (clear parse with answer)
-        """
+        """Calculate needs_review flag."""
         if selected_answer is None:
             return True
         if parse_confidence in ('ambiguous', 'no_answer', 'low_confidence', 'unknown'):
@@ -677,13 +738,16 @@ class ErrorRepository:
         cursor.execute("""
             INSERT OR REPLACE INTO errors (
                 error_id, run_id, variant_id, snapshot_id,
-                error_type, error_message, attempt_count, stack_trace, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                model_id, question_id, error_type, error_message,
+                attempt_count, stack_trace, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             error.error_id,
             error.run_id,
             error.variant_id,
             error.snapshot_id,
+            error.model_id,
+            error.question_id,
             error.error_type,
             error.error_message,
             error.attempt_count,
@@ -697,7 +761,8 @@ class ErrorRepository:
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT error_id, run_id, variant_id, snapshot_id,
-                   error_type, error_message, attempt_count, stack_trace, created_at
+                   model_id, question_id, error_type, error_message,
+                   attempt_count, stack_trace, created_at
             FROM errors
             WHERE error_id = ?
         """, (error_id,))
@@ -711,7 +776,8 @@ class ErrorRepository:
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT error_id, run_id, variant_id, snapshot_id,
-                   error_type, error_message, attempt_count, stack_trace, created_at
+                   model_id, question_id, error_type, error_message,
+                   attempt_count, stack_trace, created_at
             FROM errors
             WHERE run_id = ?
             ORDER BY created_at ASC
@@ -726,6 +792,8 @@ class ErrorRepository:
             run_id=row["run_id"],
             variant_id=row["variant_id"],
             snapshot_id=row["snapshot_id"],
+            model_id=row["model_id"],
+            question_id=row["question_id"],
             error_type=row["error_type"],
             error_message=row["error_message"],
             attempt_count=row["attempt_count"],

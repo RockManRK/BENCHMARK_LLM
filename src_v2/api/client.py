@@ -101,6 +101,7 @@ class CompletionProvider(ABC):
         top_p: float | None = None,
         max_tokens: int | None = None,
         stop: list[str] | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> CompletionResponse:
         """Perform chat completion API call.
 
@@ -111,6 +112,7 @@ class CompletionProvider(ABC):
             top_p: Nucleus sampling parameter
             max_tokens: Maximum output tokens
             stop: Stop sequences
+            response_format: Response format configuration for structured outputs
 
         Returns:
             CompletionResponse with content and metadata
@@ -178,6 +180,7 @@ class OpenRouterClient(CompletionProvider):
         top_p: float | None = None,
         max_tokens: int | None = None,
         stop: list[str] | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> CompletionResponse:
         """Perform OpenRouter chat completion.
 
@@ -188,6 +191,8 @@ class OpenRouterClient(CompletionProvider):
             top_p: Nucleus sampling parameter
             max_tokens: Maximum output tokens
             stop: Stop sequences
+            response_format: Response format configuration for structured outputs.
+                            Example: {"type": "json_object"}
 
         Returns:
             CompletionResponse with content and metadata
@@ -218,6 +223,10 @@ class OpenRouterClient(CompletionProvider):
                 payload["max_tokens"] = max_tokens
             if stop is not None:
                 payload["stop"] = stop
+
+            # Add response format for structured outputs
+            if response_format is not None:
+                payload["response_format"] = response_format
 
             # Make the request
             response = await self._client.post(

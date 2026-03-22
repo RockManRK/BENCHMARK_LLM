@@ -11,6 +11,9 @@ Key responsibilities:
 - Resolve effective seed (run overrides experiment)
 - Build ExecutionPlan with deduplicated items per run
 - Apply run ID filters when specified
+- Apply question ID filters when specified
+- Apply model variant ID filters when specified
+- Apply retry policy when specified
 
 The Planner is READ-ONLY:
 - No database writes
@@ -85,12 +88,18 @@ class Planner:
         self,
         experiment_name: str,
         run_ids: list[str] | None = None,
+        question_ids: list[str] | None = None,
+        model_variant_ids: list[str] | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> ExecutionPlan:
         """Build execution plan for experiment.
 
         Args:
             experiment_name: Human-readable experiment name
             run_ids: Optional list of specific runs (default: all pending)
+            question_ids: Optional list of specific question IDs to filter
+            model_variant_ids: Optional list of specific variant IDs to filter
+            retry_policy: Optional retry policy override (default: RetryPolicy())
 
         Returns:
             Immutable ExecutionPlan
@@ -107,6 +116,13 @@ class Planner:
         # Validate experiment has snapshots
         snapshots = self._validate_has_snapshots(experiment_row["experiment_id"])
 
+        # Apply filters
+        if model_variant_ids:
+            variants = [v for v in variants if v["variant_id"] in model_variant_ids]
+
+        if question_ids:
+            snapshots = [s for s in snapshots if s["question_id"] in question_ids]
+
         # Get runs to execute
         runs = self._get_runs(experiment_row["experiment_id"], run_ids)
 
@@ -118,6 +134,7 @@ class Planner:
                 experiment_row=experiment_row,
                 variants=variants,
                 snapshots=snapshots,
+                retry_policy=retry_policy or RetryPolicy(),
             )
             plan_runs.append(plan_run)
 
@@ -260,6 +277,7 @@ class Planner:
         experiment_row: sqlite3.Row,
         variants: list[sqlite3.Row],
         snapshots: list[sqlite3.Row],
+        retry_policy: RetryPolicy,
     ) -> PlanRun:
         """Build a single PlanRun with all items.
 
@@ -268,6 +286,7 @@ class Planner:
             experiment_row: Experiment database row
             variants: List of variant rows
             snapshots: List of snapshot rows
+            retry_policy: Retry policy for this run
 
         Returns:
             Immutable PlanRun with all items
@@ -291,12 +310,12 @@ class Planner:
         # Build items (deduplicated per run by construction)
         items = self._build_items(run_row, variants, snapshots)
 
-        # Create plan run with default retry policy
+        # Create plan run with specified retry policy
         plan_run = PlanRun(
             run_id=run_row["run_id"],
             seed_effective=seed_effective,
             prompts_effective=prompts_effective,
-            retry_policy=RetryPolicy(),
+            retry_policy=retry_policy,
             variants=plan_variants,
             items=items,
         )

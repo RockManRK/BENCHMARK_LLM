@@ -80,16 +80,19 @@ def get_schema_sql() -> str:
     CREATE INDEX IF NOT EXISTS idx_snapshots_by_experiment ON question_snapshots(experiment_id) WHERE is_active = TRUE;
 
     -- ============================================================================
-    -- runs table
+    -- runs table (with prompt inheritance and soft delete)
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS runs (
         run_id            TEXT PRIMARY KEY,
         experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
         seed              INTEGER,
+        system_prompt     TEXT,
+        user_prompt       TEXT,
         status            TEXT NOT NULL DEFAULT 'pending',
         started_at        TIMESTAMP,
         finished_at       TIMESTAMP,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active         BOOLEAN NOT NULL DEFAULT TRUE,
         CHECK(status IN ('pending', 'running', 'completed', 'failed', 'partial_failed'))
     );
 
@@ -98,6 +101,9 @@ def get_schema_sql() -> str:
 
     -- Partial index for pending runs (common query for execution)
     CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pending';
+
+    -- Partial index for active runs
+    CREATE INDEX IF NOT EXISTS idx_runs_active ON runs(is_active) WHERE is_active = TRUE;
 
     -- ============================================================================
     -- responses table (with review fields)
