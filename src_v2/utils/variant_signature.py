@@ -1,0 +1,118 @@
+"""Variant signature generation.
+
+Generates deterministic, ordered variant signatures from model_id and config.
+
+Field order (mandatory):
+1. model_name
+2. reasoning_effort
+3. vision
+4. structured
+5. temperature
+6. top_p
+7. top_k
+8. max_output_tokens
+9. reasoning_tokens
+
+Float normalization: 3 decimal places
+"""
+
+import json
+from typing import Any
+
+
+# Fixed field order for signature generation
+SIGNATURE_FIELD_ORDER = [
+    ('reasoning_effort', 'reasoning'),
+    ('vision', 'vision'),
+    ('structured', 'structured'),
+    ('temperature', 'temp'),
+    ('top_p', 'top_p'),
+    ('top_k', 'top_k'),
+    ('max_output_tokens', 'max_tokens'),
+    ('reasoning_tokens', 'reasoning_tokens'),
+]
+
+
+def normalize_float(value: float | int | str | bool) -> str:
+    """Normalize float to 3 decimal places.
+    
+    Args:
+        value: Float, int, string, or bool value.
+    
+    Returns:
+        String representation with 3 decimal places for floats,
+        lowercase string for booleans, or string for other types.
+    """
+    if isinstance(value, bool):
+        return str(value).lower()
+    elif isinstance(value, (int, float)):
+        return f"{float(value):.3f}"
+    return str(value)
+
+
+def generate_variant_signature(model_id: str, config: dict | str) -> str:
+    """Generate deterministic variant signature.
+    
+    Args:
+        model_id: Model identifier (e.g., "google/gemini-3.1-flash-lite-preview")
+        config: Configuration dict or JSON string.
+    
+    Returns:
+        Variant signature in format:
+        - "gemini-3.1-flash-lite-preview" (no config)
+        - "gemini-3.1-flash-lite-preview|reasoning=low" (single config)
+        - "gemini-3.1-flash-lite-preview|reasoning=xhigh|temp=0.800" (multiple)
+    
+    Notes:
+        - Field order is fixed and mandatory
+        - Floats are normalized to 3 decimal places
+        - Fields not in config are skipped
+        - Signature is deterministic (same inputs → same output)
+    """
+    if isinstance(config, str):
+        config = json.loads(config)
+    
+    model_name = model_id.split('/')[-1]
+    
+    config_parts = []
+    for config_key, sig_key in SIGNATURE_FIELD_ORDER:
+        if config_key in config and config[config_key] is not None:
+            value = config[config_key]
+            config_parts.append(f"{sig_key}={normalize_float(value)}")
+    
+    if config_parts:
+        return f"{model_name}|{'|'.join(config_parts)}"
+    else:
+        return model_name
+
+
+def parse_variant_signature(signature: str) -> dict:
+    """Parse variant signature into components.
+    
+    Args:
+        signature: Variant signature string.
+    
+    Returns:
+        Dict with model_name and config dict.
+        Note: This is for debugging/inspection only.
+        Do NOT use for execution - always use config column directly.
+    """
+    parts = signature.split('|', 1)
+    model_name = parts[0]
+    
+    config = {}
+    if len(parts) > 1:
+        for item in parts[1].split('|'):
+            key, value = item.split('=', 1)
+            if value in ('true', 'false'):
+                config[key] = value == 'true'
+            else:
+                try:
+                    config[key] = int(value)
+                except ValueError:
+                    try:
+                        config[key] = float(value)
+                    except ValueError:
+                        config[key] = value
+    
+    return {'model_name': model_name, 'config': config}

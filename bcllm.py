@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI entry point — dispatches to src_v2 or legacy src."""
+"""CLI entry point — dispatches exclusively to src_v2."""
 import sys
 
 
@@ -19,9 +19,12 @@ def route_to_v2(module_name: str) -> int:
         bcllm_run,
         bcllm_execute,
         bcllm_review,
+        bcllm_main,
     )
 
-    if module_name == "bcllm_experiment":
+    if module_name == "bcllm_main":
+        return bcllm_main.main()
+    elif module_name == "bcllm_experiment":
         return bcllm_experiment.main()
     elif module_name == "bcllm_model":
         return bcllm_model.main()
@@ -45,9 +48,13 @@ def determine_v2_command(argv: list[str]) -> str | None:
         argv: Command-line arguments (including script name).
 
     Returns:
-        Module name (e.g., "bcllm_experiment") or None (use legacy).
+        Module name (e.g., "bcllm_experiment") or None (unknown command).
     """
     args = argv[1:]
+
+    # Handle --help explicitly (highest priority)
+    if "--help" in args or "-h" in args:
+        return "bcllm_main"
 
     # Check for review commands (highest priority)
     if "--review-experiment" in args or "--review-all" in args:
@@ -57,42 +64,43 @@ def determine_v2_command(argv: list[str]) -> str | None:
     if "--execute" in args:
         return "bcllm_execute"
 
+    # Check for experiment creation with optional flags
+    # --create-experiment takes precedence when combined with --add-model or --add-questions
+    if "--create-experiment" in args:
+        return "bcllm_experiment"
+
     # Check for model commands (require --experiment but take precedence)
     if "--add-model" in args or "--list-models" in args or "--remove-model" in args:
         return "bcllm_model"
 
-    # Check for question commands
+    # Check for question commands (for existing experiments)
     if "--add-questions" in args or "--list-questions" in args or "--remove-question" in args:
         return "bcllm_questions"
 
-    # Check for run commands
-    if "--create-run" in args or "--list-runs" in args:
-        return "bcllm_run"
-
-    # Check for run show command (--run without --execute)
-    if "--run" in args:
+    # Check for run commands (before experiment commands to avoid --experiment collision)
+    if "--add-run" in args or "--create-run" in args or "--list-runs" in args or "--run" in args or "--remove-run" in args:
         return "bcllm_run"
 
     # Check for experiment commands (lowest priority v2 commands)
-    if "--create-experiment" in args or "--experiment" in args or "--list-experiments" in args or "--remove-experiment" in args:
+    if "--experiment" in args or "--list-experiments" in args or "--remove-experiment" in args:
         return "bcllm_experiment"
 
     return None
 
 
 def main() -> int:
-    """Main entry point — routes to v2 or legacy.
+    """Main entry point — routes exclusively to v2.
 
     Returns:
         Exit code (0 for success, 1 for error).
     """
     v2_module = determine_v2_command(sys.argv)
 
-    if v2_module is not None:
-        return route_to_v2(v2_module)
-    else:
-        from src.main import main as legacy_main
-        return legacy_main()
+    if v2_module is None:
+        print("Error: Unknown command. Use --help for usage.", file=sys.stderr)
+        return 1
+
+    return route_to_v2(v2_module)
 
 
 if __name__ == "__main__":

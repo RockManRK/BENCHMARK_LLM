@@ -17,12 +17,14 @@ Exit Codes:
 """
 
 import argparse
+import json
 import sys
 import uuid
 
 from src_v2.cli.database import get_database_connection
 from src_v2.db.models import ModelVariant
 from src_v2.db.repository import ExperimentRepository, VariantRepository
+from src_v2.utils.variant_signature import generate_variant_signature
 from src_v2.validators.model_id_validator import validate_model_id
 
 
@@ -75,26 +77,24 @@ def create_parser() -> argparse.ArgumentParser:
         help="Custom variant signature (default: auto-generated)",
     )
     parser.add_argument(
-        "--reasoning-mode",
-        choices=["off", "auto", "effort", "budget"],
-        default="off",
-        help="Reasoning mode",
-    )
-    parser.add_argument(
-        "--reasoning-effort",
-        choices=["minimal", "low", "medium", "high", "xhigh"],
-        default="low",
-        help="Reasoning effort",
+        "--reasoning",
+        choices=["none", "minimal", "low", "medium", "high", "xhigh"],
+        default="none",
+        help="Reasoning effort level (default: none)",
     )
     parser.add_argument(
         "--vision",
-        action="store_true",
-        help="Enable vision",
+        type=str,
+        choices=["true", "false"],
+        default="false",
+        help="Enable vision capabilities (true/false, default: false)",
     )
     parser.add_argument(
         "--structured-output",
-        action="store_true",
-        help="Enable structured outputs",
+        type=str,
+        choices=["true", "false"],
+        default="false",
+        help="Enable structured output format (true/false, default: false)",
     )
 
     return parser
@@ -125,8 +125,28 @@ def handle_add_model(args, conn) -> int:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
-    # Generate or use custom variant signature
-    variant_signature = args.variant_signature or args.add_model.replace('/', '_')
+    # Build config dict from CLI flags
+    # Only include non-default values to keep signatures clean
+    config = {}
+
+    # Only include reasoning_effort if not 'none'
+    if args.reasoning != 'none':
+        config['reasoning_effort'] = args.reasoning
+        config['label'] = f"({args.reasoning})"
+
+    # Only include vision if enabled (default is false)
+    if args.vision.lower() == 'true':
+        config['vision'] = True
+
+    # Only include structured if enabled (default is false)
+    if args.structured_output.lower() == 'true':
+        config['structured'] = True
+
+    # Generate signature (or use custom)
+    if args.variant_signature:
+        variant_signature = args.variant_signature
+    else:
+        variant_signature = generate_variant_signature(args.add_model, config)
 
     # Check for signature collision
     existing = var_repo.get_by_signature(experiment.experiment_id, variant_signature)
@@ -134,22 +154,17 @@ def handle_add_model(args, conn) -> int:
         print(f"Error: Variant '{variant_signature}' already exists in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    # Create variant
+    # Create variant with config
     variant = ModelVariant(
         variant_id=f"var_{uuid.uuid4().hex[:8]}",
         experiment_id=experiment.experiment_id,
         model_id=args.add_model,
         variant_signature=variant_signature,
-        reasoning_mode=args.reasoning_mode,
-        reasoning_effort=args.reasoning_effort if args.reasoning_mode == 'effort' else None,
-        max_output_tokens=None,
-        vision_enabled=args.vision,
-        structured_output=args.structured_output,
-        web_access_enabled=False,
+        config=json.dumps(config),
     )
 
     var_repo.save(variant)
-    print(f"✓ Model '{variant.model_id}' added to '{experiment.name}' (ID: {variant.variant_id})")
+    print(f"✓ Model variant '{variant_signature}' added to experiment '{args.experiment}'")
     return 0
 
 
@@ -178,14 +193,15 @@ def handle_list_models(args, conn) -> int:
         print(f"No models in experiment '{experiment.name}'.")
         return 0
 
-    # Print table
+    # Print table with config display
     print(f"Models in experiment: {experiment.name}")
-    print(f"{'ID':<20} {'Model':<30} {'Mode':<10} {'Vision':<8} {'Structured':<12}")
-    print("-" * 80)
+    print(f"{'ID':<20} {'Model':<30} {'Signature':<40} {'Config':<50}")
+    print("-" * 140)
     for v in variants:
-        vision_str = 'Yes' if v.vision_enabled else 'No'
-        structured_str = 'Yes' if v.structured_output else 'No'
-        print(f"{v.variant_id:<20} {v.model_id:<30} {v.reasoning_mode:<10} {vision_str:<8} {structured_str:<12}")
+        config = json.loads(v.config) if v.config else {}
+        label = config.get('label', '')
+        config_display = f"{v.variant_signature} {label}" if label else v.variant_signature
+        print(f"{v.variant_id:<20} {v.model_id:<30} {config_display:<40} {v.config:<50}")
 
     return 0
 

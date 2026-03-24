@@ -20,17 +20,15 @@ Exit Codes:
 
 import argparse
 import json
-import re
 import sys
 import uuid
 from pathlib import Path
 
 from src_v2.cli.database import get_database_connection
+from src_v2.core import QuestionLoader
+from src_v2.core.config_resolver import ConfigResolver
 from src_v2.db.models import QuestionSnapshot
 from src_v2.db.repository import ExperimentRepository, SnapshotRepository
-
-
-DEFAULT_QUESTIONS_DATASET_PATH = "data/enamed_questions.json"
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -98,96 +96,6 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_question_spec(spec: str) -> list[str]:
-    """Parse question specification into list of question IDs.
-
-    Formats supported:
-    - Comma-separated: q1,q2,q3
-    - Range: 1-10 or q1-q10 or Q001-Q010
-    - Mixed: q1,q2,5-10,q15
-    - Space-separated individual: Q001 Q005 Q010
-
-    Args:
-        spec: Question specification string.
-
-    Returns:
-        List of normalized question IDs (e.g., ["Q001", "Q002", "Q003"]).
-
-    Raises:
-        ValueError: If spec contains invalid format.
-    """
-    question_ids = []
-
-    # Split by comma first (handles q1,q2,5-10 format)
-    for part in spec.split(','):
-        part = part.strip()
-
-        if not part:
-            continue
-
-        # Range: 1-10 or q1-q10 or Q001-Q010
-        range_match = re.match(r'^(q?)(\d+)-(q?)(\d+)$', part, re.IGNORECASE)
-        if range_match:
-            prefix1, start, prefix2, end = range_match.groups()
-            prefix = prefix1 or prefix2  # Use whichever prefix exists
-            start_num = int(start)
-            end_num = int(end)
-
-            if start_num > end_num:
-                raise ValueError(f"Invalid range: {start_num}-{end_num} (start > end)")
-
-            for i in range(start_num, end_num + 1):
-                question_ids.append(f"Q{i:03d}")
-            continue
-
-        # Single: q1 or Q001 or 1
-        single_match = re.match(r'^(q?)(\d+)$', part, re.IGNORECASE)
-        if single_match:
-            prefix, num = single_match.groups()
-            question_ids.append(f"Q{int(num):03d}")
-            continue
-
-        # Invalid format
-        raise ValueError(f"Invalid question spec: {part}")
-
-    if not question_ids:
-        raise ValueError("No valid question IDs found in spec")
-
-    return question_ids
-
-
-def parse_question_specs(specs: list[str]) -> list[str]:
-    """Parse multiple question specifications into a unified list of question IDs.
-
-    Handles both individual question IDs and ranges from command-line args.
-
-    Args:
-        specs: List of question specifications from command line.
-
-    Returns:
-        Unified list of normalized question IDs.
-
-    Raises:
-        ValueError: If any spec is invalid.
-    """
-    all_question_ids = []
-
-    for spec in specs:
-        # Each spec can be a single ID or a range
-        question_ids = parse_question_spec(spec)
-        all_question_ids.extend(question_ids)
-
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_ids = []
-    for qid in all_question_ids:
-        if qid not in seen:
-            seen.add(qid)
-            unique_ids.append(qid)
-
-    return unique_ids
-
-
 def parse_filter(filter_str: str) -> tuple[str, str]:
     """Parse a filter string into field and value.
 
@@ -211,33 +119,45 @@ def load_question_source(source_file: str | None = None) -> dict[str, dict]:
     """Load question source from JSON file.
 
     Args:
-        source_file: Path to JSON file. If None, uses DEFAULT_QUESTIONS_DATASET_PATH
-                     or QUESTIONS_DATASET_PATH from environment.
+        source_file: Path to JSON file. If None, loads from 
+                     QUESTIONS_DATASET_PATH env var (via ConfigResolver).
 
     Returns:
         Dictionary mapping question_id to question data.
 
     Raises:
-        FileNotFoundError: If source file doesn't exist.
-        json.JSONDecodeError: If file is not valid JSON.
+        FileNotFoundError: If dataset file not found.
+        json.JSONDecodeError: If invalid JSON.
+        ValueError: If dataset path not configured.
+
+    Note:
+        This method fails loudly — no silent fallbacks or placeholders.
     """
+    resolver = ConfigResolver()
+    env_dict = resolver.load_env()
+
     if source_file is None:
-        # Try environment variable first
-        import os
-        source_file = os.environ.get('QUESTIONS_DATASET_PATH', DEFAULT_QUESTIONS_DATASET_PATH)
+        source_file = env_dict.get('QUESTIONS_DATASET_PATH')
+        if not source_file:
+            raise ValueError(
+                "QUESTIONS_DATASET_PATH not set in .env and no --source-file provided. "
+                "Please configure the dataset path."
+            )
 
     path = Path(source_file)
     if not path.is_absolute():
-        # Resolve relative to current working directory
         path = Path.cwd() / path
 
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Build index of questions by ID
     questions_index = {}
-    for question in data.get('questions', []):
-        questions_index[question['id']] = question
+    questions_list = data.get('questions', data) if isinstance(data, dict) else data
+
+    for question in questions_list:
+        qid = question.get('id') or question.get('question_id')
+        if qid:
+            questions_index[str(qid)] = question
 
     return questions_index
 
@@ -257,7 +177,6 @@ def _get_nested_field(obj: dict, field_path: str) -> str | None:
     Returns:
         Field value as string, or None if not found.
     """
-    # If field_path contains a dot, use explicit nested access
     if '.' in field_path:
         parts = field_path.split('.')
         current = obj
@@ -268,11 +187,9 @@ def _get_nested_field(obj: dict, field_path: str) -> str | None:
                 return None
         return str(current) if current is not None else None
 
-    # Try direct access first
     if field_path in obj:
         return str(obj[field_path]) if obj[field_path] is not None else None
 
-    # Recursive search through nested dictionaries
     for key, value in obj.items():
         if key == field_path:
             return str(value) if value is not None else None
@@ -299,13 +216,11 @@ def matches_filters(
     Returns:
         True if question passes all filters, False otherwise.
     """
-    # Check exclusion filters first (any match = exclude)
     if exclude_filters:
         for field, value in exclude_filters:
             if _get_nested_field(question, field) == value:
                 return False
 
-    # Check inclusion filters (all must match)
     if include_filters:
         for field, value in include_filters:
             if _get_nested_field(question, field) != value:
@@ -335,7 +250,6 @@ def filter_questions(
 
     for qid in question_ids:
         if qid not in questions_index:
-            # Question not in source - skip silently (might be a typo or deleted)
             continue
 
         question = questions_index[qid]
@@ -358,21 +272,58 @@ def handle_add_questions(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     snap_repo = SnapshotRepository(conn)
 
-    # Check experiment exists
     experiment = exp_repo.get_by_name(args.experiment)
     if not experiment:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
-    # Parse question specs
+    loader = QuestionLoader()
+
     try:
-        question_ids = parse_question_specs(args.add_questions)
+        dataset_path = args.source_file
+        if not dataset_path:
+            resolver = ConfigResolver()
+            env_dict = resolver.load_env()
+            dataset_path = env_dict.get('QUESTIONS_DATASET_PATH')
+            if not dataset_path:
+                print(
+                    "Error: QUESTIONS_DATASET_PATH not set in .env and no --source-file provided. "
+                    "Please configure the dataset path.",
+                    file=sys.stderr
+                )
+                return 1
+
+        questions = loader.load_dataset(dataset_path)
+        questions = loader.assign_internal_ids(questions)
+    except FileNotFoundError as e:
+        print(f"Error: Question dataset not found: {e}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in question dataset: {e}", file=sys.stderr)
+        return 1
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
-        print("Expected formats: Q001 Q005 Q010 | Q001-Q020 | 1-50 | mixed", file=sys.stderr)
         return 1
 
-    # Parse filters
+    question_ids = []
+    for spec in args.add_questions:
+        try:
+            selected = loader.parse_question_spec(spec, questions)
+            for q in selected:
+                qid = q.get('source_id') or q.get('id') or str(q.get('internal_id', ''))
+                if qid and qid not in question_ids:
+                    question_ids.append(qid)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            print("Expected formats: Q001 Q005 Q010 | Q001-Q020 | 1-50 | mixed", file=sys.stderr)
+            return 1
+
+    if not question_ids:
+        print("Error: No valid question IDs found in spec", file=sys.stderr)
+        return 1
+
+    questions_index = {q.get('source_id') or q.get('id'): q for q in questions}
+
     include_filters = []
     exclude_filters = []
 
@@ -392,19 +343,6 @@ def handle_add_questions(args, conn) -> int:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
 
-    # Load question source if filters are specified
-    questions_index = {}
-    if include_filters or exclude_filters:
-        try:
-            questions_index = load_question_source(args.source_file)
-        except FileNotFoundError as e:
-            print(f"Error: Question source file not found: {e}", file=sys.stderr)
-            return 1
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON in question source file: {e}", file=sys.stderr)
-            return 1
-
-    # Apply filters if specified
     if include_filters or exclude_filters:
         original_count = len(question_ids)
         question_ids = filter_questions(question_ids, questions_index, include_filters, exclude_filters)
@@ -412,34 +350,26 @@ def handle_add_questions(args, conn) -> int:
         if filtered_count > 0:
             print(f"  ({filtered_count} questions filtered out)")
 
-    # Add snapshots with idempotency
     added_count = 0
     skipped_count = 0
 
     for qid in question_ids:
-        # Check for idempotency (snapshot already exists)
         existing = snap_repo.get_by_experiment_and_question(experiment.experiment_id, qid)
         if existing:
             skipped_count += 1
             continue
 
-        # Get question payload from source if available, otherwise use placeholder
-        if qid in questions_index:
-            question_data = questions_index[qid]
-            payload = {
-                "stem": question_data.get("stem", ""),
-                "options": list(question_data.get("options", {}).values()),
-                "answer_key": question_data.get("answer_key", ""),
-                "meta": question_data.get("meta", {}),
-            }
-        else:
-            # Fallback for questions not in source (shouldn't happen normally)
-            payload = {
-                "stem": f"Question {qid} stem",
-                "options": ["A", "B", "C", "D"],
-                "answer_key": "B",
-                "meta": {},
-            }
+        if qid not in questions_index:
+            print(f"Error: Question ID not found: {qid}", file=sys.stderr)
+            return 1
+
+        question_data = questions_index[qid]
+        payload = {
+            "stem": question_data.get("stem", ""),
+            "options": list(question_data.get("options", {}).values()) if isinstance(question_data.get("options"), dict) else question_data.get("options", []),
+            "answer_key": question_data.get("answer_key", ""),
+            "meta": question_data.get("meta", {}),
+        }
 
         snapshot = QuestionSnapshot(
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
@@ -471,7 +401,6 @@ def handle_list_questions(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     snap_repo = SnapshotRepository(conn)
 
-    # Check experiment exists
     experiment = exp_repo.get_by_name(args.experiment)
     if not experiment:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
@@ -483,7 +412,6 @@ def handle_list_questions(args, conn) -> int:
         print(f"No questions in experiment '{experiment.name}'.")
         return 0
 
-    # Print table
     print(f"Questions in experiment: {experiment.name}")
     print(f"{'ID':<15} {'Question ID':<15} {'Stem (truncated)':<50}")
     print("-" * 80)
@@ -509,19 +437,16 @@ def handle_remove_question(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     snap_repo = SnapshotRepository(conn)
 
-    # Check experiment exists
     experiment = exp_repo.get_by_name(args.experiment)
     if not experiment:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
-    # Check snapshot exists
     snapshot = snap_repo.get_by_id(args.remove_question)
     if not snapshot:
         print(f"Error: Snapshot not found: {args.remove_question}", file=sys.stderr)
         return 1
 
-    # Check snapshot belongs to experiment
     if snapshot.experiment_id != experiment.experiment_id:
         print(f"Error: Snapshot '{args.remove_question}' is not in experiment '{args.experiment}'", file=sys.stderr)
         return 1

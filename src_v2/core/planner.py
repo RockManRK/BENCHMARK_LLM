@@ -369,22 +369,40 @@ class Planner:
     def _build_model_config(self, variant_row: sqlite3.Row) -> ModelConfig:
         """Build ModelConfig from variant row.
 
+        Parses config column (JSON string) to extract execution configuration.
+        Config is the source of truth — deprecated columns are ignored.
+
         Args:
-            variant_row: Model variant database row
+            variant_row: Model variant database row (must include 'config' column)
 
         Returns:
-            ModelConfig with resolved values
+            ModelConfig with resolved values from config column
+
+        Config keys (all optional):
+            - reasoning_effort: 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'
+            - vision: true/false
+            - structured: true/false
+            - temperature: float
+            - top_p: float
+            - top_k: int
+            - max_output_tokens: int
+            - reasoning_tokens: int
         """
-        # For minimal schema: use defaults
-        # Access columns directly (sqlite3.Row supports dict-style access)
+        import json
+        
+        # Parse config column
+        config_str = variant_row["config"] if "config" in variant_row.keys() else "{}"
+        config = json.loads(config_str) if config_str else {}
+        
+        # Extract values from config (all optional, None = model default)
         return ModelConfig(
-            temperature=None,
-            top_p=None,
-            max_output_tokens=None,
-            enable_vision=bool(variant_row["vision_enabled"]) if "vision_enabled" in variant_row.keys() else False,
-            structured_output=bool(variant_row["structured_output"]) if "structured_output" in variant_row.keys() else False,
-            reasoning_mode=variant_row["reasoning_mode"] if "reasoning_mode" in variant_row.keys() else "off",
-            reasoning_effort=variant_row["reasoning_effort"] if "reasoning_effort" in variant_row.keys() else None,
+            temperature=config.get("temperature"),
+            top_p=config.get("top_p"),
+            max_output_tokens=config.get("max_output_tokens"),
+            enable_vision=config.get("vision", False),
+            structured_output=config.get("structured", False),
+            reasoning_mode="effort" if config.get("reasoning_effort") and config["reasoning_effort"] != "none" else "off",
+            reasoning_effort=config.get("reasoning_effort") if config.get("reasoning_effort") and config["reasoning_effort"] != "none" else None,
         )
 
     def _build_items(

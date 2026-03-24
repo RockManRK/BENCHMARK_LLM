@@ -5,7 +5,7 @@ Each dataclass corresponds to one database table.
 
 Usage:
     from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot
-    
+
     experiment = Experiment(
         experiment_id="exp_001",
         name="my_experiment",
@@ -22,15 +22,15 @@ from dataclasses import dataclass, field
 @dataclass
 class Experiment:
     """Experiment entity matching TO-BE schema.
-    
+
     Attributes:
         experiment_id: Primary key (UUID format recommended)
         name: Human-readable unique name
         description: Optional description
         config_json: Frozen configuration snapshot (JSON string)
         config_hash: SHA-256 hash of protocol config
-        system_prompt: System prompt template
-        user_prompt: User prompt template
+        system_prompt: System prompt template (None = not provided)
+        user_prompt: User prompt template (None = not provided)
         created_at: Creation timestamp (auto-set by DB)
         is_active: Soft delete flag (TRUE = active)
     """
@@ -39,8 +39,8 @@ class Experiment:
     description: str | None = None
     config_json: str = "{}"
     config_hash: str = ""
-    system_prompt: str = ""
-    user_prompt: str = ""
+    system_prompt: str | None = None
+    user_prompt: str | None = None
     created_at: str | None = None
     is_active: bool = True
 
@@ -48,21 +48,16 @@ class Experiment:
 @dataclass
 class ModelVariant:
     """Model variant entity matching TO-BE schema.
-    
+
     A ModelVariant represents an intentional configuration of a base model.
     Variants belong to experiments (not global).
-    
+
     Attributes:
         variant_id: Primary key (UUID format recommended)
         experiment_id: Foreign key to experiments
         model_id: Base model identifier (e.g., "openai/gpt-4")
         variant_signature: Human-readable identity within experiment
-        reasoning_mode: 'off', 'auto', 'effort', 'budget', 'unspecified'
-        reasoning_effort: 'xhigh', 'high', 'medium', 'low', 'minimal'
-        max_output_tokens: Max tokens when mode='budget'
-        vision_enabled: Enable vision capabilities
-        structured_output: Enable structured output format
-        web_access_enabled: Enable web access capabilities
+        config: Full execution configuration as JSON string
         created_at: Creation timestamp (auto-set by DB)
         is_active: Soft delete flag
     """
@@ -70,12 +65,7 @@ class ModelVariant:
     experiment_id: str
     model_id: str
     variant_signature: str
-    reasoning_mode: str = "off"
-    reasoning_effort: str | None = None
-    max_output_tokens: int | None = None
-    vision_enabled: bool = False
-    structured_output: bool = False
-    web_access_enabled: bool = False
+    config: str = "{}"
     created_at: str | None = None
     is_active: bool = True
 
@@ -83,10 +73,10 @@ class ModelVariant:
 @dataclass
 class QuestionSnapshot:
     """Question snapshot entity matching TO-BE schema.
-    
+
     Questions are snapshotted into experiments for reproducibility.
     Snapshots are immutable after creation.
-    
+
     Attributes:
         snapshot_id: Primary key (UUID format recommended)
         experiment_id: Foreign key to experiments
@@ -106,9 +96,9 @@ class QuestionSnapshot:
 @dataclass
 class Run:
     """Run entity matching TO-BE schema.
-    
+
     A Run is a concrete execution instance of an experiment.
-    
+
     Attributes:
         run_id: Primary key (UUID format recommended)
         experiment_id: Foreign key to experiments
@@ -130,9 +120,9 @@ class Run:
 @dataclass
 class Response:
     """Response entity matching TO-BE schema.
-    
+
     A Response is the result of executing one model variant against one question.
-    
+
     Attributes:
         response_id: Primary key (UUID format recommended)
         run_id: Foreign key to runs
@@ -172,14 +162,16 @@ class Response:
 @dataclass
 class Error:
     """Error entity matching TO-BE schema.
-    
+
     An Error records a failure during execution.
-    
+
     Attributes:
         error_id: Primary key (UUID format recommended)
         run_id: Foreign key to runs
         variant_id: Foreign key to model_variants
         snapshot_id: Foreign key to question_snapshots
+        model_id: Base model identifier (redundant for querying)
+        question_id: Original question identifier (redundant for querying)
         error_type: 'api_error', 'timeout', 'parse_error', 'config_error'
         error_message: Human-readable error message
         attempt_count: Number of retry attempts made
@@ -190,6 +182,8 @@ class Error:
     run_id: str
     variant_id: str
     snapshot_id: str
+    model_id: str
+    question_id: str
     error_type: str
     error_message: str
     attempt_count: int = 1

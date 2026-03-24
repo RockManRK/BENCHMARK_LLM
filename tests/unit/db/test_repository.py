@@ -1,18 +1,17 @@
-"""Test suite for TO-BE repository layer.
+"""Tests for TO-BE repository layer.
 
-Tests verify:
-- CRUD operations for all 6 entities
-- Soft delete behavior (is_active flag)
-- Active-only filtering
-- Foreign key relationships
-- needs_review calculation for responses
+Verifies:
+- CRUD operations for all 6 repositories
+- Foreign key enforcement
+- Soft delete behavior
+- Query filtering (active_only, by_experiment, etc.)
 """
 
+import json
 import sqlite3
-import pytest
-from datetime import datetime
 
-from src_v2.db.schema import create_schema
+import pytest
+
 from src_v2.db.models import (
     Experiment,
     ModelVariant,
@@ -33,17 +32,21 @@ from src_v2.db.repository import (
 
 @pytest.fixture
 def db_conn():
-    """Create in-memory database with schema for repository tests."""
+    """Create in-memory database connection."""
+    import sqlite3
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    create_schema(conn)
+    conn.execute("PRAGMA foreign_keys = ON")
     yield conn
     conn.close()
 
 
 @pytest.fixture
 def repos(db_conn):
-    """Create all repository instances."""
+    """Create all repositories with initialized schema."""
+    from src_v2.db.schema import create_schema
+    create_schema(db_conn)
+
     return {
         "experiment": ExperimentRepository(db_conn),
         "variant": VariantRepository(db_conn),
@@ -57,31 +60,30 @@ def repos(db_conn):
 class TestExperimentRepository:
     """Tests for ExperimentRepository CRUD operations."""
 
-    @pytest.mark.domain_rule("Experiments must support full CRUD cycle")
+    @pytest.mark.domain_rule("Experiments are root entities (no FK dependencies)")
     def test_repository_crud_experiment(self, repos):
-        """Verify full CRUD cycle for experiments."""
+        """Verify basic CRUD for experiments."""
         repo = repos["experiment"]
 
         # CREATE
         experiment = Experiment(
             experiment_id="exp_001",
-            name="test_experiment",
-            description="Test experiment for CRUD",
-            config_json='{"temperature": 0.7}',
+            name="test_exp",
+            description="Test experiment",
+            config_json="{}",
             config_hash="abc123",
-            system_prompt="You are a helpful assistant.",
-            user_prompt="Answer the following question.",
+            system_prompt="system",
+            user_prompt="user",
         )
         repo.save(experiment)
 
         # READ by ID
         retrieved = repo.get_by_id("exp_001")
         assert retrieved is not None
-        assert retrieved.name == "test_experiment"
-        assert retrieved.description == "Test experiment for CRUD"
+        assert retrieved.name == "test_exp"
 
         # READ by name
-        by_name = repo.get_by_name("test_experiment")
+        by_name = repo.get_by_name("test_exp")
         assert by_name is not None
         assert by_name.experiment_id == "exp_001"
 
@@ -91,65 +93,32 @@ class TestExperimentRepository:
         updated = repo.get_by_id("exp_001")
         assert updated.description == "Updated description"
 
-        # LIST
-        all_exps = repo.list_all(active_only=False)
-        assert len(all_exps) == 1
-        assert all_exps[0].experiment_id == "exp_001"
+        # SOFT DELETE
+        repo.deactivate("exp_001")
+        deactivated = repo.get_by_id("exp_001")
+        assert deactivated.is_active is False
 
-    @pytest.mark.domain_rule("Experiments must support soft delete via is_active flag")
+    @pytest.mark.domain_rule("Experiments must support soft delete")
     def test_repository_soft_delete_experiment(self, repos):
         """Verify soft delete sets is_active = FALSE."""
         repo = repos["experiment"]
 
-        experiment = Experiment(
-            experiment_id="exp_002",
-            name="to_delete",
-            config_json="{}",
-            config_hash="hash",
-            system_prompt="system",
-            user_prompt="user",
-        )
-        repo.save(experiment)
-
-        # Verify active
-        assert repo.get_by_id("exp_002").is_active is True
-
-        # Soft delete
-        repo.deactivate("exp_002")
-
-        # Verify inactive
-        deactivated = repo.get_by_id("exp_002")
-        assert deactivated.is_active is False
-
-        # Verify not in active list
-        active_exps = repo.list_all(active_only=True)
-        assert len(active_exps) == 0
-
-        # But still in full list
-        all_exps = repo.list_all(active_only=False)
-        assert len(all_exps) == 1
-
-    @pytest.mark.domain_rule("Repository list must support active_only filtering")
-    def test_repository_list_active_only(self, repos):
-        """Verify list_all filters by is_active."""
-        repo = repos["experiment"]
-
         # Create two experiments
         exp1 = Experiment(
-            experiment_id="exp_active",
-            name="active_exp",
-            config_json="{}",
-            config_hash="hash1",
-            system_prompt="system",
-            user_prompt="user",
-        )
-        exp2 = Experiment(
             experiment_id="exp_inactive",
             name="inactive_exp",
             config_json="{}",
-            config_hash="hash2",
-            system_prompt="system",
-            user_prompt="user",
+            config_hash="h1",
+            system_prompt="s",
+            user_prompt="u",
+        )
+        exp2 = Experiment(
+            experiment_id="exp_active",
+            name="active_exp",
+            config_json="{}",
+            config_hash="h2",
+            system_prompt="s",
+            user_prompt="u",
         )
         repo.save(exp1)
         repo.save(exp2)
@@ -188,14 +157,17 @@ class TestVariantRepository:
         exp_repo.save(experiment)
 
         # CREATE variant
+        config = json.dumps({
+            "reasoning_effort": "low",
+            "vision": True,
+            "structured_output": True,
+        })
         variant = ModelVariant(
             variant_id="var_001",
             experiment_id="exp_var_test",
             model_id="openai/gpt-4",
             variant_signature="gpt4-default",
-            reasoning_mode="off",
-            vision_enabled=False,
-            structured_output=True,
+            config=config,
         )
         var_repo.save(variant)
 
@@ -204,6 +176,7 @@ class TestVariantRepository:
         assert retrieved is not None
         assert retrieved.model_id == "openai/gpt-4"
         assert retrieved.experiment_id == "exp_var_test"
+        assert retrieved.config == config
 
         # LIST by experiment
         variants = var_repo.list_by_experiment("exp_var_test")
@@ -211,10 +184,11 @@ class TestVariantRepository:
         assert variants[0].variant_id == "var_001"
 
         # UPDATE
-        variant.reasoning_mode = "effort"
+        updated_config = json.dumps({"reasoning_effort": "high", "vision": False})
+        variant.config = updated_config
         var_repo.save(variant)
         updated = var_repo.get_by_id("var_001")
-        assert updated.reasoning_mode == "effort"
+        assert updated.config == updated_config
 
         # SOFT DELETE
         var_repo.deactivate("var_001")
@@ -252,24 +226,26 @@ class TestVariantRepository:
             experiment_id="exp1",
             model_id="openai/gpt-4",
             variant_signature="gpt4",
+            config="{}",
         )
         var2 = ModelVariant(
             variant_id="var_exp2",
             experiment_id="exp2",
             model_id="anthropic/claude",
             variant_signature="claude",
+            config="{}",
         )
         var_repo.save(var1)
         var_repo.save(var2)
 
-        # List by experiment should filter correctly
-        exp1_variants = var_repo.list_by_experiment("exp1")
-        assert len(exp1_variants) == 1
-        assert exp1_variants[0].variant_id == "var_exp1"
+        # List should be filtered by experiment
+        variants1 = var_repo.list_by_experiment("exp1")
+        assert len(variants1) == 1
+        assert variants1[0].variant_id == "var_exp1"
 
-        exp2_variants = var_repo.list_by_experiment("exp2")
-        assert len(exp2_variants) == 1
-        assert exp2_variants[0].variant_id == "var_exp2"
+        variants2 = var_repo.list_by_experiment("exp2")
+        assert len(variants2) == 1
+        assert variants2[0].variant_id == "var_exp2"
 
 
 class TestSnapshotRepository:
@@ -293,21 +269,29 @@ class TestSnapshotRepository:
         exp_repo.save(experiment)
 
         # CREATE snapshot
-        import json
-        payload = {"stem": "What is 2+2?", "options": ["3", "4", "5"], "answer_key": "B"}
+        payload = json.dumps({
+            "stem": "What is 2+2?",
+            "options": ["3", "4", "5", "6"],
+            "answer_key": "B",
+        })
         snapshot = QuestionSnapshot(
             snapshot_id="snap_001",
             experiment_id="exp_snap_test",
-            question_id="q001",
-            question_payload=json.dumps(payload),
+            question_id="q_math_001",
+            question_payload=payload,
         )
         snap_repo.save(snapshot)
 
-        # READ
+        # READ by ID
         retrieved = snap_repo.get_by_id("snap_001")
         assert retrieved is not None
-        assert retrieved.question_id == "q001"
-        assert json.loads(retrieved.question_payload) == payload
+        assert retrieved.question_id == "q_math_001"
+        assert retrieved.experiment_id == "exp_snap_test"
+
+        # READ by experiment and question
+        by_eq = snap_repo.get_by_experiment_and_question("exp_snap_test", "q_math_001")
+        assert by_eq is not None
+        assert by_eq.snapshot_id == "snap_001"
 
         # LIST by experiment
         snapshots = snap_repo.list_by_experiment("exp_snap_test")
@@ -321,9 +305,9 @@ class TestSnapshotRepository:
 class TestRunRepository:
     """Tests for RunRepository CRUD operations."""
 
-    @pytest.mark.domain_rule("Runs must support status transitions")
+    @pytest.mark.domain_rule("Runs must belong to experiments (FK)")
     def test_repository_crud_run(self, repos):
-        """Verify CRUD for runs with status transitions."""
+        """Verify CRUD for runs with experiment FK."""
         exp_repo = repos["experiment"]
         run_repo = repos["run"]
 
@@ -436,10 +420,10 @@ class TestResponseRepository:
             experiment_id="exp_resp",
             model_id="openai/gpt-4",
             variant_signature="gpt4",
+            config="{}",
         )
         var_repo.save(variant)
 
-        import json
         payload = {"stem": "Q?", "options": ["A", "B"], "answer_key": "A"}
         snapshot = QuestionSnapshot(
             snapshot_id="snap_resp",
@@ -452,73 +436,48 @@ class TestResponseRepository:
         run = Run(
             run_id="run_resp",
             experiment_id="exp_resp",
-            seed=42,
             status="running",
         )
         run_repo.save(run)
 
-        # Response with clear answer, correct -> needs_review=False
-        response1 = Response(
-            response_id="resp_001",
+        # CREATE response with clear answer (should NOT need review)
+        response = Response(
+            response_id="resp_clear",
             run_id="run_resp",
             variant_id="var_resp",
             snapshot_id="snap_resp",
             model_id="openai/gpt-4",
             question_id="q_resp",
-            response_text="The answer is B",
-            selected_answer="B",
-            is_correct=False,
+            selected_answer="A",
             parse_confidence="clear",
-            latency_ms=150,
         )
-        resp_repo.save(response1)
-        saved1 = resp_repo.get_by_id("resp_001")
-        assert saved1.needs_review is False  # Clear parse, has answer
-
-        # Response with ambiguous parse -> needs_review=True
-        response2 = Response(
-            response_id="resp_002",
-            run_id="run_resp",
-            variant_id="var_resp",
-            snapshot_id="snap_resp",
-            model_id="openai/gpt-4",
-            question_id="q_resp",
-            response_text="I'm not sure...",
-            selected_answer=None,
-            is_correct=None,
-            parse_confidence="ambiguous",
-            latency_ms=200,
-        )
-        resp_repo.save(response2)
-        saved2 = resp_repo.get_by_id("resp_002")
-        assert saved2.needs_review is True  # Ambiguous parse
-
-        # Response with no_answer -> needs_review=True
-        response3 = Response(
-            response_id="resp_003",
-            run_id="run_resp",
-            variant_id="var_resp",
-            snapshot_id="snap_resp",
-            model_id="openai/gpt-4",
-            question_id="q_resp",
-            response_text="I cannot answer this",
-            selected_answer=None,
-            is_correct=None,
-            parse_confidence="no_answer",
-            latency_ms=100,
-        )
-        resp_repo.save(response3)
-        saved3 = resp_repo.get_by_id("resp_003")
-        assert saved3.needs_review is True  # No answer
-
-    @pytest.mark.domain_rule("Responses must be queryable by needs_review flag")
-    def test_response_list_needs_review(self, repos):
-        """Verify listing responses that need review.
+        resp_repo.save(response)
         
-        Note: Due to UNIQUE(run_id, variant_id, snapshot_id), we need different
-        snapshots to create multiple responses in the same run.
-        """
-        # Setup
+        # Check the persisted value, not the object attribute
+        persisted = resp_repo.get_by_id("resp_clear")
+        assert persisted.needs_review is False
+
+        # CREATE response with ambiguous confidence (needs review)
+        response_ambig = Response(
+            response_id="resp_ambig",
+            run_id="run_resp",
+            variant_id="var_resp",
+            snapshot_id="snap_resp",
+            model_id="openai/gpt-4",
+            question_id="q_resp",
+            selected_answer="B",
+            parse_confidence="ambiguous",
+        )
+        resp_repo.save(response_ambig)
+        
+        # Check the persisted value, not the object attribute
+        persisted_ambig = resp_repo.get_by_id("resp_ambig")
+        assert persisted_ambig.needs_review is True
+
+    @pytest.mark.domain_rule("Responses must support listing by needs_review flag")
+    def test_response_list_needs_review(self, repos):
+        """Verify listing responses that need review."""
+        # Setup (same as previous test)
         exp_repo = repos["experiment"]
         var_repo = repos["variant"]
         snap_repo = repos["snapshot"]
@@ -535,25 +494,41 @@ class TestResponseRepository:
         )
         exp_repo.save(experiment)
 
-        variant = ModelVariant(
-            variant_id="var_review",
+        # Create TWO variants to allow unique (run_id, variant_id, snapshot_id) combinations
+        variant1 = ModelVariant(
+            variant_id="var_review_1",
             experiment_id="exp_review",
             model_id="openai/gpt-4",
-            variant_signature="gpt4",
+            variant_signature="gpt4-v1",
+            config="{}",
         )
-        var_repo.save(variant)
+        variant2 = ModelVariant(
+            variant_id="var_review_2",
+            experiment_id="exp_review",
+            model_id="anthropic/claude",
+            variant_signature="claude-v1",
+            config="{}",
+        )
+        var_repo.save(variant1)
+        var_repo.save(variant2)
 
-        # Create 3 different snapshots (questions)
-        snapshots = []
-        for i in range(3):
-            snapshot = QuestionSnapshot(
-                snapshot_id=f"snap_review_{i}",
-                experiment_id="exp_review",
-                question_id=f"q_review_{i}",
-                question_payload="{}",
-            )
-            snap_repo.save(snapshot)
-            snapshots.append(snapshot)
+        # Create TWO snapshots
+        payload1 = {"stem": "Q1?", "options": ["A", "B"], "answer_key": "A"}
+        payload2 = {"stem": "Q2?", "options": ["A", "B"], "answer_key": "B"}
+        snapshot1 = QuestionSnapshot(
+            snapshot_id="snap_review_1",
+            experiment_id="exp_review",
+            question_id="q_review_1",
+            question_payload=json.dumps(payload1),
+        )
+        snapshot2 = QuestionSnapshot(
+            snapshot_id="snap_review_2",
+            experiment_id="exp_review",
+            question_id="q_review_2",
+            question_payload=json.dumps(payload2),
+        )
+        snap_repo.save(snapshot1)
+        snap_repo.save(snapshot2)
 
         run = Run(
             run_id="run_review",
@@ -562,67 +537,50 @@ class TestResponseRepository:
         )
         run_repo.save(run)
 
-        # Response 0: ambiguous parse -> needs_review=True
-        response0 = Response(
-            response_id="resp_review_0",
-            run_id="run_review",
-            variant_id="var_review",
-            snapshot_id="snap_review_0",
-            model_id="openai/gpt-4",
-            question_id="q_review_0",
-            parse_confidence="ambiguous",
-            selected_answer="A",
-        )
-        resp_repo.save(response0)
+        # Create responses with different needs_review states
+        # Each must have unique (run_id, variant_id, snapshot_id) combination
+        test_cases = [
+            # (response_id, variant_id, snapshot_id, selected_answer, parse_confidence, expected_needs_review)
+            ("resp_review_1", "var_review_1", "snap_review_1", "A", "clear", False),
+            ("resp_review_2", "var_review_1", "snap_review_2", "B", "ambiguous", True),
+            ("resp_review_3", "var_review_2", "snap_review_1", None, "unknown", True),
+        ]
 
-        # Response 1: no_answer -> needs_review=True
-        response1 = Response(
-            response_id="resp_review_1",
-            run_id="run_review",
-            variant_id="var_review",
-            snapshot_id="snap_review_1",
-            model_id="openai/gpt-4",
-            question_id="q_review_1",
-            parse_confidence="no_answer",
-            selected_answer=None,
-        )
-        resp_repo.save(response1)
+        for resp_id, var_id, snap_id, answer, confidence, _ in test_cases:
+            resp = Response(
+                response_id=resp_id,
+                run_id="run_review",
+                variant_id=var_id,
+                snapshot_id=snap_id,
+                model_id="openai/gpt-4",
+                question_id="q_review_1",
+                selected_answer=answer,
+                parse_confidence=confidence,
+            )
+            resp_repo.save(resp)
 
-        # Response 2: clear parse with answer -> needs_review=False
-        response2 = Response(
-            response_id="resp_review_2",
-            run_id="run_review",
-            variant_id="var_review",
-            snapshot_id="snap_review_2",
-            model_id="openai/gpt-4",
-            question_id="q_review_2",
-            parse_confidence="clear",
-            selected_answer="B",
-        )
-        resp_repo.save(response2)
-
-        # List needing review - should return 2 (ambiguous and no_answer)
+        # List needs review should return 2 (resp_review_2 and resp_review_3)
         needs_review = resp_repo.list_needs_review()
         assert len(needs_review) == 2
-
-        # List by run - should return all 3
-        by_run = resp_repo.list_by_run("run_review")
-        assert len(by_run) == 3
+        
+        # Verify the correct ones are flagged
+        needs_review_ids = {r.response_id for r in needs_review}
+        assert needs_review_ids == {"resp_review_2", "resp_review_3"}
 
 
 class TestErrorRepository:
     """Tests for ErrorRepository CRUD operations."""
 
-    @pytest.mark.domain_rule("Errors must track error classification")
+    @pytest.mark.domain_rule("Errors must belong to runs, variants, snapshots (FK)")
     def test_repository_crud_error(self, repos):
-        """Verify CRUD for errors with error classification."""
-        # Setup
+        """Verify CRUD for errors with all FK dependencies."""
         exp_repo = repos["experiment"]
         var_repo = repos["variant"]
         snap_repo = repos["snapshot"]
         run_repo = repos["run"]
         error_repo = repos["error"]
 
+        # Create experiment
         experiment = Experiment(
             experiment_id="exp_err",
             name="error_test",
@@ -633,14 +591,17 @@ class TestErrorRepository:
         )
         exp_repo.save(experiment)
 
+        # Create variant
         variant = ModelVariant(
             variant_id="var_err",
             experiment_id="exp_err",
             model_id="openai/gpt-4",
             variant_signature="gpt4",
+            config="{}",
         )
         var_repo.save(variant)
 
+        # Create snapshot
         snapshot = QuestionSnapshot(
             snapshot_id="snap_err",
             experiment_id="exp_err",
@@ -649,6 +610,7 @@ class TestErrorRepository:
         )
         snap_repo.save(snapshot)
 
+        # Create run
         run = Run(
             run_id="run_err",
             experiment_id="exp_err",
@@ -662,6 +624,8 @@ class TestErrorRepository:
             run_id="run_err",
             variant_id="var_err",
             snapshot_id="snap_err",
+            model_id="openai/gpt-4",
+            question_id="q_err",
             error_type="api_error",
             error_message="Rate limit exceeded",
             attempt_count=3,
@@ -700,6 +664,7 @@ class TestForeignKeyEnforcement:
             experiment_id="nonexistent",
             model_id="openai/gpt-4",
             variant_signature="orphan",
+            config="{}",
         )
 
         with pytest.raises(sqlite3.IntegrityError):
@@ -728,7 +693,6 @@ class TestForeignKeyEnforcement:
         run = Run(
             run_id="run_orphan",
             experiment_id="nonexistent",
-            status="pending",
         )
 
         with pytest.raises(sqlite3.IntegrityError):

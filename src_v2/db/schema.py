@@ -32,8 +32,8 @@ def get_schema_sql() -> str:
         description       TEXT,
         config_json       TEXT NOT NULL,
         config_hash       TEXT NOT NULL,
-        system_prompt     TEXT NOT NULL,
-        user_prompt       TEXT NOT NULL,
+        system_prompt     TEXT,
+        user_prompt       TEXT,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_active         BOOLEAN NOT NULL DEFAULT TRUE
     );
@@ -49,12 +49,7 @@ def get_schema_sql() -> str:
         experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
         model_id          TEXT NOT NULL,
         variant_signature TEXT NOT NULL,
-        reasoning_mode    TEXT NOT NULL DEFAULT 'off',
-        reasoning_effort  TEXT,
-        max_output_tokens INTEGER,
-        vision_enabled    BOOLEAN NOT NULL DEFAULT FALSE,
-        structured_output BOOLEAN NOT NULL DEFAULT FALSE,
-        web_access_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        config            TEXT NOT NULL,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_active         BOOLEAN NOT NULL DEFAULT TRUE,
         UNIQUE(experiment_id, variant_signature)

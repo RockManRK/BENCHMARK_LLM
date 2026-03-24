@@ -27,9 +27,11 @@ Example:
     )
 
     # Create a simple execution plan
+    # System prompt is None (null-by-default from ConfigResolver)
+    # User prompt is a template with {question} placeholder
     prompts = Prompts(
-        system="You are a helpful assistant.",
-        user="Answer the question: {question}",
+        system=None,
+        user="Answer the following question: {question}",
     )
 
     variant = PlanVariant(
@@ -106,19 +108,30 @@ class Prompts:
 
     Contains the effective system and user prompts to use for
     this specific run. These may include run-level overrides.
+    
+    Prompts are resolved by ConfigResolver using the priority:
+    CLI > .env > NULL (null-by-default)
 
     Attributes:
-        system: System prompt template
+        system: System prompt template (None = no system prompt sent to API)
         user: User prompt template
 
     Example:
+        # System prompt is None (null-by-default)
+        # User prompt is a template with {question} placeholder
+        prompts = Prompts(
+            system=None,
+            user="Answer the following question: {question}",
+        )
+        
+        # Or with both prompts provided:
         prompts = Prompts(
             system="You are a helpful assistant.",
-            user="Answer the question: {question}",
+            user="Answer: {question}",
         )
     """
 
-    system: str
+    system: str | None
     user: str
 
 
@@ -276,7 +289,7 @@ class PlanRun:
             run_id="run-001",
             seed_effective=42,
             prompts_effective=Prompts(
-                system="You are helpful.",
+                system=None,  # Null-by-default (from ConfigResolver)
                 user="Answer: {question}",
             ),
             retry_policy=RetryPolicy(max_attempts=3),

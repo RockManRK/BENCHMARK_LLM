@@ -185,21 +185,14 @@ class VariantRepository:
         cursor.execute("""
             INSERT OR REPLACE INTO model_variants (
                 variant_id, experiment_id, model_id, variant_signature,
-                reasoning_mode, reasoning_effort, max_output_tokens,
-                vision_enabled, structured_output, web_access_enabled,
-                created_at, is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                config, created_at, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             variant.variant_id,
             variant.experiment_id,
             variant.model_id,
             variant.variant_signature,
-            variant.reasoning_mode,
-            variant.reasoning_effort,
-            variant.max_output_tokens,
-            1 if variant.vision_enabled else 0,
-            1 if variant.structured_output else 0,
-            1 if variant.web_access_enabled else 0,
+            variant.config,
             variant.created_at,
             1 if variant.is_active else 0,
         ))
@@ -210,9 +203,7 @@ class VariantRepository:
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT variant_id, experiment_id, model_id, variant_signature,
-                   reasoning_mode, reasoning_effort, max_output_tokens,
-                   vision_enabled, structured_output, web_access_enabled,
-                   created_at, is_active
+                   config, created_at, is_active
             FROM model_variants
             WHERE variant_id = ?
         """, (variant_id,))
@@ -226,9 +217,7 @@ class VariantRepository:
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT variant_id, experiment_id, model_id, variant_signature,
-                   reasoning_mode, reasoning_effort, max_output_tokens,
-                   vision_enabled, structured_output, web_access_enabled,
-                   created_at, is_active
+                   config, created_at, is_active
             FROM model_variants
             WHERE experiment_id = ? AND variant_signature = ?
         """, (experiment_id, signature))
@@ -243,9 +232,7 @@ class VariantRepository:
         if active_only:
             cursor.execute("""
                 SELECT variant_id, experiment_id, model_id, variant_signature,
-                       reasoning_mode, reasoning_effort, max_output_tokens,
-                       vision_enabled, structured_output, web_access_enabled,
-                       created_at, is_active
+                       config, created_at, is_active
                 FROM model_variants
                 WHERE experiment_id = ? AND is_active = TRUE
                 ORDER BY created_at ASC
@@ -253,9 +240,7 @@ class VariantRepository:
         else:
             cursor.execute("""
                 SELECT variant_id, experiment_id, model_id, variant_signature,
-                       reasoning_mode, reasoning_effort, max_output_tokens,
-                       vision_enabled, structured_output, web_access_enabled,
-                       created_at, is_active
+                       config, created_at, is_active
                 FROM model_variants
                 WHERE experiment_id = ?
                 ORDER BY created_at ASC
@@ -279,12 +264,7 @@ class VariantRepository:
             experiment_id=row["experiment_id"],
             model_id=row["model_id"],
             variant_signature=row["variant_signature"],
-            reasoning_mode=row["reasoning_mode"],
-            reasoning_effort=row["reasoning_effort"],
-            max_output_tokens=row["max_output_tokens"],
-            vision_enabled=bool(row["vision_enabled"]),
-            structured_output=bool(row["structured_output"]),
-            web_access_enabled=bool(row["web_access_enabled"]),
+            config=row["config"],
             created_at=row["created_at"],
             is_active=bool(row["is_active"]),
         )
@@ -509,6 +489,22 @@ class RunRepository:
                 WHERE experiment_id = ?
                 ORDER BY created_at ASC
             """, (experiment_id,))
+        return [self._row_to_run(row) for row in cursor.fetchall()]
+
+    def list_pending(self) -> list[Run]:
+        """List all pending runs.
+
+        Returns:
+            List of Run dataclasses with status 'pending'.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT run_id, experiment_id, seed, status, started_at,
+                   finished_at, created_at
+            FROM runs
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+        """)
         return [self._row_to_run(row) for row in cursor.fetchall()]
 
     def update_status(self, run_id: str, status: str) -> None:

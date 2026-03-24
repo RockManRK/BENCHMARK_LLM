@@ -1,3 +1,10 @@
+# name: "configurarion_resolution_contract.md"
+# date: 24/03/2026
+# version: 1.0
+# Atenção!: nunca fazer alterações
+
+---
+
 ## 📄 Documento reorganizado — *CLI Specification*
 
 > **Nota**: Este documento define o comportamento desejado do CLI.  
@@ -117,10 +124,10 @@ bcllm --experiment <nome> --add-questions
 ```
 
 #### Formatos aceitos:
-- `Q001 Q005 Q010`
-- `Q005-Q020`
-- `Q001-Q050 --where status=valid`
-- `--exclude status=annulled`
+- 1 5 10
+- 5-20
+- 1-50 --where status=valid
+- --exclude status=annulled
 - Combinações com múltiplos filtros
 
 ---

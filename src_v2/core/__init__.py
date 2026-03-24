@@ -39,6 +39,14 @@ from src_v2.core.planner import (
     PlannerValidationError,
 )
 
+from src_v2.core.config_resolver import (
+    ConfigResolver,
+)
+
+from src_v2.core.question_loader import (
+    QuestionLoader,
+)
+
 __all__ = [
     # Execution Plan
     'ExecutionPlan',
@@ -63,4 +71,8 @@ __all__ = [
     # Planner
     'Planner',
     'PlannerValidationError',
+    # Config Resolver
+    'ConfigResolver',
+    # Question Loader
+    'QuestionLoader',
 ]

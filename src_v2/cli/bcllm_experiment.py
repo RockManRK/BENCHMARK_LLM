@@ -21,13 +21,15 @@ Exit Codes:
 import argparse
 import hashlib
 import json
-import re
 import sys
 import uuid
 
 from src_v2.cli.database import get_database_connection
+from src_v2.core import QuestionLoader
+from src_v2.core.config_resolver import ConfigResolver
 from src_v2.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot
+from src_v2.utils.variant_signature import generate_variant_signature
 from src_v2.validators.model_id_validator import validate_model_id
 
 
@@ -71,7 +73,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
-    # Optional flags for --create-experiment
     parser.add_argument(
         "--seed",
         metavar="SEED",
@@ -170,22 +171,33 @@ def handle_create_experiment(args, conn) -> int:
         print(f"Error: Experiment already exists: {name}", file=sys.stderr)
         return 1
 
-    system_prompt = args.system_prompt or "You are a helpful assistant."
-    user_prompt = args.user_prompt or "Answer the following question."
+    resolver = ConfigResolver()
+    env_dict = resolver.load_env()
 
-    seed_value = None
-    if args.seed is not None:
-        try:
-            seed_value = parse_seed_value(args.seed, name)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
+    system_prompt = resolver.resolve_prompt(
+        cli_value=args.system_prompt,
+        env_key="SYSTEM_PROMPT_TEMPLATE",
+        default=None
+    )
+    user_prompt = resolver.resolve_prompt(
+        cli_value=args.user_prompt,
+        env_key="USER_PROMPT_TEMPLATE",
+        default=None
+    )
 
-    config_json = "{}"
-    config_hash = ""
-    if args.retry_policy:
-        config_json = json.dumps({"retry_policy": args.retry_policy})
-        config_hash = hashlib.sha256(config_json.encode('utf-8')).hexdigest()
+    seed_value = resolver.resolve_seed(
+        cli_value=args.seed,
+        env_key="RANDOM_SEED",
+        experiment_name=name
+    )
+
+    config_dict = resolver.resolve_config_dict(
+        cli_args=args,
+        env_dict=env_dict
+    )
+
+    config_json = json.dumps(config_dict, indent=None, separators=(',', ':'))
+    config_hash = hashlib.sha256(config_json.encode('utf-8')).hexdigest()
 
     experiment = Experiment(
         experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
@@ -205,16 +217,18 @@ def handle_create_experiment(args, conn) -> int:
         if exit_code != 0:
             return exit_code
 
-    if args.add_questions:
-        exit_code = _add_questions_at_creation(args.add_questions, experiment, conn)
-        if exit_code != 0:
-            return exit_code
+    exit_code = _create_question_snapshots(args, experiment, conn)
+    if exit_code != 0:
+        return exit_code
 
     return 0
 
 
 def _add_models_at_creation(models: list[str], experiment: Experiment, conn) -> int:
     """Add model variants to experiment at creation time.
+    
+    Uses default config (reasoning=none, vision=false, structured=false).
+    For custom configs, use --add-model after experiment creation.
 
     Args:
         models: List of model IDs to add.
@@ -232,7 +246,11 @@ def _add_models_at_creation(models: list[str], experiment: Experiment, conn) -> 
             print("Expected: provider/model-name (e.g., openai/gpt-4, anthropic/claude-3)", file=sys.stderr)
             return 1
 
-        variant_signature = model_id.replace('/', '_')
+        # Build default config (minimal - no non-default values)
+        config = {}
+        
+        # Generate signature
+        variant_signature = generate_variant_signature(model_id, config)
 
         existing = var_repo.get_by_signature(experiment.experiment_id, variant_signature)
         if existing:
@@ -244,118 +262,101 @@ def _add_models_at_creation(models: list[str], experiment: Experiment, conn) -> 
             experiment_id=experiment.experiment_id,
             model_id=model_id,
             variant_signature=variant_signature,
-            reasoning_mode="off",
-            reasoning_effort=None,
-            max_output_tokens=None,
-            vision_enabled=False,
-            structured_output=False,
-            web_access_enabled=False,
+            config=json.dumps(config),
         )
 
         var_repo.save(variant)
-        print(f"  + Model '{variant.model_id}' added (ID: {variant.variant_id})")
+        print(f"✓ Model variant '{variant_signature}' added")
 
     return 0
 
 
-def _add_questions_at_creation(spec: str, experiment: Experiment, conn) -> int:
-    """Add question snapshots to experiment at creation time.
+def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
+    """Create question snapshots for experiment.
 
     Args:
-        spec: Question specification (comma-separated or range).
-        experiment: Experiment to add questions to.
+        args: Parsed CLI arguments.
+        experiment: Experiment to create snapshots for.
         conn: Database connection.
 
     Returns:
         Exit code (0 for success, 1 for error).
-    """
-    snap_repo = SnapshotRepository(conn)
 
-    question_ids = _parse_question_spec(spec)
-    if isinstance(question_ids, str):
-        print(f"Error: {question_ids}", file=sys.stderr)
+    Behavior:
+        - If --add-questions provided: use specified questions
+        - If --add-questions NOT provided: select ALL questions from dataset
+        - Fails loudly if dataset invalid (no placeholders)
+    """
+    resolver = ConfigResolver()
+    env_dict = resolver.load_env()
+
+    dataset_path = env_dict.get('QUESTIONS_DATASET_PATH')
+    if not dataset_path:
+        print(
+            "Error: QUESTIONS_DATASET_PATH not set in .env. "
+            "Please configure the dataset path.",
+            file=sys.stderr
+        )
         return 1
 
-    added_count = 0
+    try:
+        loader = QuestionLoader()
+        questions = loader.load_dataset(dataset_path)
+        questions = loader.assign_internal_ids(questions)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+        print(f"Error loading question dataset: {e}", file=sys.stderr)
+        return 1
+
+    if args.add_questions:
+        try:
+            selected_questions = loader.parse_question_spec(args.add_questions, questions)
+        except ValueError as e:
+            print(f"Error parsing question spec: {e}", file=sys.stderr)
+            return 1
+    else:
+        selected_questions = questions
+
+    if not selected_questions:
+        print("Warning: No questions selected for snapshotting.", file=sys.stderr)
+        return 0
+
+    snapshot_repo = SnapshotRepository(conn)
+    created_count = 0
     skipped_count = 0
 
-    for qid in question_ids:
-        existing = snap_repo.get_by_experiment_and_question(experiment.experiment_id, qid)
+    for question in selected_questions:
+        source_id = question.get('source_id') or question.get('id') or question.get('question_id', '')
+
+        existing = snapshot_repo.get_by_experiment_and_question(experiment.experiment_id, source_id)
         if existing:
             skipped_count += 1
             continue
 
         payload = {
-            "stem": f"Question {qid} stem",
-            "options": ["A", "B", "C", "D"],
-            "answer_key": "B",
+            'stem': question.get('stem', ''),
+            'options': question.get('options', []),
+            'answer_key': question.get('answer_key', ''),
+            'meta': {k: v for k, v in question.items() if k not in ('stem', 'options', 'answer_key', 'id', 'source_id', 'question_id', 'internal_id')},
+            'internal_id': question.get('internal_id'),
+            'source_id': source_id,
         }
 
         snapshot = QuestionSnapshot(
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
-            question_id=qid,
+            question_id=source_id,
             question_payload=json.dumps(payload),
         )
 
-        snap_repo.save(snapshot)
-        added_count += 1
+        snapshot_repo.save(snapshot)
+        created_count += 1
 
-    print(f"  + {added_count} question(s) added to '{experiment.name}'")
+    if created_count > 0:
+        print(f"✓ Created {created_count} question snapshot(s)")
     if skipped_count > 0:
-        print(f"    ({skipped_count} already existed)")
+        print(f"  Skipped {skipped_count} existing snapshot(s)")
 
     return 0
-
-
-def _parse_question_spec(spec: str) -> list[str] | str:
-    """Parse question specification into list of question IDs.
-
-    Formats supported:
-    - Comma-separated: q1,q2,q3
-    - Range: 1-10 or q1-q10
-    - Mixed: q1,q2,5-10,q15
-
-    Args:
-        spec: Question specification string.
-
-    Returns:
-        List of normalized question IDs, or error message string.
-    """
-    question_ids = []
-
-    for part in spec.split(','):
-        part = part.strip()
-
-        if not part:
-            continue
-
-        range_match = re.match(r'^(q?)(\d+)-(q?)(\d+)$', part, re.IGNORECASE)
-        if range_match:
-            prefix1, start, prefix2, end = range_match.groups()
-            prefix = prefix1 or prefix2
-            start_num = int(start)
-            end_num = int(end)
-
-            if start_num > end_num:
-                return f"Invalid range: {start_num}-{end_num} (start > end)"
-
-            for i in range(start_num, end_num + 1):
-                question_ids.append(f"Q{i:02d}")
-            continue
-
-        single_match = re.match(r'^(q?)(\d+)$', part, re.IGNORECASE)
-        if single_match:
-            prefix, num = single_match.groups()
-            question_ids.append(f"Q{int(num):02d}")
-            continue
-
-        return f"Invalid question spec: {part}"
-
-    if not question_ids:
-        return "No valid question IDs found in spec"
-
-    return question_ids
 
 
 def handle_show_experiment(args, conn) -> int:
