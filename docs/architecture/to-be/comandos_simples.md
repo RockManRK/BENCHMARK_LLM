@@ -28,10 +28,10 @@ bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome
         --repeat_penalty <#>
         --vision <opção> (true/false)
         --structured <opção> (true/false)
-        --base_url <configura o base_url padrão do experimento, se não configurado, puxa do .env, se não tiver no .env, apresenta um alerta e explica a situação e como corrigir>
+        --url <configura o base_url padrão do experimento, se não configurado, puxa do .env, se não tiver no .env, apresenta um alerta e explica a situação e como corrigir>
     --system_prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão. Se não tiver no .env, não envia a informação na requisição)
     --user_prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão. Se não tiver no .env, retorna um aviso de que deve ser corrigido (Ou será que pode enviar sem?))
-    --retry_policy <#> (Valor indicando quantas vezes o sistema tentará executar novamente uma requisição em caso de falha)
+    --retry_policy <#> (Configuração não vai mais existir. Configuração de retry_policy agora será apenas por .env. Será uma configuração de sistema, e não mais de experimento)
 
 bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
 

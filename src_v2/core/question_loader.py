@@ -253,25 +253,26 @@ class QuestionLoader:
     
     def parse_question_spec(self, spec: str, questions: list[dict]) -> list[dict]:
         """Parse question specification string and return matching questions.
-        
+
         Args:
             spec: Specification string in one of these formats:
                   - Single ID: "Q001" or "1"
-                  - Comma-separated: "Q001,Q005,Q010" or "1,5,10"
+                  - Comma-separated: "Q001,Q005,Q010" or "1,5,10" (spaces allowed: "1, 3, 5")
                   - Range: "Q001-Q010" or "1-10"
                   - Mixed: "Q001,Q005-Q010,15"
             questions: Full list of questions to select from.
-        
+
         Returns:
             List of matching question dictionaries.
-        
+
         Raises:
             ValueError: If spec format is invalid or IDs not found.
-        
+
         Note:
             Supports both source IDs (Q001) and internal numeric IDs (1-50).
             Internal numeric IDs are 1-based (1..N).
-        
+            Input is normalized: whitespace is stripped, spaces after commas are handled.
+
         Example:
             >>> loader = QuestionLoader()
             >>> questions = [
@@ -283,31 +284,33 @@ class QuestionLoader:
             [{'internal_id': 1, 'source_id': 'Q001'}, {'internal_id': 3, 'source_id': 'Q003'}]
         """
         import re
-        
+
         question_ids = []
-        
-        for part in spec.split(','):
+
+        normalized_spec = spec.strip()
+
+        for part in normalized_spec.split(','):
             part = part.strip()
             if not part:
                 continue
-            
+
             range_match = re.match(r'^(q?)(\d+)-(q?)(\d+)$', part, re.IGNORECASE)
             if range_match:
                 prefix1, start, prefix2, end = range_match.groups()
                 prefix = prefix1 or prefix2
                 start_num = int(start)
                 end_num = int(end)
-                
+
                 if start_num > end_num:
                     raise ValueError(f"Invalid range: {start_num}-{end_num} (start > end)")
-                
+
                 for i in range(start_num, end_num + 1):
                     if prefix:
                         question_ids.append(f"Q{i:03d}")
                     else:
                         question_ids.append(str(i))
                 continue
-            
+
             single_match = re.match(r'^(q?)(\d+)$', part, re.IGNORECASE)
             if single_match:
                 prefix, num = single_match.groups()
@@ -316,12 +319,12 @@ class QuestionLoader:
                 else:
                     question_ids.append(str(int(num)))
                 continue
-            
+
             raise ValueError(f"Invalid question spec format: {part}")
-        
+
         if not question_ids:
             raise ValueError("No valid question IDs found in spec")
-        
+
         return self._select_questions_by_ids(question_ids, questions)
     
     def _select_questions_by_ids(

@@ -123,16 +123,23 @@ def create_parser() -> argparse.ArgumentParser:
         help="MODEL_TOP_P - Top-P sampling",
     )
     parser.add_argument(
+        "--reasoning-tokens",
+        type=int,
+        metavar="N",
+        dest="reasoning_tokens",
+        help="MODEL_MAX_TOKENS_REASONING - Maximum reasoning tokens",
+    )
+    parser.add_argument(
         "--vision",
         type=str,
-        choices=["true", "false"],
-        help="MODEL_VISION - Enable vision (true/false)",
+        metavar="VALUE",
+        help="MODEL_VISION - Enable vision (true/false/NULL)",
     )
     parser.add_argument(
         "--structured",
         type=str,
-        choices=["true", "false"],
-        help="STRUCTURED_OUTPUTS - Enable structured output (true/false)",
+        metavar="VALUE",
+        help="STRUCTURED_OUTPUTS - Enable structured output (true/false/NULL)",
     )
 
     return parser
@@ -153,6 +160,16 @@ def handle_add_model(args, conn) -> int:
     if not validate_model_id(args.add_model):
         print(f"Error: Invalid model ID format: {args.add_model}", file=sys.stderr)
         print("Expected: provider/model-name (e.g., openai/gpt-4, anthropic/claude-3)", file=sys.stderr)
+        return 1
+
+    if args.vision is not None and not _validate_bool_value(args.vision):
+        print(f"Error: Invalid value for --vision: {args.vision}", file=sys.stderr)
+        print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        return 1
+
+    if args.structured is not None and not _validate_bool_value(args.structured):
+        print(f"Error: Invalid value for --structured: {args.structured}", file=sys.stderr)
+        print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
         return 1
 
     exp_repo = ExperimentRepository(conn)
@@ -186,6 +203,21 @@ def handle_add_model(args, conn) -> int:
     var_repo.save(variant)
     print(f"✓ Model variant '{variant_signature}' added to experiment '{args.experiment}'")
     return 0
+
+
+def _validate_bool_value(value: str) -> bool:
+    """Validate boolean CLI value.
+
+    Args:
+        value: String value to validate.
+
+    Returns:
+        True if valid (case-insensitive true/false/null), False otherwise.
+    """
+    if value is None:
+        return True
+    normalized = value.lower()
+    return normalized in ('true', 'false', 'null')
 
 
 def handle_list_models(args, conn) -> int:

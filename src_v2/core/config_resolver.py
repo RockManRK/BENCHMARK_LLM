@@ -307,19 +307,29 @@ class ConfigResolver:
     def build_experiment_config_dict(self, cli_args) -> dict:
         """Build complete configuration dictionary for experiment creation.
 
-        Includes ALL 22 keys from configuration_resolution_contract.md.
-        
+        Includes ONLY experiment-scoped keys (17 total).
+        SYSTEM keys are resolved at runtime and NOT stored in experiment config.
+
         Resolution strategy:
-        - SYSTEM keys (4): Set to None (resolved at system startup, not stored in experiment)
-        - EXPERIMENT keys (6): Resolved from CLI/.env at experiment creation
-        - MODEL keys (10): Set to None (resolved at model variant creation)
-        - RUN keys (3): Set to None (resolved at run creation)
+        - EXPERIMENT keys (4): Resolved from CLI/.env at experiment creation
+        - MODEL keys (11): Resolved from CLI/.env as defaults for model variants
+        - RUN keys (3): Resolved from CLI/.env as defaults for runs
+
+        SYSTEM keys REMOVED (resolved at system startup, not stored):
+        - DATABASE_PATH
+        - EXECUTION_MODE
+        - LOG_FILE_PATH
+        - LOG_LEVEL
+        - OPENROUTER_DEBUG_ENABLED
+
+        Note: DEFAULT_QUESTIONS is NOT persisted - it is used only transiently
+        during experiment creation for filtering.
 
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
 
         Returns:
-            Dictionary with ALL 22 configuration keys from contract.
+            Dictionary with 17 configuration keys (4 EXPERIMENT + 11 MODEL + 3 RUN).
         """
         resolved_seed = self.resolve_seed(
             cli_value=getattr(cli_args, 'seed', None),
@@ -328,36 +338,36 @@ class ConfigResolver:
         )
 
         return {
-            # SYSTEM keys (4) - Set to None (resolved at system startup)
-            "DATABASE_PATH": None,
-            "EXECUTION_MODE": None,
-            "LOG_FILE_PATH": None,
-            "LOG_LEVEL": None,
-            
-            # EXPERIMENT keys (6) - Resolved from .env at experiment creation
+            # EXPERIMENT keys (4) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
-            "OPENROUTER_DEBUG_ENABLED": self._parse_bool_env("OPENROUTER_DEBUG_ENABLED"),
-            "DEFAULT_QUESTIONS": self._parse_json_env("DEFAULT_QUESTIONS"),
             "QUESTIONS_STATUS_ADD": self.env_dict.get("QUESTIONS_STATUS_ADD"),
             "QUESTIONS_STATUS_EXCLUDE": self.env_dict.get("QUESTIONS_STATUS_EXCLUDE"),
             "MODELS_DEFAULT_FOR_EXPERIMENTS": self._parse_json_env("MODELS_DEFAULT_FOR_EXPERIMENTS"),
-            
-            # MODEL keys (10) - Set to None (resolved at model variant creation)
-            "BASE_URL": None,
-            "MODEL_MAX_TOKENS_REASONING": None,
-            "MODEL_MAX_TOKENS_TOTAL": None,
-            "MODEL_REASONING_EFFORT": None,
-            "MODEL_REPEAT_PENALTY": None,
-            "MODEL_TEMPERATURE": None,
-            "MODEL_TOP_K": None,
-            "MODEL_TOP_P": None,
-            "MODEL_VISION": None,
-            "STRUCTURED_OUTPUTS": None,
-            
-            # RUN keys (3) - Set to None (resolved at run creation)
+
+            # MODEL keys (11) - Resolved from CLI/.env as defaults for model variants
+            "BASE_URL": getattr(cli_args, 'url', None) or self.env_dict.get("BASE_URL"),
+            "MODEL_MAX_TOKENS_REASONING": getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None) or self._parse_int_env("MODEL_MAX_TOKENS_REASONING"),
+            "MODEL_MAX_TOKENS_TOTAL": getattr(cli_args, 'max_tokens', None) or self._parse_int_env("MODEL_MAX_TOKENS_TOTAL"),
+            "MODEL_REASONING_EFFORT": getattr(cli_args, 'reasoning', None) or self.env_dict.get("MODEL_REASONING_EFFORT"),
+            "MODEL_REPEAT_PENALTY": getattr(cli_args, 'repeat_penalty', None) or self._parse_float_env("MODEL_REPEAT_PENALTY"),
+            "MODEL_TEMPERATURE": getattr(cli_args, 'temperature', None) or self._parse_float_env("MODEL_TEMPERATURE"),
+            "MODEL_TOP_K": getattr(cli_args, 'top_k', None) or self._parse_int_env("MODEL_TOP_K"),
+            "MODEL_TOP_P": getattr(cli_args, 'top_p', None) or self._parse_float_env("MODEL_TOP_P"),
+            "MODEL_VISION": self._resolve_bool_cli_or_env(getattr(cli_args, 'vision', None), "MODEL_VISION"),
+            "STRUCTURED_OUTPUTS": self._resolve_bool_cli_or_env(getattr(cli_args, 'structured', None), "STRUCTURED_OUTPUTS"),
+
+            # RUN keys (3) - Resolved from CLI/.env as defaults for runs
             "RUN_RESPONSES_SEED": resolved_seed if resolved_seed is not None else "OFF",
-            "SYSTEM_PROMPT": None,
-            "USER_PROMPT": None,
+            "SYSTEM_PROMPT": self.resolve_prompt(
+                cli_value=getattr(cli_args, 'system_prompt', None),
+                env_key="SYSTEM_PROMPT",
+                default=None
+            ),
+            "USER_PROMPT": self.resolve_prompt(
+                cli_value=getattr(cli_args, 'user_prompt', None),
+                env_key="USER_PROMPT",
+                default=None
+            ),
         }
 
     def build_run_config_dict(self, cli_args, experiment) -> dict:
@@ -444,16 +454,6 @@ class ConfigResolver:
                 return env_value.strip()
             return default
 
-        def parse_bool(value: str | None) -> bool | None:
-            """Parse boolean from string."""
-            if value is None:
-                return None
-            if value.lower() in ('true', '1', 'yes'):
-                return True
-            if value.lower() in ('false', '0', 'no'):
-                return False
-            return None
-
         def parse_int(value: str | None) -> int | None:
             """Parse integer from string."""
             if value is None:
@@ -478,7 +478,7 @@ class ConfigResolver:
                 "BASE_URL"
             ),
             "MODEL_MAX_TOKENS_REASONING": parse_int(resolve_cli_or_env(
-                getattr(cli_args, 'max_reasoning', None),
+                getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None),
                 "MODEL_MAX_TOKENS_REASONING"
             )),
             "MODEL_MAX_TOKENS_TOTAL": parse_int(resolve_cli_or_env(
@@ -505,14 +505,8 @@ class ConfigResolver:
                 getattr(cli_args, 'top_p', None),
                 "MODEL_TOP_P"
             )),
-            "MODEL_VISION": parse_bool(resolve_cli_or_env(
-                getattr(cli_args, 'vision', None),
-                "MODEL_VISION"
-            )),
-            "STRUCTURED_OUTPUTS": parse_bool(resolve_cli_or_env(
-                getattr(cli_args, 'structured', None),
-                "STRUCTURED_OUTPUTS"
-            )),
+            "MODEL_VISION": self._resolve_bool_cli_or_env(getattr(cli_args, 'vision', None), "MODEL_VISION"),
+            "STRUCTURED_OUTPUTS": self._resolve_bool_cli_or_env(getattr(cli_args, 'structured', None), "STRUCTURED_OUTPUTS"),
         }
 
     def _parse_json_env(self, key: str) -> list | None:
@@ -533,6 +527,43 @@ class ConfigResolver:
         except (json.JSONDecodeError, TypeError):
             return None
 
+    def _parse_bool_value(self, value: str | None) -> bool | None:
+        """Parse boolean from CLI value.
+
+        Args:
+            value: String value from CLI ('true', 'false', 'NULL').
+
+        Returns:
+            Parsed boolean or None if 'NULL' or not provided.
+        """
+        if value is None:
+            return None
+        if value.lower() == 'true':
+            return True
+        if value.lower() == 'false':
+            return False
+        if value.upper() == 'NULL':
+            return None
+        return None
+
+    def _resolve_bool_cli_or_env(self, cli_value: str | None, env_key: str) -> bool | None:
+        """Resolve boolean from CLI > .env.
+
+        Args:
+            cli_value: String value from CLI ('true', 'false', 'NULL', or None).
+            env_key: Environment variable key.
+
+        Returns:
+            CLI value if provided (including False), otherwise .env value.
+        """
+        if cli_value is not None:
+            parsed = self._parse_bool_value(cli_value)
+            if parsed is not None:
+                return parsed
+            if cli_value.upper() == 'NULL':
+                return None
+        return self._parse_bool_env(env_key)
+
     def _parse_bool_env(self, key: str) -> bool | None:
         """Parse boolean from environment variable.
 
@@ -550,3 +581,37 @@ class ConfigResolver:
         if value.lower() in ('false', '0', 'no'):
             return False
         return None
+
+    def _parse_int_env(self, key: str) -> int | None:
+        """Parse integer from environment variable.
+
+        Args:
+            key: Environment variable key.
+
+        Returns:
+            Parsed integer or None if not found/invalid.
+        """
+        value = self.env_dict.get(key)
+        if not value:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    def _parse_float_env(self, key: str) -> float | None:
+        """Parse float from environment variable.
+
+        Args:
+            key: Environment variable key.
+
+        Returns:
+            Parsed float or None if not found/invalid.
+        """
+        value = self.env_dict.get(key)
+        if not value:
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None

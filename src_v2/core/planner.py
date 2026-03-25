@@ -7,19 +7,35 @@ effective values, but never modifies database state.
 Key responsibilities:
 - Validate experiment exists and has models/snapshots
 - Read experiment, runs, variants, snapshots from DB
-- Resolve effective prompts (run overrides experiment)
-- Resolve effective seed (run overrides experiment)
+- Resolve effective prompts (run.config overrides experiment.config)
+- Resolve effective seed (run.config overrides experiment.config)
 - Build ExecutionPlan with deduplicated items per run
 - Apply run ID filters when specified
 - Apply question ID filters when specified
 - Apply model variant ID filters when specified
 - Apply retry policy when specified
 
+Database schema (TO-BE):
+- experiments: config_json (contains SYSTEM_PROMPT, USER_PROMPT, etc.)
+- model_variants: config (JSON with MODEL_* keys)
+- question_snapshots: question_payload (JSON)
+- runs: config (JSON with RUN_RESPONSES_SEED, SYSTEM_PROMPT, USER_PROMPT)
+- responses: execution results
+- errors: error records
+
 The Planner is READ-ONLY:
 - No database writes
 - No state inference or repair
 - Explicit validation only
 - All execution decisions explicit in ExecutionPlan
+
+Prompt resolution chain:
+1. Run config (RUN_RESPONSES_SEED, SYSTEM_PROMPT, USER_PROMPT)
+2. Experiment config (fallback)
+
+Seed resolution chain:
+1. Run config.RUN_RESPONSES_SEED
+2. Experiment config.RUN_RESPONSES_SEED (fallback)
 """
 
 import sqlite3
@@ -66,6 +82,11 @@ class Planner:
     from the database. It performs explicit validation and resolves
     effective values, but never modifies database state.
 
+    Configuration resolution:
+    - Prompts: run.config.SYSTEM_PROMPT/USER_PROMPT > experiment.config
+    - Seed: run.config.RUN_RESPONSES_SEED > experiment.config
+    - Model config: variant.config (MODEL_* keys)
+
     Attributes:
         conn: Database connection (read-only usage)
 
@@ -106,6 +127,11 @@ class Planner:
 
         Raises:
             PlannerValidationError: If experiment has no models/snapshots or doesn't exist
+
+        Notes:
+            - Prompts resolved from: run.config > experiment.config
+            - Seed resolved from: run.config > experiment.config
+            - Model config from: variant.config (MODEL_* keys)
         """
         # Validate experiment exists and get its data
         experiment_row = self._validate_experiment_exists(experiment_name)
@@ -163,7 +189,7 @@ class Planner:
         cursor = self.conn.execute(
             """
             SELECT * FROM experiments
-            WHERE name = ? AND is_active = TRUE
+            WHERE name = ?
             """,
             (name,),
         )
@@ -192,7 +218,7 @@ class Planner:
         cursor = self.conn.execute(
             """
             SELECT * FROM model_variants
-            WHERE experiment_id = ? AND is_active = TRUE
+            WHERE experiment_id = ?
             """,
             (experiment_id,),
         )
@@ -221,7 +247,7 @@ class Planner:
         cursor = self.conn.execute(
             """
             SELECT * FROM question_snapshots
-            WHERE experiment_id = ? AND is_active = TRUE
+            WHERE experiment_id = ?
             """,
             (experiment_id,),
         )
@@ -330,21 +356,39 @@ class Planner:
         """Resolve effective prompts for run.
 
         Run-level prompts override experiment-level prompts.
-        In the minimal schema, runs don't have prompts, so we use
-        experiment prompts.
+        
+        Resolution chain:
+        1. Run config (RUN_RESPONSES_SEED, SYSTEM_PROMPT, USER_PROMPT)
+        2. Experiment config_json (fallback)
+        
+        Prompts are stored in JSON columns as:
+        - SYSTEM_PROMPT: str | None
+        - USER_PROMPT: str
 
         Args:
-            experiment_row: Experiment database row
-            run_row: Run database row
+            experiment_row: Experiment database row (has config_json)
+            run_row: Run database row (has config column with prompts)
 
         Returns:
             Resolved Prompts
         """
-        # For minimal schema: use experiment prompts
-        # Future: check if run has custom prompts, else use experiment
+        import json
+        
+        # Parse run config
+        run_config_str = run_row["config"] if "config" in run_row.keys() else "{}"
+        run_config = json.loads(run_config_str) if run_config_str else {}
+        
+        # Parse experiment config_json
+        exp_config_str = experiment_row["config_json"] if "config_json" in experiment_row.keys() else "{}"
+        exp_config = json.loads(exp_config_str) if exp_config_str else {}
+        
+        # Run-level prompts override experiment-level
+        system_prompt = run_config.get("SYSTEM_PROMPT") or exp_config.get("SYSTEM_PROMPT")
+        user_prompt = run_config.get("USER_PROMPT") or exp_config.get("USER_PROMPT")
+        
         return Prompts(
-            system=experiment_row["system_prompt"],
-            user=experiment_row["user_prompt"],
+            system=system_prompt,
+            user=user_prompt,
         )
 
     def _resolve_seed_effective(
@@ -355,16 +399,35 @@ class Planner:
         """Resolve effective seed for run.
 
         Run-level seed overrides experiment-level seed.
+        
+        Resolution chain:
+        1. Run config.RUN_RESPONSES_SEED
+        2. Experiment config.RUN_RESPONSES_SEED (fallback)
+        
+        Seed is stored in run.config JSON column as RUN_RESPONSES_SEED.
 
         Args:
             experiment_row: Experiment database row
-            run_row: Run database row
+            run_row: Run database row (has config column with RUN_RESPONSES_SEED)
 
         Returns:
             Effective seed (None = no randomization)
         """
+        import json
+        
+        # Parse run config
+        run_config_str = run_row["config"] if "config" in run_row.keys() else "{}"
+        run_config = json.loads(run_config_str) if run_config_str else {}
+        
         # Run seed takes precedence
-        return run_row["seed"]
+        run_seed = run_config.get("RUN_RESPONSES_SEED")
+        if run_seed is not None:
+            return run_seed
+        
+        # Fallback to experiment config
+        exp_config_str = experiment_row["config_json"] if "config_json" in experiment_row.keys() else "{}"
+        exp_config = json.loads(exp_config_str) if exp_config_str else {}
+        return exp_config.get("RUN_RESPONSES_SEED")
 
     def _build_model_config(self, variant_row: sqlite3.Row) -> ModelConfig:
         """Build ModelConfig from variant row.

@@ -175,7 +175,7 @@ def handle_list_runs(args, conn) -> int:
     print("-" * 55)
     for r in runs:
         config = json.loads(r.config) if r.config else {}
-        seed_display = str(config.get('seed')) if config.get('seed') is not None else "None"
+        seed_display = str(config.get('RUN_RESPONSES_SEED')) if config.get('RUN_RESPONSES_SEED') is not None else "None"
         print(f"{r.run_id:<25} {seed_display:<10} {r.status:<18}")
 
     return 0
@@ -214,9 +214,9 @@ def handle_show_run(args, conn) -> int:
     print(f"Run: {run.run_id}")
     print(f"  Experiment: {experiment.name}")
     print(f"  Config:")
-    print(f"    seed: {config.get('seed', 'None')}")
-    print(f"    system_prompt: {config.get('system_prompt', 'None')}")
-    print(f"    user_prompt: {config.get('user_prompt', 'None')}")
+    print(f"    seed: {config.get('RUN_RESPONSES_SEED', 'None')}")
+    print(f"    system_prompt: {config.get('SYSTEM_PROMPT', 'None')}")
+    print(f"    user_prompt: {config.get('USER_PROMPT', 'None')}")
     print(f"  Status: {run.status}")
 
     return 0

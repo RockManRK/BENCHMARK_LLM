@@ -53,8 +53,14 @@ def create_parser() -> argparse.ArgumentParser:
     group.add_argument(
         "--add-questions",
         metavar="SPEC",
-        nargs="*",
-        help="Add questions (format: Q001 Q005 Q010 | Q001-Q020 | 1-50 | mixed)",
+        dest="add_questions",
+        help="Add questions (format: Q001,Q005,Q010 | Q001-Q020 | 1-50 | mixed)",
+    )
+    group.add_argument(
+        "--questions",
+        metavar="SPEC",
+        dest="add_questions",
+        help="Alias for --add-questions (format: Q001,Q005,Q010 | Q001-Q020 | 1-50 | mixed)",
     )
     group.add_argument(
         "--list-questions",
@@ -306,7 +312,8 @@ def handle_add_questions(args, conn) -> int:
         return 1
 
     question_ids = []
-    for spec in args.add_questions:
+    if args.add_questions:
+        spec = args.add_questions.strip()
         try:
             selected = loader.parse_question_spec(spec, questions)
             for q in selected:
@@ -315,7 +322,7 @@ def handle_add_questions(args, conn) -> int:
                     question_ids.append(qid)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
-            print("Expected formats: Q001 Q005 Q010 | Q001-Q020 | 1-50 | mixed", file=sys.stderr)
+            print("Expected formats: Q001,Q005,Q010 | Q001-Q020 | 1-50 | mixed", file=sys.stderr)
             return 1
 
     if not question_ids:
@@ -357,6 +364,7 @@ def handle_add_questions(args, conn) -> int:
         existing = snap_repo.get_by_experiment_and_question(experiment.experiment_id, qid)
         if existing:
             skipped_count += 1
+            print(f"Question {qid} already exists (skipped)")
             continue
 
         if qid not in questions_index:
@@ -364,6 +372,12 @@ def handle_add_questions(args, conn) -> int:
             return 1
 
         question_data = questions_index[qid]
+        question_position = question_data.get('internal_id')
+
+        if question_position is None:
+            print(f"Error: Question missing internal_id: {qid}", file=sys.stderr)
+            return 1
+
         payload = {
             "stem": question_data.get("stem", ""),
             "options": list(question_data.get("options", {}).values()) if isinstance(question_data.get("options"), dict) else question_data.get("options", []),
@@ -374,16 +388,16 @@ def handle_add_questions(args, conn) -> int:
         snapshot = QuestionSnapshot(
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
-            question_id=qid,
+            json_question_id=qid,
+            question_position=question_position,
             question_payload=json.dumps(payload, ensure_ascii=False),
         )
 
         snap_repo.save(snapshot)
         added_count += 1
+        print(f"✓ Added question {qid} (position {question_position})")
 
-    print(f"✓ {added_count} question(s) added to '{experiment.name}'")
-    if skipped_count > 0:
-        print(f"  ({skipped_count} already existed)")
+    print(f"\nSummary: {added_count} added, {skipped_count} skipped")
 
     return 0
 
@@ -406,7 +420,7 @@ def handle_list_questions(args, conn) -> int:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
-    snapshots = snap_repo.list_by_experiment(experiment.experiment_id, active_only=True)
+    snapshots = snap_repo.list_by_experiment(experiment.experiment_id)
 
     if not snapshots:
         print(f"No questions in experiment '{experiment.name}'.")

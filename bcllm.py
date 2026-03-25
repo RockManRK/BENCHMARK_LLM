@@ -74,7 +74,7 @@ def determine_v2_command(argv: list[str]) -> str | None:
         return "bcllm_model"
 
     # Check for question commands (for existing experiments)
-    if "--add-questions" in args or "--list-questions" in args or "--remove-question" in args:
+    if "--add-questions" in args or "--questions" in args or "--list-questions" in args or "--remove-question" in args:
         return "bcllm_questions"
 
     # Check for run commands (before experiment commands to avoid --experiment collision)

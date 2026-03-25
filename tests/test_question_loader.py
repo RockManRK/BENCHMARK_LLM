@@ -467,6 +467,48 @@ class TestParseQuestionSpec:
         with pytest.raises(ValueError, match="Question IDs not found"):
             loader.parse_question_spec("Q999", sample_questions)
 
+    def test_multiple_nonexistent_ids_raises_error_with_all_ids(self, loader: QuestionLoader, sample_questions: list[dict]) -> None:
+        """Test that multiple nonexistent IDs raises ValueError listing all missing IDs."""
+        with pytest.raises(ValueError) as exc_info:
+            loader.parse_question_spec("Q999,Q1000,Q1001", sample_questions)
+
+        error_message = str(exc_info.value)
+        assert "Q999" in error_message
+        assert "Q1000" in error_message
+        assert "Q1001" in error_message
+
+    def test_mixed_valid_and_nonexistent_ids_raises_error(self, loader: QuestionLoader, sample_questions: list[dict]) -> None:
+        """Test that mixed valid and nonexistent IDs raises ValueError listing only missing IDs."""
+        with pytest.raises(ValueError) as exc_info:
+            loader.parse_question_spec("Q001,Q999,Q003,Q1000", sample_questions)
+
+        error_message = str(exc_info.value)
+        assert "Q999" in error_message
+        assert "Q1000" in error_message
+        assert "Q001" not in error_message
+        assert "Q003" not in error_message
+
+    def test_range_with_nonexistent_ids_raises_error(self, loader: QuestionLoader, sample_questions: list[dict]) -> None:
+        """Test that range including nonexistent IDs raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            loader.parse_question_spec("Q003-Q007", sample_questions)
+
+        error_message = str(exc_info.value)
+        assert "Q006" in error_message or "Q007" in error_message
+
+    def test_internal_id_not_found_raises_error(self, loader: QuestionLoader, sample_questions: list[dict]) -> None:
+        """Test that nonexistent internal ID raises ValueError."""
+        with pytest.raises(ValueError, match="Question IDs not found"):
+            loader.parse_question_spec("999", sample_questions)
+
+    def test_mixed_internal_ids_with_nonexistent_raises_error(self, loader: QuestionLoader, sample_questions: list[dict]) -> None:
+        """Test that mixed valid and nonexistent internal IDs raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            loader.parse_question_spec("1,999,3", sample_questions)
+
+        error_message = str(exc_info.value)
+        assert "999" in error_message
+
     def test_empty_spec_raises_error(self, loader: QuestionLoader, sample_questions: list[dict]) -> None:
         """Test that empty spec raises ValueError."""
         with pytest.raises(ValueError, match="No valid question IDs found"):

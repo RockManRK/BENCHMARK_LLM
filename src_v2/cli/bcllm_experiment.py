@@ -31,6 +31,51 @@ from src_v2.db.repository import ExperimentRepository, SnapshotRepository, Varia
 from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src_v2.utils.variant_signature import generate_variant_signature
 from src_v2.validators.model_id_validator import validate_model_id
+from src_v2.cli.bcllm_questions import parse_filter, filter_questions
+
+
+class DuplicateFlagWarningParser(argparse.ArgumentParser):
+    """ArgumentParser that warns on duplicate flag usage.
+    
+    When a flag is specified multiple times, warns and uses the last value.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._raw_args = None
+    
+    def parse_args(self, args=None, namespace=None):
+        import sys
+        raw_args = sys.argv[1:] if args is None else args
+        self._raw_args = raw_args
+        
+        warnings = self._check_duplicate_flags(raw_args)
+        for warning in warnings:
+            print(warning, file=sys.stderr)
+        
+        return super().parse_args(args, namespace)
+    
+    def _check_duplicate_flags(self, args):
+        """Check for duplicate flags and return warning messages."""
+        warnings = []
+        seen = {}
+        
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg.startswith('--'):
+                if '=' in arg:
+                    flag = arg.split('=', 1)[0]
+                else:
+                    flag = arg
+                
+                if flag in seen:
+                    warnings.append(f"Warning: {flag} specified multiple times, using last value")
+                else:
+                    seen[flag] = True
+            i += 1
+        
+        return warnings
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -39,7 +84,7 @@ def create_parser() -> argparse.ArgumentParser:
     Returns:
         ArgumentParser configured with all experiment commands.
     """
-    parser = argparse.ArgumentParser(
+    parser = DuplicateFlagWarningParser(
         prog="bcllm_experiment.py",
         description="Experiment lifecycle management",
     )
@@ -81,12 +126,76 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--system_prompt",
         metavar="PROMPT",
-        help="Custom system prompt",
+        help="Custom system prompt (run default)",
     )
     parser.add_argument(
         "--user_prompt",
         metavar="PROMPT",
-        help="Custom user prompt",
+        help="Custom user prompt (run default)",
+    )
+    parser.add_argument(
+        "--url",
+        metavar="URL",
+        help="Base URL for model API (model default)",
+    )
+    parser.add_argument(
+        "--max_reasoning",
+        metavar="TOKENS",
+        type=int,
+        help="Max tokens for reasoning (model default)",
+    )
+    parser.add_argument(
+        "--max_tokens",
+        metavar="TOKENS",
+        type=int,
+        help="Max total tokens (model default)",
+    )
+    parser.add_argument(
+        "--reasoning",
+        metavar="EFFORT",
+        help="Reasoning effort level (model default)",
+    )
+    parser.add_argument(
+        "--repeat_penalty",
+        metavar="VALUE",
+        type=float,
+        help="Repeat penalty (model default)",
+    )
+    parser.add_argument(
+        "--temperature",
+        metavar="VALUE",
+        type=float,
+        help="Temperature (model default)",
+    )
+    parser.add_argument(
+        "--top_k",
+        metavar="VALUE",
+        type=int,
+        help="Top-K sampling (model default)",
+    )
+    parser.add_argument(
+        "--top_p",
+        metavar="VALUE",
+        type=float,
+        help="Top-P sampling (model default)",
+    )
+    parser.add_argument(
+        "--reasoning-tokens",
+        type=int,
+        metavar="TOKENS",
+        help="Max tokens for reasoning (model default)",
+    )
+    parser.add_argument(
+        "--vision",
+        type=str,
+        metavar="VALUE",
+        help="Enable vision support (true/false/NULL)",
+    )
+    parser.add_argument(
+        "--structured",
+        type=str,
+        metavar="VALUE",
+        help="Enable structured outputs (true/false/NULL)",
     )
     parser.add_argument(
         "--add-model",
@@ -98,13 +207,28 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--add-questions",
         metavar="SPEC",
+        dest="add_questions",
         help="Add questions at creation time (format: q1,q2,q3 or 1-10)",
     )
     parser.add_argument(
-        "--retry-policy",
-        metavar="POLICY",
-        dest="retry_policy",
-        help="Retry policy configuration",
+        "--questions",
+        metavar="SPEC",
+        dest="add_questions",
+        help="Alias for --add-questions (format: q1,q2,q3 or 1-10)",
+    )
+    parser.add_argument(
+        "--where",
+        metavar="FILTER",
+        action="append",
+        dest="where_filters",
+        help="Include filter for questions (format: field=value, e.g., status=valid)",
+    )
+    parser.add_argument(
+        "--exclude",
+        metavar="FILTER",
+        action="append",
+        dest="exclude_filters",
+        help="Exclude filter for questions (format: field=value, e.g., status=annulled)",
     )
 
     return parser
@@ -171,6 +295,16 @@ def handle_create_experiment(args, conn) -> int:
         print(f"Error: Experiment already exists: {name}", file=sys.stderr)
         return 1
 
+    if args.vision is not None and not _validate_bool_value(args.vision):
+        print(f"Error: Invalid value for --vision: {args.vision}", file=sys.stderr)
+        print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        return 1
+
+    if args.structured is not None and not _validate_bool_value(args.structured):
+        print(f"Error: Invalid value for --structured: {args.structured}", file=sys.stderr)
+        print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        return 1
+
     resolver = ConfigResolver()
     env_dict = resolver.load_env()
 
@@ -200,6 +334,21 @@ def handle_create_experiment(args, conn) -> int:
         return exit_code
 
     return 0
+
+
+def _validate_bool_value(value: str) -> bool:
+    """Validate boolean CLI value.
+
+    Args:
+        value: String value to validate.
+
+    Returns:
+        True if valid (case-insensitive true/false/null), False otherwise.
+    """
+    if value is None:
+        return True
+    normalized = value.lower()
+    return normalized in ('true', 'false', 'null')
 
 
 def _add_models_at_creation(models: list[str], experiment: Experiment, conn, resolver: ConfigResolver) -> int:
@@ -292,6 +441,36 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     else:
         selected_questions = questions
 
+    include_filters = []
+    exclude_filters = []
+
+    if args.where_filters:
+        for filter_str in args.where_filters:
+            try:
+                include_filters.append(parse_filter(filter_str))
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+
+    if args.exclude_filters:
+        for filter_str in args.exclude_filters:
+            try:
+                exclude_filters.append(parse_filter(filter_str))
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+
+    if include_filters or exclude_filters:
+        questions_index = {q.get('source_id') or q.get('id'): q for q in questions}
+        original_ids = [q.get('source_id') or q.get('id') for q in selected_questions]
+        filtered_ids = filter_questions(original_ids, questions_index, include_filters, exclude_filters)
+        filtered_count = len(original_ids) - len(filtered_ids)
+        
+        if filtered_count > 0:
+            print(f"  ({filtered_count} questions filtered out)")
+        
+        selected_questions = [q for q in selected_questions if (q.get('source_id') or q.get('id')) in filtered_ids]
+
     if not selected_questions:
         print("Warning: No questions selected for snapshotting.", file=sys.stderr)
         return 0
@@ -300,8 +479,13 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     created_count = 0
     skipped_count = 0
 
-    for idx, question in enumerate(selected_questions, start=1):
+    for question in selected_questions:
         source_id = question.get('source_id') or question.get('id') or question.get('question_id', '')
+        question_position = question.get('internal_id')
+
+        if question_position is None:
+            print(f"Error: Question missing internal_id: {source_id}", file=sys.stderr)
+            return 1
 
         existing = snapshot_repo.get_by_experiment_and_question(experiment.experiment_id, source_id)
         if existing:
@@ -321,15 +505,16 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
             json_question_id=source_id,
-            question_position=idx,
+            question_position=question_position,
             question_payload=json.dumps(payload),
         )
 
         snapshot_repo.save(snapshot)
         created_count += 1
+        print(f"✓ Added question {source_id} (position {question_position})")
 
     if created_count > 0:
-        print(f"✓ Created {created_count} question snapshot(s)")
+        print(f"\nSummary: {created_count} added")
     if skipped_count > 0:
         print(f"  Skipped {skipped_count} existing snapshot(s)")
 
@@ -361,10 +546,9 @@ def handle_show_experiment(args, conn) -> int:
     print(f"  ID: {experiment.experiment_id}")
     print(f"  Description: {experiment.description or '(none)'}")
     print(f"  Config:")
-    print(f"    seed: {config.get('seed', 'None')}")
-    print(f"    system_prompt: {config.get('system_prompt', 'None')}")
-    print(f"    user_prompt: {config.get('user_prompt', 'None')}")
-    print(f"    retry_policy: {config.get('retry_policy', 'None')}")
+    print(f"    seed: {config.get('RUN_RESPONSES_SEED', 'None')}")
+    print(f"    system_prompt: {config.get('SYSTEM_PROMPT', 'None')}")
+    print(f"    user_prompt: {config.get('USER_PROMPT', 'None')}")
 
     return 0
 
@@ -380,17 +564,16 @@ def handle_list_experiments(args, conn) -> int:
         Exit code (0 for success, 1 for error).
     """
     repo = ExperimentRepository(conn)
-    experiments = repo.list_all(active_only=True)
+    experiments = repo.list_all()
 
     if not experiments:
         print("No experiments found.")
         return 0
 
-    print(f"{'Name':<30} {'ID':<20} {'Active':<8}")
-    print("-" * 60)
+    print(f"{'Name':<30} {'ID':<20}")
+    print("-" * 50)
     for exp in experiments:
-        status = "Yes" if exp.is_active else "No"
-        print(f"{exp.name:<30} {exp.experiment_id:<20} {status:<8}")
+        print(f"{exp.name:<30} {exp.experiment_id:<20}")
 
     return 0
 

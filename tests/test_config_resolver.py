@@ -148,7 +148,7 @@ class TestResolvePrompt:
 
 
 class TestResolveSeed:
-    """Test cases for the resolve_seed method."""
+    """Test cases for the resolve_seed method (EXPERIMENT level - does NOT resolve AUTO)."""
 
     def test_integer_value_returns_integer(self) -> None:
         """Test that integer seed value is returned."""
@@ -163,8 +163,8 @@ class TestResolveSeed:
 
         assert result == 42
 
-    def test_auto_from_cli_generates_deterministic_seed(self) -> None:
-        """Test that AUTO from CLI generates deterministic seed."""
+    def test_auto_from_cli_returns_auto_string(self) -> None:
+        """Test that AUTO from CLI returns 'AUTO' string (NOT resolved at experiment level)."""
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
@@ -174,11 +174,10 @@ class TestResolveSeed:
             experiment_name="test_exp"
         )
 
-        assert isinstance(result, int)
-        assert result > 0
+        assert result == "AUTO"
 
-    def test_auto_from_env_generates_deterministic_seed(self) -> None:
-        """Test that AUTO from .env generates deterministic seed."""
+    def test_auto_from_env_returns_auto_string(self) -> None:
+        """Test that AUTO from .env returns 'AUTO' string (NOT resolved at experiment level)."""
         resolver = ConfigResolver()
         resolver.env_dict = {"RANDOM_SEED": "AUTO"}
 
@@ -188,8 +187,7 @@ class TestResolveSeed:
             experiment_name="test_exp"
         )
 
-        assert isinstance(result, int)
-        assert result > 0
+        assert result == "AUTO"
 
     def test_cli_auto_takes_priority_over_env_integer(self) -> None:
         """Test that CLI AUTO takes priority over .env integer."""
@@ -202,8 +200,7 @@ class TestResolveSeed:
             experiment_name="test_exp"
         )
 
-        assert isinstance(result, int)
-        assert result != 42
+        assert result == "AUTO"
 
     def test_cli_integer_takes_priority_over_env_auto(self) -> None:
         """Test that CLI integer takes priority over .env AUTO."""
@@ -280,10 +277,10 @@ class TestResolveSeed:
             experiment_name="test_exp"
         )
 
-        assert result1 == result2 == result3
+        assert result1 == result2 == result3 == "AUTO"
 
-    def test_different_experiment_names_produce_different_seeds(self) -> None:
-        """Test that different experiment names produce different seeds."""
+    def test_different_experiment_names_return_same_auto(self) -> None:
+        """Test that different experiment names all return 'AUTO' (resolution happens at RUN level)."""
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
@@ -299,7 +296,9 @@ class TestResolveSeed:
             experiment_name="exp2"
         )
 
-        assert result1 != result2
+        # Both should return "AUTO" string (resolution happens at RUN level)
+        assert result1 == "AUTO"
+        assert result2 == "AUTO"
 
 
 class TestLoadEnv:
@@ -322,124 +321,6 @@ class TestLoadEnv:
 
         assert isinstance(result, dict)
         assert isinstance(resolver.env_dict, dict)
-
-
-class TestResolveConfigDict:
-    """Test cases for the resolve_config_dict method."""
-
-    def test_full_resolution_with_all_sources(self) -> None:
-        """Test resolution with mixed CLI and .env values."""
-        resolver = ConfigResolver()
-        resolver.env_dict = {
-            "RANDOM_SEED": "42",
-            "SYSTEM_PROMPT_TEMPLATE": "env_system",
-            "USER_PROMPT_TEMPLATE": "env_user",
-            "RETRY_POLICY": "env_retry"
-        }
-
-        class MockArgs:
-            seed = "99"
-            system_prompt = None
-            user_prompt = "cli_user"
-            retry_policy = None
-            experiment_name = "test_exp"
-
-        result = resolver.resolve_config_dict(MockArgs())
-
-        assert result["seed"] == 99
-        assert result["system_prompt"] == "env_system"
-        assert result["user_prompt"] == "cli_user"
-        assert result["retry_policy"] == "env_retry"
-
-    def test_all_cli_values_take_priority(self) -> None:
-        """Test that CLI values take priority over .env values."""
-        resolver = ConfigResolver()
-        resolver.env_dict = {
-            "RANDOM_SEED": "42",
-            "SYSTEM_PROMPT_TEMPLATE": "env_system",
-            "USER_PROMPT_TEMPLATE": "env_user",
-            "RETRY_POLICY": "env_retry"
-        }
-
-        class MockArgs:
-            seed = "99"
-            system_prompt = "cli_system"
-            user_prompt = "cli_user"
-            retry_policy = "cli_retry"
-            experiment_name = "test_exp"
-
-        result = resolver.resolve_config_dict(MockArgs())
-
-        assert result["seed"] == 99
-        assert result["system_prompt"] == "cli_system"
-        assert result["user_prompt"] == "cli_user"
-        assert result["retry_policy"] == "cli_retry"
-
-    def test_all_env_values_used_when_cli_missing(self) -> None:
-        """Test that .env values are used when CLI is missing."""
-        resolver = ConfigResolver()
-        resolver.env_dict = {
-            "RANDOM_SEED": "42",
-            "SYSTEM_PROMPT_TEMPLATE": "env_system",
-            "USER_PROMPT_TEMPLATE": "env_user",
-            "RETRY_POLICY": "env_retry"
-        }
-
-        class MockArgs:
-            seed = None
-            system_prompt = None
-            user_prompt = None
-            retry_policy = None
-            experiment_name = "test_exp"
-
-        result = resolver.resolve_config_dict(MockArgs())
-
-        assert result["seed"] == 42
-        assert result["system_prompt"] == "env_system"
-        assert result["user_prompt"] == "env_user"
-        assert result["retry_policy"] == "env_retry"
-
-    def test_null_by_default_for_prompts(self) -> None:
-        """Test that prompts are null-by-default when not provided.
-        
-        Keys with None values should NOT be included in the result dict.
-        """
-        resolver = ConfigResolver()
-        resolver.env_dict = {}
-
-        class MockArgs:
-            seed = None
-            system_prompt = None
-            user_prompt = None
-            retry_policy = None
-            experiment_name = "test_exp"
-
-        result = resolver.resolve_config_dict(MockArgs())
-
-        assert "seed" not in result
-        assert "system_prompt" not in result
-        assert "user_prompt" not in result
-        assert "retry_policy" not in result
-        assert result == {}
-
-    def test_auto_seed_from_env_with_experiment_name(self) -> None:
-        """Test that AUTO seed generates deterministic value from experiment name."""
-        resolver = ConfigResolver()
-        resolver.env_dict = {"RANDOM_SEED": "AUTO"}
-
-        class MockArgs:
-            seed = None
-            system_prompt = None
-            user_prompt = None
-            retry_policy = None
-            experiment_name = "my_experiment"
-
-        result1 = resolver.resolve_config_dict(MockArgs())
-        result2 = resolver.resolve_config_dict(MockArgs())
-
-        assert result1["seed"] == result2["seed"]
-        assert isinstance(result1["seed"], int)
-        assert result1["seed"] > 0
 
 
 class TestGenerateSeedFromName:
@@ -472,3 +353,427 @@ class TestGenerateSeedFromName:
         assert isinstance(seed, int)
         assert seed > 0
         assert seed < (2 ** 31)
+
+
+class TestResolveSeedForRun:
+    """Test cases for resolve_seed_for_run method (AUTO resolution at RUN level)."""
+
+    def test_auto_generates_deterministic_seed_from_run_id(self) -> None:
+        """Test that AUTO generates deterministic seed from run_id + experiment_id."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result1 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_abc123",
+            experiment_id="exp_xyz789"
+        )
+
+        result2 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_abc123",
+            experiment_id="exp_xyz789"
+        )
+
+        assert isinstance(result1, int)
+        assert result1 > 0
+        assert result1 == result2
+
+    def test_different_runs_produce_different_seeds(self) -> None:
+        """Test that different run IDs produce different seeds."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result1 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_xyz789"
+        )
+
+        result2 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_002",
+            experiment_id="exp_xyz789"
+        )
+
+        assert result1 != result2
+
+    def test_different_experiments_produce_different_seeds(self) -> None:
+        """Test that different experiment IDs produce different seeds."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result1 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_abc123",
+            experiment_id="exp_001"
+        )
+
+        result2 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_abc123",
+            experiment_id="exp_002"
+        )
+
+        assert result1 != result2
+
+    def test_integer_cli_value_returns_integer(self) -> None:
+        """Test that integer CLI value is returned as-is."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result = resolver.resolve_seed_for_run(
+            cli_value="42",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert result == 42
+
+    def test_cli_auto_overrides_env_integer(self) -> None:
+        """Test that CLI AUTO generates seed even when .env has integer."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"RUN_RESPONSES_SEED": "123"}
+
+        result = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert isinstance(result, int)
+        assert result != 123
+
+    def test_env_auto_generates_seed(self) -> None:
+        """Test that AUTO from .env generates deterministic seed."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"RUN_RESPONSES_SEED": "AUTO"}
+
+        result = resolver.resolve_seed_for_run(
+            cli_value=None,
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert isinstance(result, int)
+        assert result > 0
+
+    def test_none_returns_none(self) -> None:
+        """Test that None CLI and missing .env returns None."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result = resolver.resolve_seed_for_run(
+            cli_value=None,
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert result is None
+
+    def test_auto_case_insensitive_for_run(self) -> None:
+        """Test that AUTO is case-insensitive for run-level resolution."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result1 = resolver.resolve_seed_for_run(
+            cli_value="AUTO",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        result2 = resolver.resolve_seed_for_run(
+            cli_value="auto",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        result3 = resolver.resolve_seed_for_run(
+            cli_value="Auto",
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert result1 == result2 == result3
+
+
+class TestBuildExperimentConfigDict:
+    """Test cases for build_experiment_config_dict method."""
+
+    def test_returns_dict_with_18_keys(self) -> None:
+        """Test that experiment config has 18 expected keys."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "QUESTIONS_DATASET_PATH": "/path/to/questions",
+            "QUESTIONS_STATUS_ADD": "active",
+            "QUESTIONS_STATUS_EXCLUDE": "draft",
+            "MODELS_DEFAULT_FOR_EXPERIMENTS": '["openai/gpt-4"]',
+            "BASE_URL": "https://api.example.com",
+            "MODEL_MAX_TOKENS_REASONING": "1000",
+            "MODEL_MAX_TOKENS_TOTAL": "4096",
+            "MODEL_REASONING_EFFORT": "high",
+            "MODEL_REPEAT_PENALTY": "1.1",
+            "MODEL_TEMPERATURE": "0.7",
+            "MODEL_TOP_K": "50",
+            "MODEL_TOP_P": "0.9",
+            "MODEL_VISION": "true",
+            "STRUCTURED_OUTPUTS": "false",
+            "RUN_RESPONSES_SEED": "42",
+            "SYSTEM_PROMPT": "Test system prompt",
+            "USER_PROMPT": "Test user prompt",
+        }
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+            url = None
+            reasoning_tokens = None
+            max_reasoning = None
+            max_tokens = None
+            reasoning = None
+            repeat_penalty = None
+            temperature = None
+            top_k = None
+            top_p = None
+            vision = None
+            structured = None
+            experiment_name = "test_exp"
+
+        result = resolver.build_experiment_config_dict(MockArgs())
+
+        expected_keys = {
+            "QUESTIONS_DATASET_PATH",
+            "QUESTIONS_STATUS_ADD",
+            "QUESTIONS_STATUS_EXCLUDE",
+            "MODELS_DEFAULT_FOR_EXPERIMENTS",
+            "BASE_URL",
+            "MODEL_MAX_TOKENS_REASONING",
+            "MODEL_MAX_TOKENS_TOTAL",
+            "MODEL_REASONING_EFFORT",
+            "MODEL_REPEAT_PENALTY",
+            "MODEL_TEMPERATURE",
+            "MODEL_TOP_K",
+            "MODEL_TOP_P",
+            "MODEL_VISION",
+            "STRUCTURED_OUTPUTS",
+            "RUN_RESPONSES_SEED",
+            "SYSTEM_PROMPT",
+            "USER_PROMPT",
+        }
+
+        assert set(result.keys()) == expected_keys
+        assert len(result) == 17  # 17 keys total
+
+    def test_does_not_include_system_keys(self) -> None:
+        """Test that SYSTEM keys are NOT included in experiment config."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "DATABASE_PATH": "./data/bcllm.db",
+            "EXECUTION_MODE": "prod",
+            "LOG_FILE_PATH": "./logs/app.log",
+            "LOG_LEVEL": "INFO",
+            "OPENROUTER_DEBUG_ENABLED": "true",
+        }
+
+        class MockArgs:
+            seed = None
+            experiment_name = "test_exp"
+
+        result = resolver.build_experiment_config_dict(MockArgs())
+
+        forbidden_keys = {
+            "DATABASE_PATH",
+            "EXECUTION_MODE",
+            "LOG_FILE_PATH",
+            "LOG_LEVEL",
+            "OPENROUTER_DEBUG_ENABLED",
+        }
+
+        assert not (forbidden_keys & set(result.keys()))
+
+    def test_contract_keys_are_upper_case(self) -> None:
+        """Test that all contract keys use UPPER_CASE naming."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "QUESTIONS_DATASET_PATH": "/path",
+            "BASE_URL": "https://api.example.com",
+            "MODEL_TEMPERATURE": "0.7",
+            "RUN_RESPONSES_SEED": "42",
+            "SYSTEM_PROMPT": "test",
+            "USER_PROMPT": "test",
+        }
+
+        class MockArgs:
+            seed = None
+            experiment_name = "test_exp"
+
+        result = resolver.build_experiment_config_dict(MockArgs())
+
+        # All keys should be UPPER_CASE
+        for key in result.keys():
+            assert key == key.upper() or key in ("SYSTEM_PROMPT", "USER_PROMPT", "BASE_URL", "MODELS_DEFAULT_FOR_EXPERIMENTS")
+
+
+class TestBuildModelConfigDict:
+    """Test cases for build_model_config_dict method."""
+
+    def test_returns_dict_with_10_keys(self) -> None:
+        """Test that model config has all 10 expected keys."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "BASE_URL": "https://api.example.com",
+            "MODEL_MAX_TOKENS_REASONING": "1000",
+            "MODEL_MAX_TOKENS_TOTAL": "4096",
+            "MODEL_REASONING_EFFORT": "high",
+            "MODEL_REPEAT_PENALTY": "1.1",
+            "MODEL_TEMPERATURE": "0.7",
+            "MODEL_TOP_K": "50",
+            "MODEL_TOP_P": "0.9",
+            "MODEL_VISION": "true",
+            "STRUCTURED_OUTPUTS": "false",
+        }
+
+        class MockArgs:
+            url = None
+            reasoning_tokens = None
+            max_reasoning = None
+            max_tokens = None
+            reasoning = None
+            repeat_penalty = None
+            temperature = None
+            top_k = None
+            top_p = None
+            vision = None
+            structured = None
+
+        class MockExperiment:
+            config_json = "{}"
+
+        result = resolver.build_model_config_dict(MockArgs(), MockExperiment())
+
+        expected_keys = {
+            "BASE_URL",
+            "MODEL_MAX_TOKENS_REASONING",
+            "MODEL_MAX_TOKENS_TOTAL",
+            "MODEL_REASONING_EFFORT",
+            "MODEL_REPEAT_PENALTY",
+            "MODEL_TEMPERATURE",
+            "MODEL_TOP_K",
+            "MODEL_TOP_P",
+            "MODEL_VISION",
+            "STRUCTURED_OUTPUTS",
+        }
+
+        assert set(result.keys()) == expected_keys
+        assert len(result) == 10
+
+    def test_boolean_values_case_insensitive(self) -> None:
+        """Test that boolean values are case-insensitive."""
+        resolver = ConfigResolver()
+
+        # Test various case combinations
+        assert resolver._parse_bool_value("true") is True
+        assert resolver._parse_bool_value("True") is True
+        assert resolver._parse_bool_value("TRUE") is True
+        assert resolver._parse_bool_value("false") is False
+        assert resolver._parse_bool_value("False") is False
+        assert resolver._parse_bool_value("FALSE") is False
+        assert resolver._parse_bool_value("NULL") is None
+        assert resolver._parse_bool_value("null") is None
+        assert resolver._parse_bool_value(None) is None
+
+
+class TestBuildRunConfigDict:
+    """Test cases for build_run_config_dict method."""
+
+    def test_returns_dict_with_3_keys(self) -> None:
+        """Test that run config has all 3 expected keys."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "RUN_RESPONSES_SEED": "42",
+            "SYSTEM_PROMPT": "Test system",
+            "USER_PROMPT": "Test user",
+        }
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = "{}"
+
+        result = resolver.build_run_config_dict(MockArgs(), MockExperiment())
+
+        expected_keys = {"RUN_RESPONSES_SEED", "SYSTEM_PROMPT", "USER_PROMPT"}
+
+        assert set(result.keys()) == expected_keys
+        assert len(result) == 3
+
+    def test_auto_seed_resolved_at_run_level(self) -> None:
+        """Test that AUTO seed is resolved to integer at run creation."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"RUN_RESPONSES_SEED": "AUTO"}
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = "{}"
+
+        result = resolver.build_run_config_dict(MockArgs(), MockExperiment())
+
+        # AUTO should be resolved to an integer
+        assert isinstance(result["RUN_RESPONSES_SEED"], int)
+        assert result["RUN_RESPONSES_SEED"] > 0
+
+    def test_run_seed_is_per_run_unique(self) -> None:
+        """Test that AUTO seed produces different values for different runs."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"RUN_RESPONSES_SEED": "AUTO"}
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = "{}"
+
+        # Simulate two different runs
+        result1 = resolver.resolve_seed_for_run(
+            cli_value=None,
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        result2 = resolver.resolve_seed_for_run(
+            cli_value=None,
+            env_key="RUN_RESPONSES_SEED",
+            run_id="run_002",
+            experiment_id="exp_001"
+        )
+
+        assert result1 != result2
+        assert isinstance(result1, int)
+        assert isinstance(result2, int)

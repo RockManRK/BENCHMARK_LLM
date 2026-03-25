@@ -278,11 +278,12 @@ class ExecutionEngine:
                     run.prompts_effective.user,
                 )
 
-                # Build messages
-                messages = [
-                    {"role": "system", "content": run.prompts_effective.system},
-                    {"role": "user", "content": user_prompt},
-                ]
+                # Build messages - filter out null content (null means "do not send")
+                messages = []
+                if run.prompts_effective.system is not None:
+                    messages.append({"role": "system", "content": run.prompts_effective.system})
+                if user_prompt is not None:
+                    messages.append({"role": "user", "content": user_prompt})
 
                 # Get model config
                 model_config = variant.model_config_effective

@@ -397,26 +397,140 @@ def validate_workflow_3() -> bool:
     return True
 
 
+def validate_workflow_4_null_prompts() -> bool:
+    """Workflow 4 (V11): Verify null prompts are handled correctly.
+
+    Expected:
+    - system_prompt: NULL (not empty string)
+    - user_prompt: NULL (not empty string)
+    - config_json: Does NOT contain prompt keys when not provided
+    """
+    print("=" * 60)
+    print("Workflow 4 (V11): Null prompts handling")
+    print("=" * 60)
+
+    # Write fresh .env with explicit empty prompts
+    write_env_file(remove_prompts=True)
+
+    # Create experiment with clean environment
+    code, out, err = run_command(f'python "{BCLLM_SCRIPT}" --create-experiment val_null_prompts --seed 42')
+    if code != 0:
+        print(f"  ❌ Failed to create experiment: {err}")
+        return False
+
+    # Query database
+    results = query_db("SELECT name, system_prompt, user_prompt, config_json FROM experiments WHERE name='val_null_prompts'")
+    if not results:
+        print("  ❌ Experiment not found in database")
+        return False
+
+    exp = results[0]
+    print(f"  system_prompt: {exp['system_prompt']}")
+    print(f"  user_prompt: {exp['user_prompt']}")
+    print(f"  config_json keys: {list(json.loads(exp['config_json']).keys()) if exp['config_json'] else 'NULL'}")
+
+    # Validate
+    errors = []
+
+    # V11: Prompts should be NULL, not empty string
+    if exp['system_prompt'] is not None:
+        errors.append(f"system_prompt should be NULL, got {exp['system_prompt']!r}")
+    if exp['user_prompt'] is not None:
+        errors.append(f"user_prompt should be NULL, got {exp['user_prompt']!r}")
+
+    # config_json should NOT contain prompt keys when not provided
+    try:
+        config = json.loads(exp['config_json'])
+    except json.JSONDecodeError as e:
+        errors.append(f"config_json is not valid JSON: {e}")
+        config = {}
+
+    if 'system_prompt' in config:
+        errors.append("config_json should NOT contain 'system_prompt' when not provided")
+    if 'user_prompt' in config:
+        errors.append("config_json should NOT contain 'user_prompt' when not provided")
+
+    if errors:
+        for err in errors:
+            print(f"  ❌ {err}")
+        return False
+
+    print("  ✅ Workflow 4 (V11) passed")
+    return True
+
+
+def validate_workflow_5_nonexistent_questions() -> bool:
+    """Workflow 5 (V7): Verify non-existent questions are handled correctly.
+
+    Expected:
+    - Should fail gracefully with clear error message
+    - Should not create partial data
+    - Should return non-zero exit code
+    """
+    print("=" * 60)
+    print("Workflow 5 (V7): Non-existent questions handling")
+    print("=" * 60)
+
+    # Write fresh .env
+    write_env_file(remove_prompts=True)
+
+    # Create experiment first
+    code, out, err = run_command(f'python "{BCLLM_SCRIPT}" --create-experiment val_nonexistent_q --seed 42')
+    if code != 0:
+        print(f"  ❌ Failed to create experiment: {err}")
+        return False
+
+    # Try to add non-existent questions
+    code, out, err = run_command(f'python "{BCLLM_SCRIPT}" --experiment val_nonexistent_q --add-questions q9999,q9998,q9997')
+
+    # Should fail (non-zero exit code)
+    if code == 0:
+        print(f"  ❌ Should have failed for non-existent questions, but succeeded")
+        return False
+
+    print(f"  Command correctly failed with exit code {code}")
+
+    # Verify no partial data was created
+    results = query_db("""
+        SELECT COUNT(*) as count
+        FROM question_snapshots qs
+        JOIN experiments e ON qs.experiment_id = e.experiment_id
+        WHERE e.name = 'val_nonexistent_q'
+    """)
+
+    snapshot_count = results[0]['count'] if results else 0
+
+    if snapshot_count > 0:
+        print(f"  ❌ Partial data created: {snapshot_count} snapshots")
+        return False
+
+    print(f"  No partial data created ({snapshot_count} snapshots)")
+    print("  ✅ Workflow 5 (V7) passed")
+    return True
+
+
 def main() -> int:
     """Run all validation workflows."""
     print("\n" + "=" * 60)
     print("CHECKPOINT A: VALIDATION WORKFLOWS")
     print("=" * 60 + "\n")
-    
+
     # Backup current .env
     env_backup = backup_env()
-    
+
     try:
         # Reset database
         if not reset_database():
             print("\n❌ Database reset failed. Aborting.")
             return 1
-        
+
         all_pass = True
         all_pass &= validate_workflow_1()
         all_pass &= validate_workflow_2()
         all_pass &= validate_workflow_3()
-        
+        all_pass &= validate_workflow_4_null_prompts()
+        all_pass &= validate_workflow_5_nonexistent_questions()
+
         print("\n" + "=" * 60)
         if all_pass:
             print("✅ All workflows passed")
@@ -426,12 +540,12 @@ def main() -> int:
             print("❌ Some workflows failed")
             print("=" * 60)
             return 1
-    
+
     finally:
         # Restore .env
         restore_env(env_backup)
         print("\n.env restored to original state")
-        
+
         # Restore database
         restore_database()
         cleanup_database()

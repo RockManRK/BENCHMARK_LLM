@@ -697,3 +697,270 @@ class TestForeignKeyEnforcement:
 
         with pytest.raises(sqlite3.IntegrityError):
             run_repo.save(run)
+
+
+class TestCreatedAtNotNull:
+    """Tests for created_at NOT NULL constraint."""
+
+    @pytest.mark.domain_rule("created_at must be populated by DB DEFAULT")
+    def test_experiment_created_at_populated(self, repos):
+        """Verify experiment.created_at is populated by DB (not NULL)."""
+        repo = repos["experiment"]
+
+        experiment = Experiment(
+            experiment_id="exp_created_at",
+            name="created_at_test",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        repo.save(experiment)
+
+        retrieved = repo.get_by_id("exp_created_at")
+        assert retrieved is not None
+        assert retrieved.created_at is not None
+        assert isinstance(retrieved.created_at, str)
+
+    @pytest.mark.domain_rule("created_at must be populated by DB DEFAULT")
+    def test_variant_created_at_populated(self, repos):
+        """Verify variant.created_at is populated by DB (not NULL)."""
+        exp_repo = repos["experiment"]
+        var_repo = repos["variant"]
+
+        # Create experiment first
+        experiment = Experiment(
+            experiment_id="exp_var_created_at",
+            name="var_created_at_test",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        exp_repo.save(experiment)
+
+        variant = ModelVariant(
+            variant_id="var_created_at",
+            experiment_id="exp_var_created_at",
+            model_id="openai/gpt-4",
+            variant_signature="gpt4-test",
+            config="{}",
+        )
+        var_repo.save(variant)
+
+        retrieved = var_repo.get_by_id("var_created_at")
+        assert retrieved is not None
+        assert retrieved.created_at is not None
+
+    @pytest.mark.domain_rule("created_at must be populated by DB DEFAULT")
+    def test_snapshot_created_at_populated(self, repos):
+        """Verify snapshot.created_at is populated by DB (not NULL)."""
+        exp_repo = repos["experiment"]
+        snap_repo = repos["snapshot"]
+
+        experiment = Experiment(
+            experiment_id="exp_snap_created_at",
+            name="snap_created_at_test",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        exp_repo.save(experiment)
+
+        snapshot = QuestionSnapshot(
+            snapshot_id="snap_created_at",
+            experiment_id="exp_snap_created_at",
+            json_question_id="q_test",
+            question_position=1,
+            question_payload="{}",
+        )
+        snap_repo.save(snapshot)
+
+        retrieved = snap_repo.get_by_id("snap_created_at")
+        assert retrieved is not None
+        assert retrieved.created_at is not None
+
+    @pytest.mark.domain_rule("created_at must be populated by DB DEFAULT")
+    def test_run_created_at_populated(self, repos):
+        """Verify run.created_at is populated by DB (not NULL)."""
+        exp_repo = repos["experiment"]
+        run_repo = repos["run"]
+
+        experiment = Experiment(
+            experiment_id="exp_run_created_at",
+            name="run_created_at_test",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        exp_repo.save(experiment)
+
+        run = Run(
+            run_id="run_created_at",
+            experiment_id="exp_run_created_at",
+            config={"seed": 42},
+            status="pending",
+        )
+        run_repo.save(run)
+
+        retrieved = run_repo.get_by_id("run_created_at")
+        assert retrieved is not None
+        assert retrieved.created_at is not None
+
+
+class TestConfigJsonPersistence:
+    """Tests for configuration JSON persistence."""
+
+    @pytest.mark.domain_rule("experiment config_json must persist all 18 keys")
+    def test_experiment_config_json_persists_all_keys(self, repos):
+        """Verify experiment config_json persists all 18 expected keys."""
+        repo = repos["experiment"]
+
+        import json
+        config = {
+            "QUESTIONS_DATASET_PATH": "/path/to/questions",
+            "QUESTIONS_STATUS_ADD": "active",
+            "QUESTIONS_STATUS_EXCLUDE": "draft",
+            "MODELS_DEFAULT_FOR_EXPERIMENTS": ["openai/gpt-4"],
+            "BASE_URL": "https://api.example.com",
+            "MODEL_MAX_TOKENS_REASONING": 1000,
+            "MODEL_MAX_TOKENS_TOTAL": 4096,
+            "MODEL_REASONING_EFFORT": "high",
+            "MODEL_REPEAT_PENALTY": 1.1,
+            "MODEL_TEMPERATURE": 0.7,
+            "MODEL_TOP_K": 50,
+            "MODEL_TOP_P": 0.9,
+            "MODEL_VISION": True,
+            "STRUCTURED_OUTPUTS": False,
+            "RUN_RESPONSES_SEED": 42,
+            "SYSTEM_PROMPT": "Test system prompt",
+            "USER_PROMPT": "Test user prompt",
+        }
+
+        experiment = Experiment(
+            experiment_id="exp_config_test",
+            name="config_test_exp",
+            config_json=json.dumps(config),
+            config_hash="hash123",
+        )
+        repo.save(experiment)
+
+        retrieved = repo.get_by_id("exp_config_test")
+        assert retrieved is not None
+
+        retrieved_config = json.loads(retrieved.config_json)
+        assert len(retrieved_config) == 17  # 17 keys
+
+        # Verify all keys preserved
+        for key, expected_value in config.items():
+            assert key in retrieved_config
+            assert retrieved_config[key] == expected_value
+
+    @pytest.mark.domain_rule("model variant config must persist all 10 keys")
+    def test_variant_config_persists_all_10_keys(self, repos):
+        """Verify model variant config persists all 10 expected keys."""
+        exp_repo = repos["experiment"]
+        var_repo = repos["variant"]
+
+        import json
+        config = {
+            "BASE_URL": "https://api.example.com",
+            "MODEL_MAX_TOKENS_REASONING": 1000,
+            "MODEL_MAX_TOKENS_TOTAL": 4096,
+            "MODEL_REASONING_EFFORT": "high",
+            "MODEL_REPEAT_PENALTY": 1.1,
+            "MODEL_TEMPERATURE": 0.7,
+            "MODEL_TOP_K": 50,
+            "MODEL_TOP_P": 0.9,
+            "MODEL_VISION": True,
+            "STRUCTURED_OUTPUTS": False,
+        }
+
+        experiment = Experiment(
+            experiment_id="exp_var_config",
+            name="var_config_test",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        exp_repo.save(experiment)
+
+        variant = ModelVariant(
+            variant_id="var_config_test",
+            experiment_id="exp_var_config",
+            model_id="openai/gpt-4",
+            variant_signature="gpt4-config-test",
+            config=json.dumps(config),
+        )
+        var_repo.save(variant)
+
+        retrieved = var_repo.get_by_id("var_config_test")
+        assert retrieved is not None
+
+        retrieved_config = json.loads(retrieved.config)
+        assert len(retrieved_config) == 10
+
+        for key, expected_value in config.items():
+            assert key in retrieved_config
+            assert retrieved_config[key] == expected_value
+
+    @pytest.mark.domain_rule("run config must persist seed and prompts")
+    def test_run_config_persists_seed_and_prompts(self, repos):
+        """Verify run config persists seed and prompts."""
+        exp_repo = repos["experiment"]
+        run_repo = repos["run"]
+
+        import json
+        config = {
+            "seed": 42,
+            "system_prompt": "Test system",
+            "user_prompt": "Test user",
+        }
+
+        experiment = Experiment(
+            experiment_id="exp_run_config",
+            name="run_config_test",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        exp_repo.save(experiment)
+
+        run = Run(
+            run_id="run_config_test",
+            experiment_id="exp_run_config",
+            config=json.dumps(config),
+            status="pending",
+        )
+        run_repo.save(run)
+
+        retrieved = run_repo.get_by_id("run_config_test")
+        assert retrieved is not None
+
+        retrieved_config = json.loads(retrieved.config)
+        assert retrieved_config["seed"] == 42
+        assert retrieved_config["system_prompt"] == "Test system"
+        assert retrieved_config["user_prompt"] == "Test user"
+
+    @pytest.mark.domain_rule("config JSON must handle null values correctly")
+    def test_config_handles_null_values(self, repos):
+        """Verify config JSON handles null values correctly."""
+        repo = repos["experiment"]
+
+        import json
+        config = {
+            "QUESTIONS_DATASET_PATH": None,
+            "BASE_URL": None,
+            "MODEL_TEMPERATURE": None,
+            "RUN_RESPONSES_SEED": "OFF",
+            "SYSTEM_PROMPT": None,
+            "USER_PROMPT": None,
+        }
+
+        experiment = Experiment(
+            experiment_id="exp_null_config",
+            name="null_config_test",
+            config_json=json.dumps(config),
+            config_hash="hash123",
+        )
+        repo.save(experiment)
+
+        retrieved = repo.get_by_id("exp_null_config")
+        assert retrieved is not None
+
+        retrieved_config = json.loads(retrieved.config_json)
+        assert retrieved_config["QUESTIONS_DATASET_PATH"] is None
+        assert retrieved_config["BASE_URL"] is None
+        assert retrieved_config["MODEL_TEMPERATURE"] is None
