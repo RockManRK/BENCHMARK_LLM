@@ -4,8 +4,8 @@ This module creates the complete TO-BE schema with:
 - 6 tables: experiments, model_variants, question_snapshots, runs, responses, errors
 - Foreign key relationships
 - UNIQUE and CHECK constraints
-- Partial indexes for common query patterns
-- Soft delete support via is_active flags
+- Indexes for common query patterns
+- NO soft delete (is_active removed from all tables)
 
 Schema is created programmatically (no migration scripts).
 """
@@ -32,14 +32,8 @@ def get_schema_sql() -> str:
         description       TEXT,
         config_json       TEXT NOT NULL,
         config_hash       TEXT NOT NULL,
-        system_prompt     TEXT,
-        user_prompt       TEXT,
-        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active         BOOLEAN NOT NULL DEFAULT TRUE
+        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-
-    -- Partial index for active experiments (most common query pattern)
-    CREATE INDEX IF NOT EXISTS idx_experiments_active ON experiments(is_active) WHERE is_active = TRUE;
 
     -- ============================================================================
     -- model_variants table (with experiment_id FK)
@@ -51,12 +45,11 @@ def get_schema_sql() -> str:
         variant_signature TEXT NOT NULL,
         config            TEXT NOT NULL,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active         BOOLEAN NOT NULL DEFAULT TRUE,
         UNIQUE(experiment_id, variant_signature)
     );
 
-    -- Partial index for active variants by experiment
-    CREATE INDEX IF NOT EXISTS idx_variants_by_experiment ON model_variants(experiment_id) WHERE is_active = TRUE;
+    -- Index for variants by experiment
+    CREATE INDEX IF NOT EXISTS idx_variants_by_experiment ON model_variants(experiment_id);
 
     -- ============================================================================
     -- question_snapshots table (with experiment_id FK)
@@ -64,30 +57,26 @@ def get_schema_sql() -> str:
     CREATE TABLE IF NOT EXISTS question_snapshots (
         snapshot_id       TEXT PRIMARY KEY,
         experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
-        question_id       TEXT NOT NULL,
+        json_question_id  TEXT NOT NULL,
+        question_position INTEGER NOT NULL,
         question_payload  TEXT NOT NULL,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active         BOOLEAN NOT NULL DEFAULT TRUE,
-        UNIQUE(experiment_id, question_id)
+        UNIQUE(experiment_id, question_position)
     );
 
-    -- Partial index for active snapshots by experiment
-    CREATE INDEX IF NOT EXISTS idx_snapshots_by_experiment ON question_snapshots(experiment_id) WHERE is_active = TRUE;
+    -- Index for snapshots by experiment
+    CREATE INDEX IF NOT EXISTS idx_snapshots_by_experiment ON question_snapshots(experiment_id);
 
     -- ============================================================================
-    -- runs table (with prompt inheritance and soft delete)
+    -- runs table
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS runs (
         run_id            TEXT PRIMARY KEY,
         experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
-        seed              INTEGER,
-        system_prompt     TEXT,
-        user_prompt       TEXT,
+        config            TEXT NOT NULL,
         status            TEXT NOT NULL DEFAULT 'pending',
-        started_at        TIMESTAMP,
-        finished_at       TIMESTAMP,
+        duration          INTEGER DEFAULT 0,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active         BOOLEAN NOT NULL DEFAULT TRUE,
         CHECK(status IN ('pending', 'running', 'completed', 'failed', 'partial_failed'))
     );
 
@@ -97,11 +86,8 @@ def get_schema_sql() -> str:
     -- Partial index for pending runs (common query for execution)
     CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pending';
 
-    -- Partial index for active runs
-    CREATE INDEX IF NOT EXISTS idx_runs_active ON runs(is_active) WHERE is_active = TRUE;
-
     -- ============================================================================
-    -- responses table (with review fields)
+    -- responses table
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS responses (
         response_id       TEXT PRIMARY KEY,
@@ -110,24 +96,32 @@ def get_schema_sql() -> str:
         snapshot_id       TEXT NOT NULL REFERENCES question_snapshots(snapshot_id),
         model_id          TEXT NOT NULL,
         question_id       TEXT NOT NULL,
+        status            TEXT,
+        finish_reason     TEXT,
+        error_details     TEXT,
         response_text     TEXT,
         selected_answer   TEXT,
         is_correct        BOOLEAN,
         parse_confidence  TEXT DEFAULT 'unknown',
-        needs_review      BOOLEAN NOT NULL DEFAULT FALSE,
+        review_status     TEXT,
         manual_answer     TEXT,
-        latency_ms        INTEGER,
+        raw_response      TEXT,
+        cost              REAL,
         input_tokens      INTEGER,
-        output_tokens     INTEGER,
-        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        response_tokens   INTEGER,
+        reasoning_tokens  INTEGER,
+        effective_tokens  INTEGER,
+        latency_ms        INTEGER,
+        started_at        TIMESTAMP,
+        finished_at       TIMESTAMP,
         UNIQUE(run_id, variant_id, snapshot_id)
     );
 
-    -- Partial index for responses needing review
-    CREATE INDEX IF NOT EXISTS idx_responses_needs_review ON responses(needs_review) WHERE needs_review = TRUE;
-
     -- Index for listing responses by run
     CREATE INDEX IF NOT EXISTS idx_responses_by_run ON responses(run_id);
+
+    -- Partial index for responses needing review
+    CREATE INDEX IF NOT EXISTS idx_responses_needs_review ON responses(review_status) WHERE review_status = 'needs_review';
 
     -- ============================================================================
     -- errors table
@@ -137,13 +131,12 @@ def get_schema_sql() -> str:
         run_id            TEXT NOT NULL REFERENCES runs(run_id),
         variant_id        TEXT NOT NULL REFERENCES model_variants(variant_id),
         snapshot_id       TEXT NOT NULL REFERENCES question_snapshots(snapshot_id),
-        model_id          TEXT NOT NULL,
         question_id       TEXT NOT NULL,
         error_type        TEXT NOT NULL,
         error_message     TEXT NOT NULL,
         attempt_count     INTEGER NOT NULL DEFAULT 1,
         stack_trace       TEXT,
-        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        occurred_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Index for listing errors by run

@@ -174,27 +174,7 @@ def handle_create_experiment(args, conn) -> int:
     resolver = ConfigResolver()
     env_dict = resolver.load_env()
 
-    system_prompt = resolver.resolve_prompt(
-        cli_value=args.system_prompt,
-        env_key="SYSTEM_PROMPT_TEMPLATE",
-        default=None
-    )
-    user_prompt = resolver.resolve_prompt(
-        cli_value=args.user_prompt,
-        env_key="USER_PROMPT_TEMPLATE",
-        default=None
-    )
-
-    seed_value = resolver.resolve_seed(
-        cli_value=args.seed,
-        env_key="RANDOM_SEED",
-        experiment_name=name
-    )
-
-    config_dict = resolver.resolve_config_dict(
-        cli_args=args,
-        env_dict=env_dict
-    )
+    config_dict = resolver.build_experiment_config_dict(args)
 
     config_json = json.dumps(config_dict, indent=None, separators=(',', ':'))
     config_hash = hashlib.sha256(config_json.encode('utf-8')).hexdigest()
@@ -205,15 +185,13 @@ def handle_create_experiment(args, conn) -> int:
         description="",
         config_json=config_json,
         config_hash=config_hash,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
     )
 
     repo.save(experiment)
     print(f"✓ Experiment '{experiment.name}' created (ID: {experiment.experiment_id})")
 
     if args.add_models:
-        exit_code = _add_models_at_creation(args.add_models, experiment, conn)
+        exit_code = _add_models_at_creation(args.add_models, experiment, conn, resolver)
         if exit_code != 0:
             return exit_code
 
@@ -224,16 +202,16 @@ def handle_create_experiment(args, conn) -> int:
     return 0
 
 
-def _add_models_at_creation(models: list[str], experiment: Experiment, conn) -> int:
+def _add_models_at_creation(models: list[str], experiment: Experiment, conn, resolver: ConfigResolver) -> int:
     """Add model variants to experiment at creation time.
-    
-    Uses default config (reasoning=none, vision=false, structured=false).
-    For custom configs, use --add-model after experiment creation.
+
+    Uses complete config from CLI > .env > NULL.
 
     Args:
         models: List of model IDs to add.
         experiment: Experiment to add models to.
         conn: Database connection.
+        resolver: ConfigResolver instance.
 
     Returns:
         Exit code (0 for success, 1 for error).
@@ -246,10 +224,8 @@ def _add_models_at_creation(models: list[str], experiment: Experiment, conn) -> 
             print("Expected: provider/model-name (e.g., openai/gpt-4, anthropic/claude-3)", file=sys.stderr)
             return 1
 
-        # Build default config (minimal - no non-default values)
-        config = {}
-        
-        # Generate signature
+        config = resolver.build_model_config_dict(type('Args', (), {'experiment': experiment})(), experiment)
+
         variant_signature = generate_variant_signature(model_id, config)
 
         existing = var_repo.get_by_signature(experiment.experiment_id, variant_signature)
@@ -324,7 +300,7 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     created_count = 0
     skipped_count = 0
 
-    for question in selected_questions:
+    for idx, question in enumerate(selected_questions, start=1):
         source_id = question.get('source_id') or question.get('id') or question.get('question_id', '')
 
         existing = snapshot_repo.get_by_experiment_and_question(experiment.experiment_id, source_id)
@@ -344,7 +320,8 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         snapshot = QuestionSnapshot(
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
-            question_id=source_id,
+            json_question_id=source_id,
+            question_position=idx,
             question_payload=json.dumps(payload),
         )
 
@@ -377,12 +354,17 @@ def handle_show_experiment(args, conn) -> int:
         print(f"Error: Experiment not found: {name}", file=sys.stderr)
         return 1
 
+    import json
+    config = json.loads(experiment.config_json) if experiment.config_json else {}
+
     print(f"Experiment: {experiment.name}")
     print(f"  ID: {experiment.experiment_id}")
     print(f"  Description: {experiment.description or '(none)'}")
-    print(f"  System Prompt: {experiment.system_prompt}")
-    print(f"  User Prompt: {experiment.user_prompt}")
-    print(f"  Active: {'Yes' if experiment.is_active else 'No'}")
+    print(f"  Config:")
+    print(f"    seed: {config.get('seed', 'None')}")
+    print(f"    system_prompt: {config.get('system_prompt', 'None')}")
+    print(f"    user_prompt: {config.get('user_prompt', 'None')}")
+    print(f"    retry_policy: {config.get('retry_policy', 'None')}")
 
     return 0
 
@@ -431,7 +413,7 @@ def handle_remove_experiment(args, conn) -> int:
         print(f"Error: Experiment not found: {name}", file=sys.stderr)
         return 1
 
-    repo.deactivate(experiment.experiment_id)
+    repo.delete(experiment.experiment_id)
     print(f"✓ Experiment '{experiment.name}' removed")
     return 0
 

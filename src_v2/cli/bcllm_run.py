@@ -20,6 +20,7 @@ Exit Codes:
 
 import argparse
 import hashlib
+import json
 import sys
 import uuid
 
@@ -97,48 +98,6 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def generate_seed(run_name: str, experiment_id: str) -> int:
-    """Generate a deterministic seed based on run identifier.
-
-    Args:
-        run_name: Run identifier string.
-        experiment_id: Parent experiment ID for additional entropy.
-
-    Returns:
-        A deterministic integer seed derived from run name and experiment ID.
-    """
-    combined = f"{experiment_id}:{run_name}"
-    hash_bytes = hashlib.sha256(combined.encode('utf-8')).digest()
-    seed = int.from_bytes(hash_bytes[:8], byteorder='big')
-    return seed % (2**31)
-
-
-def parse_seed_value(seed_arg: str, run_id: str, experiment_id: str) -> int | None:
-    """Parse seed argument value.
-
-    Args:
-        seed_arg: Seed argument string (AUTO, empty, or number).
-        run_id: Run ID for AUTO generation.
-        experiment_id: Experiment ID for AUTO generation.
-
-    Returns:
-        Integer seed value or None for empty/unset.
-
-    Raises:
-        ValueError: If seed format is invalid.
-    """
-    if not seed_arg or seed_arg.strip() == "":
-        return None
-
-    if seed_arg.upper() == "AUTO":
-        return generate_seed(run_id, experiment_id)
-
-    try:
-        return int(seed_arg)
-    except ValueError:
-        raise ValueError(f"Invalid seed value: {seed_arg}. Use AUTO, empty, or a number.")
-
-
 def handle_add_run(args, conn) -> int:
     """Handle --add-run command.
 
@@ -154,6 +113,8 @@ def handle_add_run(args, conn) -> int:
         - Experiment must have at least one active model variant
         - Experiment must have at least one active question snapshot
     """
+    from src_v2.core.config_resolver import ConfigResolver
+
     exp_repo = ExperimentRepository(conn)
     run_repo = RunRepository(conn)
 
@@ -162,31 +123,25 @@ def handle_add_run(args, conn) -> int:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
+    resolver = ConfigResolver()
+    resolver.load_env()
+
     run_id = f"run_{uuid.uuid4().hex[:8]}"
 
-    seed_value = None
-    if args.seed is not None:
-        try:
-            seed_value = parse_seed_value(args.seed, run_id, experiment.experiment_id)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
-
-    system_prompt = args.system_prompt if args.system_prompt else experiment.system_prompt
-    user_prompt = args.user_prompt if args.user_prompt else experiment.user_prompt
+    config_dict = resolver.build_run_config_dict(args, experiment)
 
     run = Run(
         run_id=run_id,
         experiment_id=experiment.experiment_id,
-        seed=seed_value,
+        config=json.dumps(config_dict),
         status="pending",
     )
 
-    run_repo.save(run, system_prompt, user_prompt)
-    seed_display = str(run.seed) if run.seed else "None"
+    run_repo.save(run, config_dict)
+    seed_display = str(config_dict.get('seed')) if config_dict.get('seed') is not None else "None"
     print(f"✓ Run created for '{experiment.name}' (ID: {run.run_id}, Seed: {seed_display})")
-    print(f"  System Prompt: {'Custom' if args.system_prompt else 'Inherited from experiment'}")
-    print(f"  User Prompt: {'Custom' if args.user_prompt else 'Inherited from experiment'}")
+    print(f"  System Prompt: {'Custom' if args.system_prompt else 'Inherited from experiment/.env'}")
+    print(f"  User Prompt: {'Custom' if args.user_prompt else 'Inherited from experiment/.env'}")
     return 0
 
 
@@ -214,14 +169,14 @@ def handle_list_runs(args, conn) -> int:
         print(f"No runs in experiment '{experiment.name}'.")
         return 0
 
+    import json
     print(f"Runs in experiment: {experiment.name}")
-    print(f"{'ID':<25} {'Seed':<10} {'Status':<18} {'Started':<22} {'Finished':<22}")
-    print("-" * 100)
+    print(f"{'ID':<25} {'Seed':<10} {'Status':<18}")
+    print("-" * 55)
     for r in runs:
-        started = r.started_at[:19] if r.started_at else "-"
-        finished = r.finished_at[:19] if r.finished_at else "-"
-        seed_display = str(r.seed) if r.seed else "None"
-        print(f"{r.run_id:<25} {seed_display:<10} {r.status:<18} {started:<22} {finished:<22}")
+        config = json.loads(r.config) if r.config else {}
+        seed_display = str(config.get('seed')) if config.get('seed') is not None else "None"
+        print(f"{r.run_id:<25} {seed_display:<10} {r.status:<18}")
 
     return 0
 
@@ -253,23 +208,22 @@ def handle_show_run(args, conn) -> int:
         print(f"Error: Run '{args.run}' is not in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    run_with_prompts = run_repo.get_by_id_with_prompts(args.run)
+    import json
+    config = json.loads(run.config) if run.config else {}
 
     print(f"Run: {run.run_id}")
     print(f"  Experiment: {experiment.name}")
-    print(f"  Seed: {run.seed if run.seed else 'None'}")
+    print(f"  Config:")
+    print(f"    seed: {config.get('seed', 'None')}")
+    print(f"    system_prompt: {config.get('system_prompt', 'None')}")
+    print(f"    user_prompt: {config.get('user_prompt', 'None')}")
     print(f"  Status: {run.status}")
-    print(f"  Started: {run.started_at if run.started_at else 'Not started'}")
-    print(f"  Finished: {run.finished_at if run.finished_at else 'Not finished'}")
-    if run_with_prompts:
-        print(f"  System Prompt: {run_with_prompts.get('system_prompt', '(none)')}")
-        print(f"  User Prompt: {run_with_prompts.get('user_prompt', '(none)')}")
 
     return 0
 
 
 def handle_remove_run(args, conn) -> int:
-    """Handle --remove-run command (soft delete).
+    """Handle --remove-run command.
 
     Args:
         args: Parsed command-line arguments.
@@ -277,11 +231,6 @@ def handle_remove_run(args, conn) -> int:
 
     Returns:
         Exit code (0 for success, 1 for error).
-
-    Notes:
-        - Soft delete: sets is_active = FALSE
-        - Does not delete historical response/error data
-        - Prevents future execution of this run
     """
     exp_repo = ExperimentRepository(conn)
     run_repo = RunRepository(conn)
@@ -300,8 +249,8 @@ def handle_remove_run(args, conn) -> int:
         print(f"Error: Run '{args.remove_run}' is not in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    run_repo.deactivate(run.run_id)
-    print(f"✓ Run '{run.run_id}' removed (soft delete - historical data preserved)")
+    run_repo.delete(run.run_id)
+    print(f"✓ Run '{run.run_id}' removed")
     return 0
 
 

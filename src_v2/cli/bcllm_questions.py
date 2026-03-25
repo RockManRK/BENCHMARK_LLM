@@ -451,7 +451,7 @@ def handle_remove_question(args, conn) -> int:
         print(f"Error: Snapshot '{args.remove_question}' is not in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    snap_repo.deactivate(snapshot.snapshot_id)
+    snap_repo.delete(snapshot.snapshot_id)
     print(f"✓ Question '{snapshot.question_id}' removed from '{experiment.name}'")
     return 0
 

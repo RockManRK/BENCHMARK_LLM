@@ -11,20 +11,21 @@ bcllm --create-experiment <nome>
 bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome> é o único campo obrigatório se o .env tiver configuração de)
 
     --add-questions <valor>
-        --questions Q001 Q005 Q010 (Adiciona perguntas 1, 5 e 10)
-        --questions Q001 Q005-Q020 (Adiciona perguntas 1, e da 5 até a 20)
-        --questions Q001-Q050 --where status=valid (Adiciona perguntas da 1 até a 50 em que a flag "status" seja valor "valid")
+        --questions 1, 5, 10 (Adiciona perguntas 1, 5 e 10)
+        --questions 1, 5-20 (Adiciona perguntas 1, e da 5 até a 20)
+        --questions 1-50 --where status=valid (Adiciona perguntas da 1 até a 50 em que a flag "status" seja valor "valid")
         --questions --exclude status=annulled (Adiciona todas as perguntas em que a flag "status" não seja "annulled")
-        --questions Q001-Q10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
+        --questions 1-10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
     --seed <opção>
         EM BRANCO,AUTO,#
     --add-model <modelo>
         --reasoning <opção>
-        --max-tokens <#>
+        --max_tokens <#>
         --reasoning-tokens <#>
         --temperature <#>
         --top_p <#>
         --top_k <#>
+        --repeat_penalty <#>
         --vision <opção> (true/false)
         --structured <opção> (true/false)
         --base_url <configura o base_url padrão do experimento, se não configurado, puxa do .env, se não tiver no .env, apresenta um alerta e explica a situação e como corrigir>
@@ -35,11 +36,11 @@ bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome
 bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
 
     --add-questions <valor> (Pode ser adicionado perguntas a um experimento já criado, com perguntas ou sem)
-        --questions Q001 Q005 Q010 (Adiciona perguntas 1, 5 e 10)
-        --questions Q001 Q005-Q020 (Adiciona perguntas 1, e da 5 até a 20)
-        --questions Q001-Q050 --where status=valid (Adiciona perguntas da 1 até a 50 em que a flag "status" seja valor "valid")
+        --questions 1 5 10 (Adiciona perguntas 1, 5 e 10)
+        --questions 1 5-20 (Adiciona perguntas 1, e da 5 até a 20)
+        --questions 1-50 --where status=valid (Adiciona perguntas da 1 até a 50 em que a flag "status" seja valor "valid")
         --questions --exclude status=annulled (Adiciona todas as perguntas em que a flag "status" não seja "annulled")
-        --questions Q001-Q10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
+        --questions 1-10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
     --seed <opção> (seed poderá ser adicionado ou alterado em experimento já criado, porém, não afeta o seed dos runs já criados)
         <EM BRANCO,AUTO,#>
     --add-model <modelo> (pode ser adicionado modelos a um experimento já criado)
@@ -172,7 +173,7 @@ A interface mostra:
 REVIEW MANUAL DE RESPOSTAS  |  Item 1/23
 ================================================================================
 Pendentes: 23  |  Processadas: 0
-Pergunta: Q001 (Iteração 1, Modelo: liquid/lfm-2.5-1.2b-thinking)
+Pergunta: 1 (Iteração 1, Modelo: liquid/lfm-2.5-1.2b-thinking)
 Resposta Correta: "A"
 Status: AMBIGUOUS
 ================================================================================

@@ -17,28 +17,6 @@
 
 ---
 
-## 🔴 CHECKPOINT A — Configuration Integrity (BLOCKING)
-
-### A1. Remove Hardcoded Prompts
-**Problem:** `system_prompt` and `user_prompt` are hardcoded in multiple modules, masking failures.
-
-**Actions**
-- Remove all default prompt strings from:
-  - `bcllm_experiment.py`
-  - `execution_plan.py`
-- Prompts must come **only** from:
-  1. CLI flags
-  2. `.env`
-  3. Otherwise remain `NULL`
-
-**Acceptance Criteria**
-- Creating an experiment with no prompts and no `.env` prompt results in:
-  - `system_prompt = NULL`
-  - `user_prompt = NULL`
-- No English text appears unless explicitly provided
-
----
-
 ### A2. Real Configuration Freeze (`config_json`)
 **Problem:** `config_json` is `{}` even when defaults exist.
 

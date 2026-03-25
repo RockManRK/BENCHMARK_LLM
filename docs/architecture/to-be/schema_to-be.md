@@ -19,7 +19,7 @@
 - Criar a coluna runs.config para salvar todas as configurações da run (SEED resolvido, system prompt e user prompt)
 - Coluna runs.is_active deve ser eliminada. Assim como qualquer código que faça referência a ela.
 - Colunas runs.seed, runs.system_prompt e runs.user_prompt devem ser eliminadas, essas configurações serão gravadas junto com as outras configurações (3 configurações) em runs.config
-- Trocar as colunas runs.started_at e runs.finished_at, por apenas uma, runs.duration . Motivo: Como runs podem ser processados parcialmente, como por exemplo, ao ter 100 perguntas, você executalo com apenas 50 das perguntas, ou apenas com alguns dos modelos configurados, precisamos de um valor que possa ser somado a cada parte da execução. Dessa forma. Se você rodar parcialmente, quando rodar o resto, ou mais alguma parte, a duração da nova execução se soma a anterior, até que todo o experimento seja concluído e se tenha o tempo total da duração.
+- Trocar as colunas runs.started_at e runs.finished_at por uma única coluna runs.duration. Motivo: Runs podem ser executados de forma parcial e incremental (por exemplo, processando apenas parte das perguntas ou apenas alguns modelos). Nessas situações, started_at e finished_at deixam de representar corretamente o tempo total de execução. A coluna runs.duration representa o tempo acumulado de execução, sendo incrementada a cada execução parcial até que o run seja concluído.
 
 - Criar a coluna responses.status, para indicar se foi processada corretamente, se deu erro, ou qualquer coisa importante
 - Criar a coluna responses.finish_reason, valor do json que vem como "finish_reason", indicando o finish reason da solicitação.

@@ -70,31 +70,69 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
-    # Model configuration options (used with --add-model)
+    # Model configuration options (all 10 model-level keys from contract)
     parser.add_argument(
-        "--variant-signature",
-        metavar="SIG",
-        help="Custom variant signature (default: auto-generated)",
+        "--url",
+        metavar="URL",
+        help="BASE_URL - Model endpoint URL",
+    )
+    parser.add_argument(
+        "--max-reasoning",
+        type=int,
+        metavar="N",
+        dest="max_reasoning",
+        help="MODEL_MAX_TOKENS_REASONING - Maximum reasoning tokens",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        metavar="N",
+        dest="max_tokens",
+        help="MODEL_MAX_TOKENS_TOTAL - Maximum total tokens",
     )
     parser.add_argument(
         "--reasoning",
         choices=["none", "minimal", "low", "medium", "high", "xhigh"],
-        default="none",
-        help="Reasoning effort level (default: none)",
+        help="MODEL_REASONING_EFFORT - Reasoning effort level",
+    )
+    parser.add_argument(
+        "--repeat-penalty",
+        type=float,
+        metavar="N",
+        dest="repeat_penalty",
+        help="MODEL_REPEAT_PENALTY - Repetition penalty",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        metavar="N",
+        help="MODEL_TEMPERATURE - Sampling temperature",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        metavar="N",
+        dest="top_k",
+        help="MODEL_TOP_K - Top-K sampling",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        metavar="N",
+        dest="top_p",
+        help="MODEL_TOP_P - Top-P sampling",
     )
     parser.add_argument(
         "--vision",
         type=str,
         choices=["true", "false"],
-        default="false",
-        help="Enable vision capabilities (true/false, default: false)",
+        help="MODEL_VISION - Enable vision (true/false)",
     )
     parser.add_argument(
-        "--structured-output",
+        "--structured",
         type=str,
         choices=["true", "false"],
-        default="false",
-        help="Enable structured output format (true/false, default: false)",
+        help="STRUCTURED_OUTPUTS - Enable structured output (true/false)",
     )
 
     return parser
@@ -110,7 +148,8 @@ def handle_add_model(args, conn) -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
-    # Validate model ID format
+    from src_v2.core.config_resolver import ConfigResolver
+
     if not validate_model_id(args.add_model):
         print(f"Error: Invalid model ID format: {args.add_model}", file=sys.stderr)
         print("Expected: provider/model-name (e.g., openai/gpt-4, anthropic/claude-3)", file=sys.stderr)
@@ -119,42 +158,23 @@ def handle_add_model(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     var_repo = VariantRepository(conn)
 
-    # Check experiment exists
     experiment = exp_repo.get_by_name(args.experiment)
     if not experiment:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
-    # Build config dict from CLI flags
-    # Only include non-default values to keep signatures clean
-    config = {}
+    resolver = ConfigResolver()
+    resolver.load_env()
 
-    # Only include reasoning_effort if not 'none'
-    if args.reasoning != 'none':
-        config['reasoning_effort'] = args.reasoning
-        config['label'] = f"({args.reasoning})"
+    config = resolver.build_model_config_dict(args, experiment)
 
-    # Only include vision if enabled (default is false)
-    if args.vision.lower() == 'true':
-        config['vision'] = True
+    variant_signature = generate_variant_signature(args.add_model, config)
 
-    # Only include structured if enabled (default is false)
-    if args.structured_output.lower() == 'true':
-        config['structured'] = True
-
-    # Generate signature (or use custom)
-    if args.variant_signature:
-        variant_signature = args.variant_signature
-    else:
-        variant_signature = generate_variant_signature(args.add_model, config)
-
-    # Check for signature collision
     existing = var_repo.get_by_signature(experiment.experiment_id, variant_signature)
     if existing:
         print(f"Error: Variant '{variant_signature}' already exists in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    # Create variant with config
     variant = ModelVariant(
         variant_id=f"var_{uuid.uuid4().hex[:8]}",
         experiment_id=experiment.experiment_id,
@@ -187,7 +207,7 @@ def handle_list_models(args, conn) -> int:
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
-    variants = var_repo.list_by_experiment(experiment.experiment_id, active_only=True)
+    variants = var_repo.list_by_experiment(experiment.experiment_id)
 
     if not variants:
         print(f"No models in experiment '{experiment.name}'.")
@@ -236,7 +256,7 @@ def handle_remove_model(args, conn) -> int:
         print(f"Error: Variant '{args.remove_model}' is not in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    var_repo.deactivate(variant.variant_id)
+    var_repo.delete(variant.variant_id)
     print(f"✓ Model '{variant.model_id}' removed from '{experiment.name}'")
     return 0
 

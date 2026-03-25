@@ -21,15 +21,16 @@ from typing import Any
 
 
 # Fixed field order for signature generation
+# Maps contract keys to signature keys
 SIGNATURE_FIELD_ORDER = [
-    ('reasoning_effort', 'reasoning'),
-    ('vision', 'vision'),
-    ('structured', 'structured'),
-    ('temperature', 'temp'),
-    ('top_p', 'top_p'),
-    ('top_k', 'top_k'),
-    ('max_output_tokens', 'max_tokens'),
-    ('reasoning_tokens', 'reasoning_tokens'),
+    ('MODEL_REASONING_EFFORT', 'reasoning'),
+    ('MODEL_VISION', 'vision'),
+    ('STRUCTURED_OUTPUTS', 'structured'),
+    ('MODEL_TEMPERATURE', 'temp'),
+    ('MODEL_TOP_P', 'top_p'),
+    ('MODEL_TOP_K', 'top_k'),
+    ('MODEL_MAX_TOKENS_TOTAL', 'max_tokens'),
+    ('MODEL_MAX_TOKENS_REASONING', 'reasoning_tokens'),
 ]
 
 
