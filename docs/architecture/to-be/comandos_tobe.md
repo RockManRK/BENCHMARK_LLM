@@ -101,9 +101,8 @@ bcllm --create-experiment <nome>
 - `--add-questions`
 - `--seed`
 - `--add-model`
-- `--system_prompt`
-- `--user_prompt`
-- `--retry_policy`
+- `--system-prompt`
+- `--user-prompt`
 
 > **Nota**: O suporte a múltiplas flags no mesmo comando é desejado, mas não obrigatório para a implementação inicial.
 
@@ -160,11 +159,11 @@ bcllm experiment <nome> --add-model <model_id>
 - `--max-tokens`
 - `--reasoning-tokens`
 - `--temperature`
-- `--top_p`
-- `--top_k`
+- `--top-p`
+- `--top-k`
 - `--vision`
 - `--structured`
-- `--base_url`
+- `--base-url`
 
 > **Nota**: O sistema pode aceitar `--add-models` como alias interno, mas o comando documentado e recomendado é `--add-model`.
 
@@ -202,8 +201,8 @@ bcllm experiment <nome> --add-run
 
 #### Flags:
 - `--seed`
-- `--system_prompt`
-- `--user_prompt`
+- `--system-prompt`
+- `--user-prompt`
 
 > Após criado, nenhum desses valores pode ser alterado.
 
@@ -231,7 +230,6 @@ bcllm experiment <nome> --execute
 - `--run`
 - `--questions`
 - `--models`
-- `--retry_policy`
 
 ### Regras:
 - Execuções parciais só processam itens pendentes

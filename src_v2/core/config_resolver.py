@@ -307,12 +307,12 @@ class ConfigResolver:
     def build_experiment_config_dict(self, cli_args) -> dict:
         """Build complete configuration dictionary for experiment creation.
 
-        Includes ONLY experiment-scoped keys (17 total).
+        Includes ONLY experiment-scoped keys (14 total).
         SYSTEM keys are resolved at runtime and NOT stored in experiment config.
 
         Resolution strategy:
-        - EXPERIMENT keys (4): Resolved from CLI/.env at experiment creation
-        - MODEL keys (11): Resolved from CLI/.env as defaults for model variants
+        - EXPERIMENT keys (1): Resolved from CLI/.env at experiment creation
+        - MODEL keys (10): Resolved from CLI/.env as defaults for model variants
         - RUN keys (3): Resolved from CLI/.env as defaults for runs
 
         SYSTEM keys REMOVED (resolved at system startup, not stored):
@@ -322,14 +322,17 @@ class ConfigResolver:
         - LOG_LEVEL
         - OPENROUTER_DEBUG_ENABLED
 
-        Note: DEFAULT_QUESTIONS is NOT persisted - it is used only transiently
-        during experiment creation for filtering.
+        TRANSIENT keys NOT persisted (used only during CLI execution):
+        - DEFAULT_QUESTIONS (transient - used for question selection)
+        - QUESTIONS_STATUS_ADD (transient - used for filtering)
+        - QUESTIONS_STATUS_EXCLUDE (transient - used for filtering)
+        - MODELS_DEFAULT_FOR_EXPERIMENTS (transient - NOT used, models added explicitly)
 
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
 
         Returns:
-            Dictionary with 17 configuration keys (4 EXPERIMENT + 11 MODEL + 3 RUN).
+            Dictionary with 14 configuration keys (1 EXPERIMENT + 10 MODEL + 3 RUN).
         """
         resolved_seed = self.resolve_seed(
             cli_value=getattr(cli_args, 'seed', None),
@@ -338,13 +341,10 @@ class ConfigResolver:
         )
 
         return {
-            # EXPERIMENT keys (4) - Resolved from .env at experiment creation
+            # EXPERIMENT keys (1) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
-            "QUESTIONS_STATUS_ADD": self.env_dict.get("QUESTIONS_STATUS_ADD"),
-            "QUESTIONS_STATUS_EXCLUDE": self.env_dict.get("QUESTIONS_STATUS_EXCLUDE"),
-            "MODELS_DEFAULT_FOR_EXPERIMENTS": self._parse_json_env("MODELS_DEFAULT_FOR_EXPERIMENTS"),
 
-            # MODEL keys (11) - Resolved from CLI/.env as defaults for model variants
+            # MODEL keys (10) - Resolved from CLI/.env as defaults for model variants
             "BASE_URL": getattr(cli_args, 'url', None) or self.env_dict.get("BASE_URL"),
             "MODEL_MAX_TOKENS_REASONING": getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None) or self._parse_int_env("MODEL_MAX_TOKENS_REASONING"),
             "MODEL_MAX_TOKENS_TOTAL": getattr(cli_args, 'max_tokens', None) or self._parse_int_env("MODEL_MAX_TOKENS_TOTAL"),

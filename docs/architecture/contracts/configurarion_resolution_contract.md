@@ -36,27 +36,27 @@ Ele é **normativo**: se algo não estiver descrito aqui, **não existe**.
 |----|----|----|----|----|----|----|----|----|
 | DATABASE_PATH | string | SYSTEM_START | SYSTEM | `.env` | `.env → internal` | `./data/benchmark.db` | NO | Caminho do banco de dados. Se não existir, o sistema cria. Falha apenas se não puder criar. |
 | EXECUTION_MODE | enum | SYSTEM_START | SYSTEM | `.env` | `.env → internal` | `normal` | NO | Modo de execução do CLI. |
-| LOG_FILE_PATH | string \| null | SYSTEM_START | SYSTEM | `.env` | `.env` | `NULL` | NO | Caminho do arquivo de log. `NULL` desativa logging em arquivo. |
+| LOG_FILE_PATH | string\null | SYSTEM_START | SYSTEM | `.env` | `.env` | `NULL` | NO | Caminho do arquivo de log. `NULL` desativa logging em arquivo. |
 | LOG_LEVEL | enum | SYSTEM_START | SYSTEM | `.env` | `.env → internal` | `INFO` | NO | Nível de detalhamento do log. |
 | QUESTIONS_DATASET_PATH | string | EXPERIMENT_CREATION | EXPERIMENT | `experiment.config` | `experiment → .env` | none | YES | Caminho do dataset de perguntas usado pelo experimento. |
 | OPENROUTER_DEBUG_ENABLED | bool | SYSTEM_START | SYSTEM | `.env` | `.env → internal` | `FALSE` | NO | Ativa dados extras de debug no retorno da API. |
-| DEFAULT_QUESTIONS | list \| null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | `NULL` | NO | Usado apenas na criação do experimento. Se ausente, todas as perguntas disponíveis são adicionadas. |
-| QUESTIONS_STATUS_ADD | string \| null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | `NULL` | NO | Filtra perguntas a serem adicionadas por flag. |
-| QUESTIONS_STATUS_EXCLUDE | string \| null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | `NULL` | NO | Exclui perguntas por flag. |
-| MODELS_DEFAULT_FOR_EXPERIMENTS | list \| null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | none | NO | Modelos adicionados automaticamente ao criar o experimento. Usado apenas na criação. |
+| DEFAULT_QUESTIONS | list\null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | `NULL` | NO | Usado apenas na criação do experimento. Se ausente, todas as perguntas disponíveis são adicionadas. |
+| QUESTIONS_STATUS_ADD | string\null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | `NULL` | NO | Filtra perguntas a serem adicionadas por flag. |
+| QUESTIONS_STATUS_EXCLUDE | string\null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | `NULL` | NO | Exclui perguntas por flag. |
+| MODELS_DEFAULT_FOR_EXPERIMENTS | list\null | EXPERIMENT_CREATION | EXPERIMENT | *not persisted* | `.env` | none | NO | Modelos adicionados automaticamente ao criar o experimento. Usado apenas na criação. |
 | BASE_URL | string | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | none | YES | Endpoint do modelo (OpenRouter, local ou outro). |
-| MODEL_MAX_TOKENS_REASONING | int \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Máximo de tokens de raciocínio. Se `NULL`, não é enviado. |
-| MODEL_MAX_TOKENS_TOTAL | int \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Máximo total de tokens (raciocínio + resposta). Se `NULL`, não é enviado. |
-| MODEL_REASONING_EFFORT | enum \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Nível de esforço de raciocínio do modelo. Se `NULL`, não é enviado. |
-| MODEL_REPEAT_PENALTY | float \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Penalidade por repetição. Se `NULL`, não é enviado. |
-| MODEL_TEMPERATURE | float \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Temperatura de amostragem. Se `NULL`, não é enviado. |
-| MODEL_TOP_K | int \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Top‑K sampling. Se `NULL`, não é enviado. |
-| MODEL_TOP_P | float \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Top‑P sampling. Se `NULL`, não é enviado. |
-| MODEL_VISION | bool \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Ativa suporte a visão no modelo. Se `NULL`, não é enviado. |
-| STRUCTURED_OUTPUTS | bool \| null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Solicita saída estruturada (JSON). Se `NULL`, não é enviado. |
-| RUN_RESPONSES_SEED | int \| AUTO \| OFF | RUN_CREATION | RUN | `run.config` | `run → experiment → .env → internal` | `OFF` | NO | Controla a ordem das alternativas (A, B, C, D). Fixo por RUN e compartilhado entre todos os modelos daquele RUN. Se `NULL`, ordem original será usada. |
-| SYSTEM_PROMPT | string \| null | RUN_CREATION | RUN | `run.config` | `run → experiment → .env` | `NULL` | NO | Prompt de sistema aplicado ao RUN. Se `NULL`, não é enviado. |
-| USER_PROMPT | string \| null | RUN_CREATION | RUN | `run.config` | `run → experiment → .env` | `NULL` | NO | Prompt do usuário aplicado ao RUN. Se `NULL`, não é enviado. |
+| MODEL_MAX_TOKENS_REASONING | int\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Máximo de tokens de raciocínio. Se `NULL`, não é enviado. |
+| MODEL_MAX_TOKENS_TOTAL | int\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Máximo total de tokens (raciocínio + resposta). Se `NULL`, não é enviado. |
+| MODEL_REASONING_EFFORT | enum\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Nível de esforço de raciocínio do modelo. Se `NULL`, não é enviado. |
+| MODEL_REPEAT_PENALTY | float\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Penalidade por repetição. Se `NULL`, não é enviado. |
+| MODEL_TEMPERATURE | float\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Temperatura de amostragem. Se `NULL`, não é enviado. |
+| MODEL_TOP_K | int\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Top‑K sampling. Se `NULL`, não é enviado. |
+| MODEL_TOP_P | float\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Top‑P sampling. Se `NULL`, não é enviado. |
+| MODEL_VISION | bool\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Ativa suporte a visão no modelo. Se `NULL`, não é enviado. |
+| STRUCTURED_OUTPUTS | bool\null | MODEL_VARIANT_CREATION | RUN | `model_variant.config` | `model_variant → experiment → .env` | `NULL` | NO | Solicita saída estruturada (JSON). Se `NULL`, não é enviado. |
+| RUN_RESPONSES_SEED | int\AUTO\OFF | RUN_CREATION | RUN | `run.config` | `run → experiment → .env → internal` | `OFF` | NO | Controla a ordem das alternativas (A, B, C, D). Fixo por RUN e compartilhado entre todos os modelos daquele RUN. Se `NULL`, ordem original será usada. |
+| SYSTEM_PROMPT | string\null | RUN_CREATION | RUN | `run.config` | `run → experiment → .env` | `NULL` | NO | Prompt de sistema aplicado ao RUN. Se `NULL`, não é enviado. |
+| USER_PROMPT | string\null | RUN_CREATION | RUN | `run.config` | `run → experiment → .env` | `NULL` | NO | Prompt do usuário aplicado ao RUN. Se `NULL`, não é enviado. |
 
 ---
 

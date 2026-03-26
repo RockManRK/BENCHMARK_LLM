@@ -1,4 +1,4 @@
-# name: "comandos_simples.md"
+# name: "comandos-simples.md"
 # version: 2.0
 # Atenção!: nunca fazer alterações
 
@@ -33,18 +33,18 @@ bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome
         EM BRANCO, AUTO, # (número)
     --add-model <modelo>
         --reasoning <opção>
-        --max_tokens <#>
+        --max-tokens <#>
         --reasoning-tokens <#>
         --temperature <#>
-        --top_p <#>
-        --top_k <#>
-        --repeat_penalty <#>
+        --top-p <#>
+        --top-k <#>
+        --repeat-penalty <#>
         --vision <opção> (true/false/NULL - case-insensitive)
         --structured <opção> (true/false/NULL - case-insensitive)
-        --url <configura o base_url padrão do experimento>
-    --system_prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão)
-    --user_prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão)
-    --retry_policy <#> (Configuração não vai mais existir. Configuração de retry_policy agora será apenas por .env)
+        --url <configura o base-url padrão do experimento>
+    --system-prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão)
+    --user-prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão)
+    --retry-policy <#> (Configuração não vai mais existir. Configuração de retry-policy agora será apenas por .env)
 
 bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
 
@@ -63,13 +63,13 @@ bcllm --experiment <nome> (Visualiza as especificações do experimento indicado
         --max-tokens <#>
         --reasoning-tokens <#>
         --temperature <#>
-        --top_p <#>
-        --top_k <#>
+        --top-p <#>
+        --top-k <#>
         --vision <opção> (true/false/NULL - case-insensitive)
-        --base_url
-    --system_prompt <"Frase entre aspas"> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
-    --user_prompt <"Frase entre aspas"> (user prompt poderá ser alterado em experimento já criado)
-    --retry_policy <#> (Retry policy poderá ser alterado e afeta questões não processadas)
+        --base-url
+    --system-prompt <"Frase entre aspas"> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
+    --user-prompt <"Frase entre aspas"> (user prompt poderá ser alterado em experimento já criado)
+    --retry-policy <#> (Retry policy poderá ser alterado e afeta questões não processadas)
 
 ---
 
@@ -105,8 +105,8 @@ bcllm experiment <nome> --remove-model ? (Apresenta lista dos modelos para escol
 bcllm experiment <nome> --add-run
 
     --seed <EM BRANCO/AUTO/#> (SEED não poderá ser alterado em RUN já criado)
-    --system_prompt <"Frase entre aspas"> (system prompt não poderá ser alterado em RUN já criado)
-    --user_prompt <"Frase entre aspas"> (user prompt não poderá ser alterado em RUN já criado)
+    --system-prompt <"Frase entre aspas"> (system prompt não poderá ser alterado em RUN já criado)
+    --user-prompt <"Frase entre aspas"> (user prompt não poderá ser alterado em RUN já criado)
 
 bcllm experiment <nome> --remove-run <run> (remove RUNs indicados do experimento)
 bcllm experiment <nome> --remove-run ? (Apresenta lista dos RUNs para escolher quais remover)
@@ -133,8 +133,8 @@ bcllm experiment <nome> --execute
 
 ## Informações extras:
 - Reasoning enabled não deve ser enviado, pois "effort: none" provêm o mesmo efeito.
-- Segundo a openrouter, Effort e max_tokens não deve ser usado simultaneamente.
-- Será necessário ter a opção de --base_url por modelo.
+- Segundo a openrouter, Effort e max-tokens não deve ser usado simultaneamente.
+- Será necessário ter a opção de --base-url por modelo.
 
 ---
 
@@ -148,8 +148,8 @@ bcllm experiment <nome> --execute
 
 - questions = Configuração padrão de **questions** é usada quando não informado na configuração de experimento. Utiliza todas as perguntas disponíveis.
 - seed = Configuração padrão de **seed** é usada quando não informado. Desativa randomização e usa ordem original.
-- system_prompt = Se não configurado, não é enviado na requisição.
-- user_prompt = A decidir
+- system-prompt = Se não configurado, não é enviado na requisição.
+- user-prompt = A decidir
 - Todas as configurações de modelos, ao não serem definidas, serão ignoradas no envio da requisição, ativando a configuração padrão do servidor/modelo.
 
 ## Hierarquia de configurações:
@@ -230,11 +230,11 @@ CLASSIFICAÇÃO:
 
 As respostas revisadas são atualizadas no banco de dados:
 
-- **`manual_answer`** - Alternativa selecionada pelo revisor
-- **`review_status`** - Mudado de `auto` para `manual`
-- **`reviewed_at`** - Timestamp da revisão
-- **`selected_answer`** - Atualizado com a classificação manual
-- **`is_correct`** - Recalculado com base na resposta manual
+- **`manual-answer`** - Alternativa selecionada pelo revisor
+- **`review-status`** - Mudado de `auto` para `manual`
+- **`reviewed-at`** - Timestamp da revisão
+- **`selected-answer`** - Atualizado com a classificação manual
+- **`is-correct`** - Recalculado com base na resposta manual
 
 ### Estatísticas de Revisão
 

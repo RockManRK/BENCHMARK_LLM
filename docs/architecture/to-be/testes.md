@@ -25,7 +25,7 @@ python bcllm.py --create-experiment ce06 --reasoning none
 python bcllm.py --create-experiment ce07 --reasoning xhigh
 
 ## CE8
-python bcllm.py --create-experiment ce08 --max_tokens 3333
+python bcllm.py --create-experiment ce08 --max-tokens 3333
 
 ## CE9
 python bcllm.py --create-experiment ce09 --reasoning-tokens 4444
@@ -34,10 +34,10 @@ python bcllm.py --create-experiment ce09 --reasoning-tokens 4444
 python bcllm.py --create-experiment ce10 --temperature 2
 
 ## CE11
-python bcllm.py --create-experiment ce11 --top_p 1.1 --top_k 1.2
+python bcllm.py --create-experiment ce11 --top-p 1.1 --top-k 1.2
 
 ## CE12
-python bcllm.py --create-experiment ce12 --repeat_penalty 2
+python bcllm.py --create-experiment ce12 --repeat-penalty 2
 
 ## CE13
 python bcllm.py --create-experiment ce13 --vision true
@@ -52,16 +52,16 @@ python bcllm.py --create-experiment ce15 --structured true
 python bcllm.py --create-experiment ce16 --url 192.198.0.1:8000
 
 ## CE17
-python bcllm.py --create-experiment ce17 --system_prompt system teste
+python bcllm.py --create-experiment ce17 --system-prompt system teste
 
 ## CE18
-python bcllm.py --create-experiment ce18 --user_prompt "user teste"
+python bcllm.py --create-experiment ce18 --user-prompt "user teste"
 
 ## CE19
-python bcllm.py --create-experiment ce19 --retry_policy 3
+python bcllm.py --create-experiment ce19 --retry-policy 3
 
 ## CE20
-python bcllm.py --create-experiment ce20 --system_prompt "system prompt personalizado" --user_prompt "user próprio" --repeat_penalty 2 --reasoning minimal
+python bcllm.py --create-experiment ce20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal
 
 ---
 
@@ -83,12 +83,12 @@ python bcllm.py --experiment adição_modelos --add-model servidor/modelo3 --url
 Funciona
 
 ## AM4
-python bcllm.py --experiment adição_modelos --add-model servidor/modelo4 --reasoning_tokens 4444 --max_tokens 5555
+python bcllm.py --experiment adição_modelos --add-model servidor/modelo4 --reasoning-tokens 4444 --max-tokens 5555
 Esse aqui me fez perceber uma falha que acho que foi minha. O comando não funcionou, mas funcionou quando no lugar de colocar do jeito que tá, com "_" separando as palavras do comando, eu coloquei "-" separando as palavras do comando. E eu vi que alguns comandos o texto é separado por "-" e outros por "_".
 E com isso eu deixo duas dúvidas: Devemos padronizar, certo? E se padronizar, qual você acha que é o mais adequado?
 
 ## AM5
-python bcllm.py --experiment adição_modelos --add-model servidor/modelo5 --repeat_penalty 10 
+python bcllm.py --experiment adição_modelos --add-model servidor/modelo5 --repeat-penalty 10 
 Esse é outro comando que para funcionar eu tive que trocar "--repeat_penalty" por "--repeat-penalty". E isso me fez pensar, em comandos que o texto é como uma frase, acho que devemos usar "_". Como no caso de "repeat_penalty", porém, eu comandos que o texto é mais a ideia de dois comandos combinados, como no caso de "--add-model", ai sim usamos o "-". O que você acha?
 No caso desse comando eu percebi uma outra questão. O config_json está com todas as configurações, porém, a coluna "variant_signature" não tem todos os valores.
 Como pode observar aqui, além daquela questos dos zeros, ele não tem por exemplo "repeat penalty". "modelo5|reasoning=low|vision=true|structured=false|temp=2.000|top_p=1.500|top_k=40.000|max_tokens=16384.000|reasoning_tokens=1111.000"

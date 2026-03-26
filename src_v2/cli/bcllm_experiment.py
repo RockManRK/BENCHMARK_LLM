@@ -411,7 +411,10 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
 
     Behavior:
         - If --add-questions provided: use specified questions
-        - If --add-questions NOT provided: select ALL questions from dataset
+        - If --add-questions NOT provided: check DEFAULT_QUESTIONS from .env
+        - If neither provided: select ALL questions from dataset
+        - Apply QUESTIONS_STATUS_ADD from .env for filtering (if --where not provided)
+        - Apply QUESTIONS_STATUS_EXCLUDE from .env for filtering (if --exclude not provided)
         - Fails loudly if dataset invalid (no placeholders)
     """
     resolver = ConfigResolver()
@@ -445,7 +448,16 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             print("  --questions \"1, 3-5, Q10\" (mixed)", file=sys.stderr)
             return 1
     else:
-        selected_questions = questions
+        default_questions = env_dict.get('DEFAULT_QUESTIONS')
+        if default_questions:
+            print(f"  Using DEFAULT_QUESTIONS from .env: {default_questions}")
+            try:
+                selected_questions = loader.parse_question_spec(default_questions, questions)
+            except ValueError as e:
+                print(f"Error: Invalid DEFAULT_QUESTIONS specification: {e}", file=sys.stderr)
+                return 1
+        else:
+            selected_questions = questions
 
     include_filters = []
     exclude_filters = []
@@ -457,6 +469,14 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             except ValueError as e:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
+    else:
+        status_add = env_dict.get('QUESTIONS_STATUS_ADD')
+        if status_add:
+            try:
+                include_filters.append(parse_filter(status_add))
+            except ValueError as e:
+                print(f"Error: Invalid QUESTIONS_STATUS_ADD filter: {e}", file=sys.stderr)
+                return 1
 
     if args.exclude_filters:
         for filter_str in args.exclude_filters:
@@ -465,16 +485,24 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             except ValueError as e:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
+    else:
+        status_exclude = env_dict.get('QUESTIONS_STATUS_EXCLUDE')
+        if status_exclude:
+            try:
+                exclude_filters.append(parse_filter(status_exclude))
+            except ValueError as e:
+                print(f"Error: Invalid QUESTIONS_STATUS_EXCLUDE filter: {e}", file=sys.stderr)
+                return 1
 
     if include_filters or exclude_filters:
         questions_index = {q.get('source_id') or q.get('id'): q for q in questions}
         original_ids = [q.get('source_id') or q.get('id') for q in selected_questions]
         filtered_ids = filter_questions(original_ids, questions_index, include_filters, exclude_filters)
         filtered_count = len(original_ids) - len(filtered_ids)
-        
+
         if filtered_count > 0:
             print(f"  ({filtered_count} questions filtered out)")
-        
+
         selected_questions = [q for q in selected_questions if (q.get('source_id') or q.get('id')) in filtered_ids]
 
     if not selected_questions:
