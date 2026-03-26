@@ -189,13 +189,13 @@ def create_parser() -> argparse.ArgumentParser:
         "--vision",
         type=str,
         metavar="VALUE",
-        help="Enable vision support (true/false/NULL)",
+        help="Enable vision support. Valid values: true, false, NULL (case-insensitive). Default: false",
     )
     parser.add_argument(
         "--structured",
         type=str,
         metavar="VALUE",
-        help="Enable structured outputs (true/false/NULL)",
+        help="Enable structured outputs. Valid values: true, false, NULL (case-insensitive). Default: false",
     )
     parser.add_argument(
         "--add-model",
@@ -208,13 +208,13 @@ def create_parser() -> argparse.ArgumentParser:
         "--add-questions",
         metavar="SPEC",
         dest="add_questions",
-        help="Add questions at creation time (format: q1,q2,q3 or 1-10)",
+        help="Add questions at creation time. Format: \"1, 3, 5\" (comma-separated), \"1-10\" (range), or \"1, 3-5, Q010\" (mixed). Quote arguments with spaces.",
     )
     parser.add_argument(
         "--questions",
         metavar="SPEC",
         dest="add_questions",
-        help="Alias for --add-questions (format: q1,q2,q3 or 1-10)",
+        help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
     )
     parser.add_argument(
         "--where",
@@ -298,11 +298,13 @@ def handle_create_experiment(args, conn) -> int:
     if args.vision is not None and not _validate_bool_value(args.vision):
         print(f"Error: Invalid value for --vision: {args.vision}", file=sys.stderr)
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        print("Example: --vision true", file=sys.stderr)
         return 1
 
     if args.structured is not None and not _validate_bool_value(args.structured):
         print(f"Error: Invalid value for --structured: {args.structured}", file=sys.stderr)
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        print("Example: --structured false", file=sys.stderr)
         return 1
 
     resolver = ConfigResolver()
@@ -436,7 +438,11 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         try:
             selected_questions = loader.parse_question_spec(args.add_questions, questions)
         except ValueError as e:
-            print(f"Error parsing question spec: {e}", file=sys.stderr)
+            print(f"Error: Invalid question specification: {e}", file=sys.stderr)
+            print("Valid formats:", file=sys.stderr)
+            print("  --questions \"1, 3, 5\"    (comma-separated, quote if spaces)", file=sys.stderr)
+            print("  --questions \"1-10\"       (range)", file=sys.stderr)
+            print("  --questions \"1, 3-5, Q10\" (mixed)", file=sys.stderr)
             return 1
     else:
         selected_questions = questions

@@ -133,13 +133,13 @@ def create_parser() -> argparse.ArgumentParser:
         "--vision",
         type=str,
         metavar="VALUE",
-        help="MODEL_VISION - Enable vision (true/false/NULL)",
+        help="Enable vision. Valid values: true, false, NULL (case-insensitive). Default: false",
     )
     parser.add_argument(
         "--structured",
         type=str,
         metavar="VALUE",
-        help="STRUCTURED_OUTPUTS - Enable structured output (true/false/NULL)",
+        help="Enable structured outputs. Valid values: true, false, NULL (case-insensitive). Default: false",
     )
 
     return parser

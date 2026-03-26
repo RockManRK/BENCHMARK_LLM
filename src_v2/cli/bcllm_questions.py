@@ -54,13 +54,13 @@ def create_parser() -> argparse.ArgumentParser:
         "--add-questions",
         metavar="SPEC",
         dest="add_questions",
-        help="Add questions (format: Q001,Q005,Q010 | Q001-Q020 | 1-50 | mixed)",
+        help="Add questions. Format: \"1, 3, 5\" (comma-separated), \"1-10\" (range), or \"1, 3-5, Q010\" (mixed). Quote arguments with spaces.",
     )
     group.add_argument(
         "--questions",
         metavar="SPEC",
         dest="add_questions",
-        help="Alias for --add-questions (format: Q001,Q005,Q010 | Q001-Q020 | 1-50 | mixed)",
+        help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
     )
     group.add_argument(
         "--list-questions",
@@ -321,8 +321,11 @@ def handle_add_questions(args, conn) -> int:
                 if qid and qid not in question_ids:
                     question_ids.append(qid)
         except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            print("Expected formats: Q001,Q005,Q010 | Q001-Q020 | 1-50 | mixed", file=sys.stderr)
+            print(f"Error: Invalid question specification: {e}", file=sys.stderr)
+            print("Valid formats:", file=sys.stderr)
+            print("  --questions \"1, 3, 5\"    (comma-separated, quote if spaces)", file=sys.stderr)
+            print("  --questions \"1-10\"       (range)", file=sys.stderr)
+            print("  --questions \"1, 3-5, Q10\" (mixed)", file=sys.stderr)
             return 1
 
     if not question_ids:

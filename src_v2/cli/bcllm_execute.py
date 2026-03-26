@@ -361,8 +361,13 @@ def handle_execute(args, conn) -> int:
     except PlannerValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+    except KeyError as e:
+        print(f"Error: Missing required configuration: {e}", file=sys.stderr)
+        print("Hint: Check that OPENROUTER_API_KEY is set in your system environment variables.", file=sys.stderr)
+        return 1
     except Exception as e:
         print(f"Error: Execution failed: {e}", file=sys.stderr)
+        print("Hint: Ensure OPENROUTER_API_KEY is set and all required configuration is present.", file=sys.stderr)
         return 1
 
 
