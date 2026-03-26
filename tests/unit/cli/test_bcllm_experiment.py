@@ -19,9 +19,9 @@ from io import StringIO
 from unittest.mock import patch, MagicMock
 from unittest.mock import PropertyMock
 
-from src_v2.db import create_schema
-from src_v2.db.repository import ExperimentRepository
-from src_v2.db.models import Experiment
+from src.db import create_schema
+from src.db.repository import ExperimentRepository
+from src.db.models import Experiment
 from tests.factories import ExperimentFactory
 
 
@@ -33,12 +33,12 @@ from tests.factories import ExperimentFactory
 def test_create_experiment_success(in_memory_db, capsys):
     """--create-experiment creates experiment and prints success message."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     test_args = ["bcllm_experiment.py", "--create-experiment", "test-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -55,7 +55,7 @@ def test_create_experiment_success(in_memory_db, capsys):
 def test_create_experiment_name_collision(in_memory_db, capsys):
     """--create-experiment fails with 'already exists' message on collision."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     # Pre-create experiment using repository directly
     repo = ExperimentRepository(in_memory_db)
@@ -73,7 +73,7 @@ def test_create_experiment_name_collision(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--create-experiment", "test-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -88,13 +88,13 @@ def test_create_experiment_name_collision(in_memory_db, capsys):
 def test_create_experiment_invalid_name(in_memory_db, capsys):
     """--create-experiment fails with validation message for invalid name."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     # Empty name should fail
     test_args = ["bcllm_experiment.py", "--create-experiment", ""]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -114,7 +114,7 @@ def test_create_experiment_invalid_name(in_memory_db, capsys):
 def test_show_experiment_success(in_memory_db, capsys):
     """--experiment shows experiment details."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     # Pre-create experiment
     repo = ExperimentRepository(in_memory_db)
@@ -132,7 +132,7 @@ def test_show_experiment_success(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--experiment", "test-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -149,12 +149,12 @@ def test_show_experiment_success(in_memory_db, capsys):
 def test_show_experiment_not_found(in_memory_db, capsys):
     """--experiment fails with 'not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     test_args = ["bcllm_experiment.py", "--experiment", "non-existent-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -173,12 +173,12 @@ def test_show_experiment_not_found(in_memory_db, capsys):
 def test_list_experiments_empty(in_memory_db, capsys):
     """--list-experiments shows 'no experiments' message when empty."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     test_args = ["bcllm_experiment.py", "--list-experiments"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -194,7 +194,7 @@ def test_list_experiments_empty(in_memory_db, capsys):
 def test_list_experiments_with_data(in_memory_db, capsys):
     """--list-experiments lists experiments in table format."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     # Pre-create experiments
     repo = ExperimentRepository(in_memory_db)
@@ -222,7 +222,7 @@ def test_list_experiments_with_data(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--list-experiments"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -246,7 +246,7 @@ def test_list_experiments_with_data(in_memory_db, capsys):
 def test_remove_experiment_success(in_memory_db, capsys):
     """--remove-experiment soft deletes and prints confirmation."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     # Pre-create experiment
     repo = ExperimentRepository(in_memory_db)
@@ -264,7 +264,7 @@ def test_remove_experiment_success(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--remove-experiment", "test-exp-to-remove"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -286,12 +286,12 @@ def test_remove_experiment_success(in_memory_db, capsys):
 def test_remove_experiment_not_found(in_memory_db, capsys):
     """--remove-experiment fails with 'not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_experiment import main as experiment_main
+    from src.cli.bcllm_experiment import main as experiment_main
     
     test_args = ["bcllm_experiment.py", "--remove-experiment", "non-existent-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -312,12 +312,12 @@ class TestCreateExperimentIntegration:
     
     def test_create_and_retrieve(self, in_memory_db, capsys):
         """Create experiment and verify it can be retrieved."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_experiment import main as experiment_main
         
         # Create
         create_args = ["bcllm_experiment.py", "--create-experiment", "integration-test"]
         with patch.object(sys, "argv", create_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main()
                 assert result == 0
@@ -325,7 +325,7 @@ class TestCreateExperimentIntegration:
         # Retrieve
         show_args = ["bcllm_experiment.py", "--experiment", "integration-test"]
         with patch.object(sys, "argv", show_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main()
                 assert result == 0
@@ -334,19 +334,19 @@ class TestCreateExperimentIntegration:
     
     def test_create_duplicate_fails(self, in_memory_db, capsys):
         """Creating duplicate experiment fails."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_experiment import main as experiment_main
         
         # Create first
         create_args = ["bcllm_experiment.py", "--create-experiment", "duplicate-test"]
         with patch.object(sys, "argv", create_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main()
                 assert result == 0
         
         # Try to create duplicate
         with patch.object(sys, "argv", create_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main()
                 assert result == 1
@@ -359,19 +359,19 @@ class TestRemoveExperimentIntegration:
     
     def test_remove_then_list_excludes(self, in_memory_db, capsys):
         """Removed experiment should not appear in list."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_experiment import main as experiment_main
         
         # Create
         create_args = ["bcllm_experiment.py", "--create-experiment", "to-be-removed"]
         with patch.object(sys, "argv", create_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 experiment_main()
         
         # Remove
         remove_args = ["bcllm_experiment.py", "--remove-experiment", "to-be-removed"]
         with patch.object(sys, "argv", remove_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 experiment_main()
         
@@ -381,7 +381,7 @@ class TestRemoveExperimentIntegration:
         # List - should not show removed experiment
         list_args = ["bcllm_experiment.py", "--list-experiments"]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main()
                 assert result == 0

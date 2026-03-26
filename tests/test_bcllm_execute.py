@@ -14,14 +14,14 @@ import tempfile
 import os
 from unittest.mock import Mock
 
-from src_v2.cli.bcllm_execute import (
+from src.cli.bcllm_execute import (
     create_parser,
     parse_retry_policy,
     parse_question_ids,
     validate_filters,
     handle_execute,
 )
-from src_v2.core.execution_plan import RetryPolicy
+from src.core.execution_plan import RetryPolicy
 
 
 class TestCreateParser:

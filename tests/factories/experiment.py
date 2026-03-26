@@ -9,7 +9,7 @@ import uuid
 class Experiment:
     """Experiment entity for testing.
     
-    Matches src_v2.db.models.Experiment structure.
+    Matches src.db.models.Experiment structure.
     """
     experiment_id: str
     name: str

@@ -1,32 +1,82 @@
-"""API module for OpenRouter integration.
+"""API layer for Benchmark LLM.
 
-This module provides components for interacting with the OpenRouter API:
-- OpenRouterClient: Async HTTP client for API calls
-- MessageBuilder: Utility for building text and multimodal messages
-- RetryHandler: Retry logic with exponential backoff
-- ResponseParser: Parse API responses and extract answers
-- ModelCapabilityChecker: Check model capabilities (vision support)
+This package provides the API adapter layer - a pure, provider-agnostic
+interface for LLM completions. The API layer has:
+
+- NO database access
+- NO configuration resolution
+- NO domain decisions
+- NO fallback behavior
+
+All inputs are explicit, all outputs are explicit.
+
+Key Components:
+- CompletionProvider: Abstract base class for all providers
+- OpenRouterClient: Concrete implementation for OpenRouter API
+- CompletionResponse: Standardized response dataclass
+- Error hierarchy: APIError and subclasses
+- ErrorClassifier: HTTP error → domain error translation
+- RetryHandler: Policy-driven retry logic
+
+Example:
+    >>> from src.api import OpenRouterClient, CompletionResponse
+    >>> from src.api.errors import AuthenticationError
+    >>> from src.api.retry import RetryHandler
+    >>> from src.core.execution_plan import RetryPolicy
+    >>>
+    >>> # Create client
+    >>> client = OpenRouterClient(api_key="your-api-key")
+    >>>
+    >>> # Create retry handler
+    >>> policy = RetryPolicy(max_attempts=3)
+    >>> handler = RetryHandler(policy)
+    >>>
+    >>> # Execute with retry
+    >>> async def call_api():
+    ...     return await client.chat_completion(
+    ...         model_id="openai/gpt-4",
+    ...         messages=[{"role": "user", "content": "Hello!"}],
+    ...     )
+    >>>
+    >>> response = await handler.execute_with_retry(call_api)
 """
 
-from src.api.client import MessageBuilder, OpenRouterClient
-from src.api.model_capabilities import ModelCapabilities, ModelCapabilityChecker, VisionSupport
-from src.api.parser import ParseError, ParsedResponse, ResponseParser
-from src.api.retry import RetryConfig, RetryError, RetryHandler
+from src.api.client import (
+    CompletionProvider,
+    OpenRouterClient,
+    CompletionResponse,
+)
+
+from src.api.errors import (
+    APIError,
+    AuthenticationError,
+    RateLimitError,
+    ServerError,
+    ClientError,
+    TimeoutError,
+    NetworkError,
+    ErrorClassifier,
+)
+
+from src.api.retry import (
+    RetryHandler,
+)
+
 
 __all__ = [
     # Client
-    "OpenRouterClient",
-    "MessageBuilder",
+    'CompletionProvider',
+    'OpenRouterClient',
+    'CompletionResponse',
+    # Errors
+    'APIError',
+    'AuthenticationError',
+    'RateLimitError',
+    'ServerError',
+    'ClientError',
+    'TimeoutError',
+    'NetworkError',
+    'ErrorClassifier',
     # Retry
-    "RetryConfig",
-    "RetryHandler",
-    "RetryError",
-    # Parser
-    "ResponseParser",
-    "ParsedResponse",
-    "ParseError",
-    # Model Capabilities
-    "ModelCapabilityChecker",
-    "ModelCapabilities",
-    "VisionSupport",
+    'RetryHandler',
 ]

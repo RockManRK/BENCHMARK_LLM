@@ -78,7 +78,7 @@ def reset_database() -> bool:
     print("=" * 60)
     
     try:
-        from src_v2.db.schema import create_schema, drop_all_tables
+        from src.db.schema import create_schema, drop_all_tables
         
         # Backup existing database if it exists
         if DB_PATH.exists():

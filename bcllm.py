@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""CLI entry point — dispatches exclusively to src_v2."""
+"""CLI entry point — dispatches exclusively to src."""
 import sys
 
 
-def route_to_v2(module_name: str) -> int:
-    """Route to src_v2.cli module and return exit code.
+def route_to_src(module_name: str) -> int:
+    """Route to src.cli module and return exit code.
 
     Args:
-        module_name: Name of the v2 CLI module to route to.
+        module_name: Name of the CLI module to route to.
 
     Returns:
-        Exit code from the v2 module (0 for success, 1 for error).
+        Exit code from the module (0 for success, 1 for error).
     """
-    from src_v2.cli import (
+    from src.cli import (
         bcllm_experiment,
         bcllm_model,
         bcllm_questions,
@@ -37,12 +37,12 @@ def route_to_v2(module_name: str) -> int:
     elif module_name == "bcllm_review":
         return bcllm_review.main()
     else:
-        print(f"Error: Unknown v2 module: {module_name}", file=sys.stderr)
+        print(f"Error: Unknown module: {module_name}", file=sys.stderr)
         return 1
 
 
-def determine_v2_command(argv: list[str]) -> str | None:
-    """Determine which v2 command to route to based on argv.
+def determine_command(argv: list[str]) -> str | None:
+    """Determine which command to route to based on argv.
 
     Args:
         argv: Command-line arguments (including script name).
@@ -81,7 +81,7 @@ def determine_v2_command(argv: list[str]) -> str | None:
     if "--add-run" in args or "--create-run" in args or "--list-runs" in args or "--run" in args or "--remove-run" in args:
         return "bcllm_run"
 
-    # Check for experiment commands (lowest priority v2 commands)
+    # Check for experiment commands (lowest priority)
     if "--experiment" in args or "--list-experiments" in args or "--remove-experiment" in args:
         return "bcllm_experiment"
 
@@ -89,18 +89,18 @@ def determine_v2_command(argv: list[str]) -> str | None:
 
 
 def main() -> int:
-    """Main entry point — routes exclusively to v2.
+    """Main entry point.
 
     Returns:
         Exit code (0 for success, 1 for error).
     """
-    v2_module = determine_v2_command(sys.argv)
+    module = determine_command(sys.argv)
 
-    if v2_module is None:
+    if module is None:
         print("Error: Unknown command. Use --help for usage.", file=sys.stderr)
         return 1
 
-    return route_to_v2(v2_module)
+    return route_to_src(module)
 
 
 if __name__ == "__main__":

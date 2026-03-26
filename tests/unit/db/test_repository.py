@@ -12,7 +12,7 @@ import sqlite3
 
 import pytest
 
-from src_v2.db.models import (
+from src.db.models import (
     Experiment,
     ModelVariant,
     QuestionSnapshot,
@@ -20,7 +20,7 @@ from src_v2.db.models import (
     Response,
     Error,
 )
-from src_v2.db.repository import (
+from src.db.repository import (
     ExperimentRepository,
     VariantRepository,
     SnapshotRepository,
@@ -44,7 +44,7 @@ def db_conn():
 @pytest.fixture
 def repos(db_conn):
     """Create all repositories with initialized schema."""
-    from src_v2.db.schema import create_schema
+    from src.db.schema import create_schema
     create_schema(db_conn)
 
     return {

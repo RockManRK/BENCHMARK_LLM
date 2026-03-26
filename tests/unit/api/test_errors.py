@@ -13,7 +13,7 @@ Domain Rules:
 """
 
 import pytest
-from src_v2.api.errors import (
+from src.api.errors import (
     APIError,
     AuthenticationError,
     RateLimitError,

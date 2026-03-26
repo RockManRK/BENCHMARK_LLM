@@ -75,14 +75,14 @@ def reset_database():
             conn.commit()
             conn.close()
             # Recreate schema
-            from src_v2.db.schema import create_schema
+            from src.db.schema import create_schema
             conn = sqlite3.connect(DB_PATH)
             create_schema(conn)
             conn.close()
             print("✓ Database reset (tables dropped and recreated)")
             return
     
-    from src_v2.db.schema import create_schema
+    from src.db.schema import create_schema
     conn = sqlite3.connect(DB_PATH)
     create_schema(conn)
     conn.close()
@@ -210,7 +210,7 @@ def test_workflow_4():
     print("Workflow 4: Signature determinism (same inputs → same output)")
     print("=" * 60)
     
-    from src_v2.utils.variant_signature import generate_variant_signature
+    from src.utils.variant_signature import generate_variant_signature
     
     config = {"reasoning_effort": "low", "vision": True}
     sig1 = generate_variant_signature("google/gemini-3.1-flash-lite-preview", config)

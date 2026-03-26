@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from dataclasses import dataclass, replace
 import asyncio
 
-from src_v2.core.execution_plan import (
+from src.core.execution_plan import (
     ExecutionPlan,
     PlanRun,
     PlanItem,
@@ -26,9 +26,9 @@ from src_v2.core.execution_plan import (
     ModelConfig,
     QuestionPayload,
 )
-from src_v2.core.execution_engine import ExecutionEngine, ExecutionResult
-from src_v2.core.randomizer import AnswerRandomizer
-from src_v2.core.answer_parser import AnswerParser, ParsedAnswer
+from src.core.execution_engine import ExecutionEngine, ExecutionResult
+from src.core.randomizer import AnswerRandomizer
+from src.core.answer_parser import AnswerParser, ParsedAnswer
 
 
 # ============================================================================

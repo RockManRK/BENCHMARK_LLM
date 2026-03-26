@@ -120,7 +120,7 @@ def reset_database():
             conn.close()
     
     # Create fresh schema
-    from src_v2.db.schema import create_schema
+    from src.db.schema import create_schema
     conn = sqlite3.connect(str(DB_PATH))
     create_schema(conn)
     conn.close()

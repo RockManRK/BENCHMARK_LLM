@@ -16,7 +16,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from src_v2.db.models import (
+from src.db.models import (
     Experiment,
     ModelVariant,
     QuestionSnapshot,

@@ -7,7 +7,7 @@ Tests cover all validation rules:
 
 import pytest
 
-from src_v2.validators.model_id_validator import validate_model_id
+from src.validators.model_id_validator import validate_model_id
 
 
 class TestValidModelIds:

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from src_v2.core.question_loader import QuestionLoader
+from src.core.question_loader import QuestionLoader
 
 
 class TestLoadDataset:

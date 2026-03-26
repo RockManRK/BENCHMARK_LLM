@@ -15,7 +15,7 @@ import pytest
 from datetime import datetime
 from dataclasses import FrozenInstanceError
 
-from src_v2.core.execution_plan import (
+from src.core.execution_plan import (
     ExecutionPlan,
     PlanRun,
     PlanItem,

@@ -157,7 +157,7 @@ class TestFixtures:
         # Reset the randomizer by creating a new one with same seed
         # Import from conftest fallback
         try:
-            from src_v2.core.randomizer import AnswerRandomizer
+            from src.core.randomizer import AnswerRandomizer
         except ImportError:
             # Fallback implementation from conftest
             import random

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from src_v2.core.config_resolver import ConfigResolver
+from src.core.config_resolver import ConfigResolver
 
 
 class TestNullPromptHandling:
@@ -151,7 +151,7 @@ class TestNullPromptIntegration:
         env_file.write_text("# No prompt keys\nRANDOM_SEED=42\n")
 
         from argparse import Namespace
-        from src_v2.core.config_resolver import ConfigResolver
+        from src.core.config_resolver import ConfigResolver
 
         resolver = ConfigResolver()
         resolver.load_env(str(env_file))
@@ -174,7 +174,7 @@ class TestNullPromptIntegration:
         env_file.write_text("# No prompt keys\n")
 
         from argparse import Namespace
-        from src_v2.core.config_resolver import ConfigResolver
+        from src.core.config_resolver import ConfigResolver
 
         resolver = ConfigResolver()
         resolver.load_env(str(env_file))

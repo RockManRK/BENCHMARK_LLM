@@ -16,9 +16,9 @@ import pytest
 import sys
 from unittest.mock import patch
 
-from src_v2.db import create_schema
-from src_v2.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository
-from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+from src.db import create_schema
+from src.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository
+from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
 from tests.factories import ExperimentFactory, VariantFactory, SnapshotFactory, RunFactory
 
 
@@ -30,7 +30,7 @@ from tests.factories import ExperimentFactory, VariantFactory, SnapshotFactory, 
 def test_create_run_success(in_memory_db, capsys):
     """--create-run creates run and prints success with run_id."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment with models and snapshots
     exp = ExperimentFactory.create(name="test-exp")
@@ -56,7 +56,7 @@ def test_create_run_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -73,7 +73,7 @@ def test_create_run_success(in_memory_db, capsys):
 def test_create_run_experiment_not_found(in_memory_db, capsys):
     """--create-run fails with 'experiment not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     test_args = [
         "bcllm_run.py",
@@ -82,7 +82,7 @@ def test_create_run_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -98,7 +98,7 @@ def test_create_run_experiment_not_found(in_memory_db, capsys):
 def test_create_run_no_models(in_memory_db, capsys):
     """--create-run fails with 'no models' message when experiment has no variants."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment without models
     exp = ExperimentFactory.create(name="test-exp-no-models")
@@ -118,7 +118,7 @@ def test_create_run_no_models(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -134,7 +134,7 @@ def test_create_run_no_models(in_memory_db, capsys):
 def test_create_run_no_snapshots(in_memory_db, capsys):
     """--create-run fails with 'no questions' message when experiment has no snapshots."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment without snapshots
     exp = ExperimentFactory.create(name="test-exp-no-questions")
@@ -155,7 +155,7 @@ def test_create_run_no_snapshots(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -171,7 +171,7 @@ def test_create_run_no_snapshots(in_memory_db, capsys):
 def test_create_run_with_seed(in_memory_db, capsys):
     """--create-run with --seed creates run with specified seed."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     exp = ExperimentFactory.create(name="test-exp-seed")
     _insert_experiment(in_memory_db, exp)
@@ -197,7 +197,7 @@ def test_create_run_with_seed(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -217,7 +217,7 @@ def test_create_run_with_seed(in_memory_db, capsys):
 def test_list_runs_empty(in_memory_db, capsys):
     """--list-runs shows 'no runs' message when empty."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -230,7 +230,7 @@ def test_list_runs_empty(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -246,7 +246,7 @@ def test_list_runs_empty(in_memory_db, capsys):
 def test_list_runs_with_data(in_memory_db, capsys):
     """--list-runs lists runs in table format with status."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -273,7 +273,7 @@ def test_list_runs_with_data(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -297,7 +297,7 @@ def test_list_runs_with_data(in_memory_db, capsys):
 def test_list_runs_for_experiment(in_memory_db, capsys):
     """--list-runs filters by experiment."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -321,7 +321,7 @@ def test_list_runs_for_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -342,7 +342,7 @@ def test_list_runs_for_experiment(in_memory_db, capsys):
 def test_show_run_success(in_memory_db, capsys):
     """--run shows run details."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -363,7 +363,7 @@ def test_show_run_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -382,7 +382,7 @@ def test_show_run_success(in_memory_db, capsys):
 def test_show_run_not_found(in_memory_db, capsys):
     """--run fails with 'run not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create experiment (but no run)
     exp = ExperimentFactory.create(name="test-exp")
@@ -395,7 +395,7 @@ def test_show_run_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -411,7 +411,7 @@ def test_show_run_not_found(in_memory_db, capsys):
 def test_show_run_wrong_experiment(in_memory_db, capsys):
     """--run fails if run is not in specified experiment."""
     # Arrange
-    from src_v2.cli.bcllm_run import main as run_main
+    from src.cli.bcllm_run import main as run_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -435,7 +435,7 @@ def test_show_run_wrong_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -456,7 +456,7 @@ class TestCreateRunIntegration:
 
     def test_create_and_list_run(self, in_memory_db, capsys):
         """Create run and verify it appears in list."""
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_run import main as run_main
 
         # Pre-create experiment with models and snapshots
         exp = ExperimentFactory.create(name="integration-test")
@@ -483,7 +483,7 @@ class TestCreateRunIntegration:
             "--seed", "999",
         ]
         with patch.object(sys, "argv", create_args):
-            with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main()
                 assert result == 0
@@ -496,7 +496,7 @@ class TestCreateRunIntegration:
             "--list-runs",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main()
                 assert result == 0
@@ -506,7 +506,7 @@ class TestCreateRunIntegration:
 
     def test_create_run_without_models_fails(self, in_memory_db, capsys):
         """Creating run without models fails."""
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_run import main as run_main
 
         # Pre-create experiment without models
         exp = ExperimentFactory.create(name="no-models-test")
@@ -525,7 +525,7 @@ class TestCreateRunIntegration:
             "--create-run",
         ]
         with patch.object(sys, "argv", create_args):
-            with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main()
                 assert result == 1
@@ -538,7 +538,7 @@ class TestShowRunIntegration:
 
     def test_show_run_details(self, in_memory_db, capsys):
         """Show run displays all details."""
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_run import main as run_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="show-test")
@@ -558,7 +558,7 @@ class TestShowRunIntegration:
             "--run", run.run_id,
         ]
         with patch.object(sys, "argv", show_args):
-            with patch("src_v2.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main()
                 assert result == 0

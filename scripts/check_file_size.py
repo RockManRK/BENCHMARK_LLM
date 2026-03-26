@@ -8,7 +8,7 @@ Usage:
     python scripts/check_file_size.py [directory]
     
 Examples:
-    python scripts/check_file_size.py src_v2
+    python scripts/check_file_size.py src
     python scripts/check_file_size.py tests
 """
 
@@ -218,8 +218,10 @@ def main():
     if len(sys.argv) > 1:
         directory = Path(sys.argv[1])
     else:
-        # Default to src_v2 if it exists, otherwise src
-        directory = Path('src_v2')
+        # Default to src if it exists, otherwise src_legacy
+        directory = Path('src')
+        if not directory.exists():
+            directory = Path('src_legacy')
         if not directory.exists():
             directory = Path('src')
     

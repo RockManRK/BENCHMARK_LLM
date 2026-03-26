@@ -1,229 +1,162 @@
-"""Retry logic module for OpenRouter API client.
+"""Retry handler module for API calls.
 
-This module provides retry functionality with exponential backoff
-for handling transient failures, rate limiting, and timeouts.
+This module provides policy-driven retry logic. The retry handler
+does not decide retry behavior - it only executes the policy passed to it.
+
+Key Components:
+- RetryHandler: Executes retry logic based on RetryPolicy
+- Backoff strategies: exponential, linear, constant
+
+The retry handler is used by the ExecutionEngine to handle transient
+failures during API calls.
+
+Example:
+    >>> from src.core.execution_plan import RetryPolicy
+    >>> from src.api.retry import RetryHandler
+    >>>
+    >>> policy = RetryPolicy(max_attempts=3, backoff='exponential')
+    >>> handler = RetryHandler(policy)
+    >>>
+    >>> async def api_call():
+    ...     # Make API call
+    ...     pass
+    >>>
+    >>> result = await handler.execute_with_retry(api_call)
 """
 
+from __future__ import annotations
+
 import asyncio
-import logging
-from dataclasses import dataclass, field
-from functools import wraps
-from typing import Any, Callable, Coroutine, ParamSpec, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
-import httpx
-
-logger = logging.getLogger(__name__)
-
-P = ParamSpec("P")
-T = TypeVar("T")
+from src.core.execution_plan import RetryPolicy
+from src.api.errors import APIError
 
 
-class RetryError(Exception):
-    """Exception raised when all retry attempts are exhausted."""
-
-    def __init__(self, message: str, last_exception: Exception | None = None) -> None:
-        """Initialize RetryError.
-
-        Args:
-            message: Error message describing the failure.
-            last_exception: The last exception that was raised, if any.
-        """
-        super().__init__(message)
-        self.last_exception = last_exception
-
-
-@dataclass
-class RetryConfig:
-    """Configuration for retry behavior.
-
-    Attributes:
-        max_retries: Maximum number of retry attempts.
-        base_delay: Base delay in seconds for exponential backoff.
-        max_delay: Maximum delay in seconds between retries.
-        exponential_base: Base for exponential backoff calculation.
-        retryable_status_codes: HTTP status codes that should trigger retries.
-
-    Example:
-        >>> config = RetryConfig(
-        ...     max_retries=5,
-        ...     base_delay=1.0,
-        ...     max_delay=60.0,
-        ... )
-    """
-
-    max_retries: int = 3
-    base_delay: float = 1.0
-    max_delay: float = 60.0
-    exponential_base: float = 2.0
-    retryable_status_codes: list[int] = field(default_factory=lambda: [429, 500, 502, 503, 504])
+T = TypeVar('T')
 
 
 class RetryHandler:
-    """Handler for retry logic with exponential backoff.
+    """Handles retry logic based on RetryPolicy.
 
-    This class provides functionality to execute async functions with
-    automatic retry on transient failures.
+    The retry handler is policy-driven. It does not decide which
+    errors are retryable or what backoff strategy to use. It only
+    executes the policy passed to it.
 
     Attributes:
-        config: RetryConfig instance controlling retry behavior.
+        policy: Retry policy configuration
 
     Example:
-        >>> config = RetryConfig(max_retries=3)
-        >>> handler = RetryHandler(config)
-        >>> result = await handler.execute(my_async_function)
+        >>> policy = RetryPolicy(max_attempts=3, backoff='exponential')
+        >>> handler = RetryHandler(policy)
+        >>> result = await handler.execute_with_retry(some_async_func)
     """
 
-    def __init__(self, config: RetryConfig | None = None) -> None:
-        """Initialize the RetryHandler.
+    def __init__(self, policy: RetryPolicy | None = None) -> None:
+        """Initialize retry handler.
 
         Args:
-            config: Optional RetryConfig. Uses defaults if not provided.
-
-        Example:
-            >>> handler = RetryHandler()
-            >>> handler = RetryConfig(max_retries=5)
-            >>> handler = RetryHandler(config)
+            policy: Retry policy configuration. Uses default if None.
         """
-        self.config = config or RetryConfig()
+        self.policy = policy if policy is not None else RetryPolicy()
 
-    def _calculate_delay(self, attempt: int) -> float:
-        """Calculate delay for a given retry attempt.
-
-        Uses exponential backoff with jitter-free calculation.
+    def is_retryable(self, error: APIError) -> bool:
+        """Check if error is retryable based on policy.
 
         Args:
-            attempt: The current attempt number (0-indexed).
+            error: API error to check
 
         Returns:
-            Delay in seconds before the next retry attempt.
-
-        Example:
-            >>> handler = RetryHandler()
-            >>> handler._calculate_delay(0)
-            1.0
-            >>> handler._calculate_delay(1)
-            2.0
-            >>> handler._calculate_delay(2)
-            4.0
+            True if error type is in policy.retry_on
         """
-        delay = self.config.base_delay * (self.config.exponential_base ** attempt)
-        return min(delay, self.config.max_delay)
+        return error.error_type in self.policy.retry_on
 
-    def _is_retryable_exception(self, exc: Exception) -> bool:
-        """Determine if an exception should trigger a retry.
+    def calculate_delay(self, attempt: int) -> float:
+        """Calculate delay based on backoff strategy.
 
         Args:
-            exc: The exception to evaluate.
+            attempt: Current attempt number (1-based)
 
         Returns:
-            True if the exception should trigger a retry, False otherwise.
+            Delay in seconds
 
-        Example:
-            >>> handler = RetryHandler()
-            >>> exc = httpx.TimeoutException("Timeout")
-            >>> handler._is_retryable_exception(exc)
-            True
+        Backoff Strategies:
+            - exponential: 2^attempt seconds
+            - linear: attempt seconds
+            - constant: 1 second (always)
         """
-        if isinstance(exc, httpx.TimeoutException):
-            return True
-        
-        if isinstance(exc, httpx.ConnectError):
-            return True
-        
-        if isinstance(exc, httpx.NetworkError):
-            return True
-        
-        if isinstance(exc, httpx.HTTPStatusError):
-            return exc.response.status_code in self.config.retryable_status_codes
-        
-        return False
+        if self.policy.backoff == 'exponential':
+            return 2 ** attempt
 
-    async def execute(
+        if self.policy.backoff == 'linear':
+            return float(attempt)
+
+        # constant
+        return 1.0
+
+    async def execute_with_retry(
         self,
-        func: Callable[P, Coroutine[Any, Any, T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
+        func: Callable[..., Awaitable[T]],
+        *args: Any,
+        **kwargs: Any,
     ) -> T:
-        """Execute an async function with retry logic.
-
-        Attempts to execute the function, retrying on transient failures
-        with exponential backoff.
+        """Execute function with retry policy.
 
         Args:
-            func: The async function to execute.
-            *args: Positional arguments to pass to the function.
-            **kwargs: Keyword arguments to pass to the function.
+            func: Async function to execute
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
 
         Returns:
-            The result of the function execution.
+            Function result
 
         Raises:
-            RetryError: If all retry attempts are exhausted.
-            Exception: If a non-retryable exception is raised.
+            Last exception if all attempts fail
+            Exception immediately if error is not retryable
 
         Example:
-            >>> handler = RetryHandler()
-            >>> result = await handler.execute(my_async_func, arg1, arg2)
+            >>> async def fetch_data():
+            ...     response = await client.get(url)
+            ...     return response.json()
+            >>>
+            >>> result = await handler.execute_with_retry(fetch_data)
         """
         last_exception: Exception | None = None
-        
-        for attempt in range(self.config.max_retries + 1):
+
+        for attempt in range(1, self.policy.max_attempts + 1):
             try:
-                result = await func(*args, **kwargs)
-                
-                if attempt > 0:
-                    logger.info(f"Operation succeeded after {attempt} retry attempt(s)")
-                
-                return result
+                return await func(*args, **kwargs)
 
-            except Exception as exc:
-                last_exception = exc
-                
-                if not self._is_retryable_exception(exc):
-                    logger.warning(f"Non-retryable error: {exc}")
+            except APIError as e:
+                last_exception = e
+
+                # Check if retryable
+                if not self.is_retryable(e):
                     raise
-                
-                if attempt >= self.config.max_retries:
-                    logger.error(f"Max retries ({self.config.max_retries}) exceeded")
-                    raise RetryError(
-                        f"Max retries exceeded after {self.config.max_retries} attempts",
-                        last_exception=exc
-                    ) from exc
-                
-                delay = self._calculate_delay(attempt)
-                logger.info(
-                    f"Retry attempt {attempt + 1}/{self.config.max_retries} "
-                    f"after {delay:.2f}s delay due to: {exc}"
-                )
-                
+
+                # Check if more attempts available
+                if attempt >= self.policy.max_attempts:
+                    break
+
+                # Wait before retry
+                delay = self.calculate_delay(attempt)
                 await asyncio.sleep(delay)
-        
-        # This should never be reached, but included for type safety
-        raise RetryError(
-            "Unexpected retry loop completion",
-            last_exception=last_exception
-        )
 
-    def retry(
-        self,
-        func: Callable[P, Coroutine[Any, Any, T]],
-    ) -> Callable[P, Coroutine[Any, Any, T]]:
-        """Decorator for adding retry logic to async functions.
+            except Exception as e:
+                # Non-APIError exceptions
+                last_exception = e
 
-        Args:
-            func: The async function to decorate.
+                # Check if more attempts available
+                if attempt >= self.policy.max_attempts:
+                    break
 
-        Returns:
-            The decorated function with retry logic.
+                # Wait before retry (use default delay for unknown errors)
+                delay = self.calculate_delay(attempt)
+                await asyncio.sleep(delay)
 
-        Example:
-            >>> handler = RetryHandler()
-            >>> @handler.retry
-            ... async def my_func():
-            ...     return "result"
-        """
-        @wraps(func)
-        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            return await self.execute(func, *args, **kwargs)
-        
-        return wrapper
+        # All attempts exhausted
+        if last_exception is not None:
+            raise last_exception
+
+        # Should not reach here, but satisfy type checker
+        raise RuntimeError("Retry loop completed without result or exception")

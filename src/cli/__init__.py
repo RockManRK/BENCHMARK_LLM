@@ -1,13 +1,11 @@
-"""CLI module for benchmark_llm project.
+"""CLI modules for Benchmark LLM system.
 
-This module provides command-line interface functionality,
-statistics calculations, and output formatting.
+This package contains command-line interface modules for managing:
+- Experiments (bcllm_experiment.py)
+- Models (bcllm_model.py)
+- Questions (bcllm_questions.py)
+- Runs (bcllm_run.py)
+- Execution (bcllm_execute.py)
+
+Each module is a standalone CLI entry point following the command-per-module pattern.
 """
-
-from src.cli.review_ui import ReviewUI, ReviewItem, ReviewStatistics
-
-__all__ = [
-    "ReviewUI",
-    "ReviewItem",
-    "ReviewStatistics",
-]

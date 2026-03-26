@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import Generator, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Add src_v2 to path for imports
+# Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src_v2.db.schema import create_schema
-from src_v2.api.client import CompletionResponse
+from src.db.schema import create_schema
+from src.api.client import CompletionResponse
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def mock_api_client():
                 return_success()
             ]
     """
-    from src_v2.api.client import OpenRouterClient
+    from src.api.client import OpenRouterClient
     
     client = MagicMock(spec=OpenRouterClient)
     client.chat_completion = AsyncMock(return_value=CompletionResponse(
@@ -124,7 +124,7 @@ def full_experiment_setup(in_memory_db):
             run_id = full_experiment_setup['run_id']
             # Use IDs for further testing
     """
-    from src_v2.db.repository import (
+    from src.db.repository import (
         ExperimentRepository,
         VariantRepository,
         SnapshotRepository,
@@ -140,7 +140,7 @@ def full_experiment_setup(in_memory_db):
     
     # Create experiment
     experiment_id = f"exp_{uuid.uuid4().hex[:8]}"
-    from src_v2.db.models import Experiment
+    from src.db.models import Experiment
     experiment = Experiment(
         experiment_id=experiment_id,
         name="test-experiment",
@@ -154,7 +154,7 @@ def full_experiment_setup(in_memory_db):
     
     # Add model variant
     variant_id = f"var_{uuid.uuid4().hex[:8]}"
-    from src_v2.db.models import ModelVariant
+    from src.db.models import ModelVariant
     variant = ModelVariant(
         variant_id=variant_id,
         experiment_id=experiment_id,
@@ -178,7 +178,7 @@ def full_experiment_setup(in_memory_db):
             "options": ["Option A", "Option B", "Option C", "Option D"],
             "answer_key": "B",
         }
-        from src_v2.db.models import QuestionSnapshot
+        from src.db.models import QuestionSnapshot
         snapshot = QuestionSnapshot(
             snapshot_id=snapshot_id,
             experiment_id=experiment_id,
@@ -190,7 +190,7 @@ def full_experiment_setup(in_memory_db):
     
     # Create run
     run_id = f"run_{uuid.uuid4().hex[:8]}"
-    from src_v2.db.models import Run
+    from src.db.models import Run
     run = Run(
         run_id=run_id,
         experiment_id=experiment_id,
@@ -388,7 +388,7 @@ def create_api_error_mock(error_message: str = "API Error"):
     Returns:
         AsyncMock configured to raise the error.
     """
-    from src_v2.api.errors import APIError
+    from src.api.errors import APIError
     
     async def raise_error(*args, **kwargs):
         raise APIError(error_message)

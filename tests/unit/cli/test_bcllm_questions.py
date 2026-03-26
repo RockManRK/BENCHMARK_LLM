@@ -16,9 +16,9 @@ import pytest
 import sys
 from unittest.mock import patch
 
-from src_v2.db import create_schema
-from src_v2.db.repository import ExperimentRepository, SnapshotRepository
-from src_v2.db.models import Experiment, QuestionSnapshot
+from src.db import create_schema
+from src.db.repository import ExperimentRepository, SnapshotRepository
+from src.db.models import Experiment, QuestionSnapshot
 from tests.factories import ExperimentFactory, SnapshotFactory
 
 
@@ -30,7 +30,7 @@ from tests.factories import ExperimentFactory, SnapshotFactory
 def test_add_questions_success(in_memory_db, capsys):
     """--add-questions creates snapshots and prints success count."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -43,7 +43,7 @@ def test_add_questions_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -60,7 +60,7 @@ def test_add_questions_success(in_memory_db, capsys):
 def test_add_questions_experiment_not_found(in_memory_db, capsys):
     """--add-questions fails with 'experiment not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     test_args = [
         "bcllm_questions.py",
@@ -69,7 +69,7 @@ def test_add_questions_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -85,7 +85,7 @@ def test_add_questions_experiment_not_found(in_memory_db, capsys):
 def test_add_questions_idempotent(in_memory_db, capsys):
     """--add-questions skips duplicates silently (idempotent)."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -106,7 +106,7 @@ def test_add_questions_idempotent(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -123,7 +123,7 @@ def test_add_questions_idempotent(in_memory_db, capsys):
 def test_add_questions_invalid_spec(in_memory_db, capsys):
     """--add-questions fails with 'invalid question spec' message."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -137,7 +137,7 @@ def test_add_questions_invalid_spec(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -156,7 +156,7 @@ def test_add_questions_invalid_spec(in_memory_db, capsys):
 def test_list_questions_empty(in_memory_db, capsys):
     """--list-questions shows 'no questions' message when empty."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -169,7 +169,7 @@ def test_list_questions_empty(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -185,7 +185,7 @@ def test_list_questions_empty(in_memory_db, capsys):
 def test_list_questions_with_data(in_memory_db, capsys):
     """--list-questions lists questions in table format."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -212,7 +212,7 @@ def test_list_questions_with_data(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -233,7 +233,7 @@ def test_list_questions_with_data(in_memory_db, capsys):
 def test_list_questions_for_experiment(in_memory_db, capsys):
     """--list-questions filters by experiment."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -256,7 +256,7 @@ def test_list_questions_for_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -277,7 +277,7 @@ def test_list_questions_for_experiment(in_memory_db, capsys):
 def test_remove_question_success(in_memory_db, capsys):
     """--remove-question soft deletes snapshot and prints confirmation."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -297,7 +297,7 @@ def test_remove_question_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -320,7 +320,7 @@ def test_remove_question_success(in_memory_db, capsys):
 def test_remove_question_not_found(in_memory_db, capsys):
     """--remove-question fails with 'snapshot not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create experiment (but no snapshot)
     exp = ExperimentFactory.create(name="test-exp")
@@ -333,7 +333,7 @@ def test_remove_question_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -349,7 +349,7 @@ def test_remove_question_not_found(in_memory_db, capsys):
 def test_remove_question_from_wrong_experiment(in_memory_db, capsys):
     """--remove-question fails if snapshot is not in specified experiment."""
     # Arrange
-    from src_v2.cli.bcllm_questions import main as questions_main
+    from src.cli.bcllm_questions import main as questions_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -372,7 +372,7 @@ def test_remove_question_from_wrong_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -393,7 +393,7 @@ class TestAddQuestionsIntegration:
 
     def test_add_and_list_questions(self, in_memory_db, capsys):
         """Add questions and verify they appear in list."""
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_questions import main as questions_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="integration-test")
@@ -406,7 +406,7 @@ class TestAddQuestionsIntegration:
             "--add-questions", "q1,q2",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main()
                 assert result == 0
@@ -419,7 +419,7 @@ class TestAddQuestionsIntegration:
             "--list-questions",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main()
                 assert result == 0
@@ -429,7 +429,7 @@ class TestAddQuestionsIntegration:
 
     def test_add_range_format(self, in_memory_db, capsys):
         """Add questions using range format (1-5)."""
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_questions import main as questions_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="range-test")
@@ -442,7 +442,7 @@ class TestAddQuestionsIntegration:
             "--add-questions", "1-3",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main()
                 assert result == 0
@@ -460,7 +460,7 @@ class TestRemoveQuestionIntegration:
 
     def test_remove_then_list_excludes(self, in_memory_db, capsys):
         """Removed question should not appear in list."""
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_questions import main as questions_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="remove-test")
@@ -473,7 +473,7 @@ class TestRemoveQuestionIntegration:
             "--add-questions", "q1",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 questions_main()
 
@@ -489,7 +489,7 @@ class TestRemoveQuestionIntegration:
             "--remove-question", snapshot_id,
         ]
         with patch.object(sys, "argv", remove_args):
-            with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 questions_main()
 
@@ -503,7 +503,7 @@ class TestRemoveQuestionIntegration:
             "--list-questions",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main()
                 assert result == 0

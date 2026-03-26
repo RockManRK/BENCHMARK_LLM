@@ -11,7 +11,7 @@ import sqlite3
 
 import pytest
 
-from src_v2.db.schema import get_schema_sql, create_schema
+from src.db.schema import get_schema_sql, create_schema
 
 
 @pytest.fixture

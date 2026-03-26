@@ -18,9 +18,9 @@ import pytest
 import sys
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from src_v2.db import create_schema
-from src_v2.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository, ResponseRepository
-from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+from src.db import create_schema
+from src.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository, ResponseRepository
+from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
 from tests.factories import ExperimentFactory, VariantFactory, SnapshotFactory, RunFactory
 
 
@@ -32,7 +32,7 @@ from tests.factories import ExperimentFactory, VariantFactory, SnapshotFactory, 
 def test_execute_success(in_memory_db, capsys):
     """--execute orchestrates Planner → Engine → Writer and prints summary."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create full setup
     exp = ExperimentFactory.create(
@@ -70,11 +70,11 @@ def test_execute_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Mock API client to return successful response
-            with patch("src_v2.cli.bcllm_execute.OpenRouterClient") as MockClient:
+            with patch("src.cli.bcllm_execute.OpenRouterClient") as MockClient:
                 mock_api = MagicMock()
                 mock_api.chat_completion = AsyncMock(return_value=MagicMock(
                     content="The answer is (B).",
@@ -99,7 +99,7 @@ def test_execute_success(in_memory_db, capsys):
 def test_execute_experiment_not_found(in_memory_db, capsys):
     """--execute fails with 'experiment not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     test_args = [
         "bcllm_execute.py",
@@ -109,7 +109,7 @@ def test_execute_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -126,7 +126,7 @@ def test_execute_experiment_not_found(in_memory_db, capsys):
 def test_execute_run_not_found(in_memory_db, capsys):
     """--execute fails with 'run not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create experiment (but no run)
     exp = ExperimentFactory.create(name="test-exp")
@@ -140,7 +140,7 @@ def test_execute_run_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -157,7 +157,7 @@ def test_execute_run_not_found(in_memory_db, capsys):
 def test_execute_run_not_in_experiment(in_memory_db, capsys):
     """--execute fails if run is not in specified experiment."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -182,7 +182,7 @@ def test_execute_run_not_in_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -198,7 +198,7 @@ def test_execute_run_not_in_experiment(in_memory_db, capsys):
 def test_execute_run_not_pending(in_memory_db, capsys):
     """--execute fails if run is not in pending status."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create experiment and run (completed status)
     exp = ExperimentFactory.create(name="test-exp")
@@ -219,7 +219,7 @@ def test_execute_run_not_pending(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -235,7 +235,7 @@ def test_execute_run_not_pending(in_memory_db, capsys):
 def test_execute_no_items(in_memory_db, capsys):
     """--execute fails with 'nothing to execute' when planner returns empty plan."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create experiment with no snapshots
     exp = ExperimentFactory.create(name="test-exp")
@@ -264,7 +264,7 @@ def test_execute_no_items(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -284,7 +284,7 @@ def test_execute_no_items(in_memory_db, capsys):
 def test_execute_with_api_error(in_memory_db, capsys):
     """--execute handles API errors and reports partial failure."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create full setup
     exp = ExperimentFactory.create(
@@ -322,11 +322,11 @@ def test_execute_with_api_error(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Mock API client to raise error
-            with patch("src_v2.cli.bcllm_execute.OpenRouterClient") as MockClient:
+            with patch("src.cli.bcllm_execute.OpenRouterClient") as MockClient:
                 mock_api = MagicMock()
                 mock_api.chat_completion = AsyncMock(side_effect=Exception("API connection failed"))
                 MockClient.return_value = mock_api
@@ -350,7 +350,7 @@ def test_execute_with_api_error(in_memory_db, capsys):
 def test_execute_prints_summary(in_memory_db, capsys):
     """--execute prints execution summary with success/failed counts."""
     # Arrange
-    from src_v2.cli.bcllm_execute import main as execute_main
+    from src.cli.bcllm_execute import main as execute_main
 
     # Pre-create full setup with multiple snapshots
     exp = ExperimentFactory.create(
@@ -390,11 +390,11 @@ def test_execute_prints_summary(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Mock API client to return successful responses
-            with patch("src_v2.cli.bcllm_execute.OpenRouterClient") as MockClient:
+            with patch("src.cli.bcllm_execute.OpenRouterClient") as MockClient:
                 mock_api = MagicMock()
                 mock_api.chat_completion = AsyncMock(return_value=MagicMock(
                     content="The answer is (B).",
@@ -423,7 +423,7 @@ def test_execute_prints_summary(in_memory_db, capsys):
 def test_execute_idempotent(in_memory_db, capsys):
     """--execute running twice doesn't duplicate results."""
     # Arrange
-    from src_v2.cli.bcllm_execute import handle_execute, OpenRouterClient
+    from src.cli.bcllm_execute import handle_execute, OpenRouterClient
     import argparse
 
     # Pre-create full setup
@@ -504,7 +504,7 @@ class TestExecuteIntegration:
 
     def test_execute_full_flow(self, in_memory_db, capsys):
         """Full execution flow: Planner → Engine → Writer."""
-        from src_v2.cli.bcllm_execute import handle_execute, OpenRouterClient
+        from src.cli.bcllm_execute import handle_execute, OpenRouterClient
         import argparse
 
         # Pre-create full setup

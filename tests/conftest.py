@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 from typing import Generator
 
 # Import TO-BE schema creation
-from src_v2.db.schema import create_schema
+from src.db.schema import create_schema
 
 
 @pytest.fixture
@@ -83,9 +83,9 @@ def mock_api_client():
     """
     # Import the real classes for spec (will exist in Phase 5)
     try:
-        from src_v2.api.client import OpenRouterClient, CompletionResponse
+        from src.api.client import OpenRouterClient, CompletionResponse
     except ImportError:
-        # Fallback for Phase 4 when src_v2 doesn't exist yet
+        # Fallback for Phase 4 when src doesn't exist yet
         # Define minimal spec classes
         class OpenRouterClient:
             async def chat_completion(self, model_id, messages, **kwargs):
@@ -127,10 +127,10 @@ def randomizer():
             assert options1 == options2  # Same seed = same result
     """
     try:
-        from src_v2.core.randomizer import AnswerRandomizer
+        from src.core.randomizer import AnswerRandomizer
         return AnswerRandomizer(seed=42)
     except ImportError:
-        # Fallback for Phase 4 when src_v2 doesn't exist yet
+        # Fallback for Phase 4 when src doesn't exist yet
         class AnswerRandomizer:
             def __init__(self, seed: int = 42):
                 import random
@@ -158,10 +158,10 @@ def parser():
             assert result.confidence == 'clear'
     """
     try:
-        from src_v2.core.answer_parser import AnswerParser
+        from src.core.answer_parser import AnswerParser
         return AnswerParser()
     except ImportError:
-        # Fallback for Phase 4 when src_v2 doesn't exist yet
+        # Fallback for Phase 4 when src doesn't exist yet
         import re
         from dataclasses import dataclass
         from typing import Literal, Optional

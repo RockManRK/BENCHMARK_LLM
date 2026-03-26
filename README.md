@@ -162,23 +162,22 @@ The system uses three levels of configuration with strict key contracts:
 
 | Level | Config Keys | Purpose |
 |-------|-------------|---------|
-| **Experiment** | 18 keys | Global defaults, prompts, seed |
+| **Experiment** | 14 keys | Persistent defaults (dataset path, model/run defaults) |
 | **Model Variant** | 10 keys | Model-specific generation parameters |
 | **Run** | 3 keys | Execution-specific seed and prompts |
 
-**Experiment Config Keys (18):**
-- `default_temperature`, `default_top_p`, `default_max_output_tokens`
-- `default_reasoning_mode`, `default_reasoning_effort`
-- `system_prompt_template`, `user_prompt_template`
-- Plus 11 additional keys for URL, tokens, vision, structured output, etc.
+**Experiment Config Keys (14):**
+- `QUESTIONS_DATASET_PATH` (1 EXPERIMENT key)
+- `BASE_URL`, `MODEL_MAX_TOKENS_REASONING`, `MODEL_MAX_TOKENS_TOTAL`, `MODEL_REASONING_EFFORT`, `MODEL_REPEAT_PENALTY`, `MODEL_TEMPERATURE`, `MODEL_TOP_K`, `MODEL_TOP_P`, `MODEL_VISION`, `STRUCTURED_OUTPUTS` (10 MODEL keys)
+- `RUN_RESPONSES_SEED`, `SYSTEM_PROMPT`, `USER_PROMPT` (3 RUN keys)
+
+**Note:** Transient configs (`DEFAULT_QUESTIONS`, `QUESTIONS_STATUS_ADD`, `QUESTIONS_STATUS_EXCLUDE`) are read from `.env` during experiment creation but NOT persisted.
 
 **Model Variant Config Keys (10):**
-- `model_id`, `reasoning_mode`, `reasoning_effort`
-- `vision_enabled`, `structured_output`, `web_access_enabled`
-- `temperature`, `top_p`, `max_output_tokens`, `label`
+- `BASE_URL`, `MODEL_MAX_TOKENS_REASONING`, `MODEL_MAX_TOKENS_TOTAL`, `MODEL_REASONING_EFFORT`, `MODEL_REPEAT_PENALTY`, `MODEL_TEMPERATURE`, `MODEL_TOP_K`, `MODEL_TOP_P`, `MODEL_VISION`, `STRUCTURED_OUTPUTS`
 
 **Run Config Keys (3):**
-- `seed`, `system_prompt`, `user_prompt`
+- `RUN_RESPONSES_SEED`, `SYSTEM_PROMPT`, `USER_PROMPT`
 
 ### Environment Variables
 

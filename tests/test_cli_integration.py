@@ -25,10 +25,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from io import StringIO
 
-# Add src_v2 to path for imports
+# Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src_v2.db.repository import (
+from src.db.repository import (
     ExperimentRepository,
     VariantRepository,
     SnapshotRepository,
@@ -36,8 +36,8 @@ from src_v2.db.repository import (
     ResponseRepository,
     ErrorRepository,
 )
-from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
-from src_v2.api.client import CompletionResponse
+from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+from src.api.client import CompletionResponse
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ def mock_api_client():
     Returns:
         MagicMock: Mocked API client
     """
-    from src_v2.api.client import OpenRouterClient
+    from src.api.client import OpenRouterClient
     
     client = MagicMock(spec=OpenRouterClient)
     client.chat_completion = AsyncMock(return_value=CompletionResponse(
@@ -90,7 +90,7 @@ def patch_database_path(temp_db_path: Path):
     Returns:
         Context manager that patches get_database_path
     """
-    from src_v2.cli import database as db_module
+    from src.cli import database as db_module
     
     original_get_path = db_module.get_database_path
     
@@ -109,7 +109,7 @@ def patch_api_client_in_execute(mock_client):
     Returns:
         Context manager that patches OpenRouterClient
     """
-    from src_v2.cli import bcllm_execute
+    from src.cli import bcllm_execute
     
     return patch.object(
         bcllm_execute, 
@@ -139,11 +139,11 @@ class TestFullWorkflowIntegration:
 
         This is the primary happy path test for the entire CLI system.
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_execute import main as execute_main
 
         with patch_database_path(temp_db_file):
             # Step 1: Create experiment
@@ -249,11 +249,11 @@ class TestFullWorkflowIntegration:
         5. Execute
         6. Verify both models have responses
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_execute import main as execute_main
 
         with patch_database_path(temp_db_file):
             # Create experiment
@@ -341,11 +341,11 @@ class TestFullWorkflowIntegration:
         3. Execute both runs
         4. Verify results are isolated by run_id
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_execute import main as execute_main
 
         with patch_database_path(temp_db_file):
             # Setup: Create experiment with model and questions
@@ -446,8 +446,8 @@ class TestModelIDValidation:
 
     def test_model_id_google_gemini(self, temp_db_file, capsys):
         """Test model ID: google/gemini-3.1-flash-lite-preview"""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         model_id = "google/gemini-3.1-flash-lite-preview"
 
@@ -475,8 +475,8 @@ class TestModelIDValidation:
 
     def test_model_id_openai_gpt(self, temp_db_file, capsys):
         """Test model ID: openai/gpt-4.1-mini"""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         model_id = "openai/gpt-4.1-mini"
 
@@ -500,8 +500,8 @@ class TestModelIDValidation:
 
     def test_model_id_anthropic_claude(self, temp_db_file, capsys):
         """Test model ID: anthropic/claude-3.5-sonnet"""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         model_id = "anthropic/claude-3.5-sonnet"
 
@@ -525,8 +525,8 @@ class TestModelIDValidation:
 
     def test_model_id_stepfun_with_free_suffix(self, temp_db_file, capsys):
         """Test model ID: stepfun/step-3.5-flash:free"""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         model_id = "stepfun/step-3.5-flash:free"
 
@@ -550,8 +550,8 @@ class TestModelIDValidation:
 
     def test_model_id_nvidia_with_free_suffix(self, temp_db_file, capsys):
         """Test model ID: nvidia/nemotron-3-super-120b-a12b:free"""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         model_id = "nvidia/nemotron-3-super-120b-a12b:free"
 
@@ -575,8 +575,8 @@ class TestModelIDValidation:
 
     def test_model_id_validation_rejects_invalid(self, temp_db_file, capsys):
         """Test that invalid model IDs are rejected."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         invalid_ids = [
             "invalid-no-slash",
@@ -623,8 +623,8 @@ class TestStructuredOutputPersistence:
         - Flag is stored in database
         - Flag is displayed in list output
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         # Create experiment and add model with structured output enabled
         with patch_database_path(temp_db_file):
@@ -678,8 +678,8 @@ class TestStructuredOutputPersistence:
         - Flag can be set at model creation
         - Flag is stored in database
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         with patch_database_path(temp_db_file):
             # Create experiment
@@ -737,11 +737,11 @@ class TestPartialExecution:
         - Only specified run is executed
         - Other runs remain pending
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_execute import main as execute_main
 
         with patch_database_path(temp_db_file):
             # Setup: Create experiment with model and questions
@@ -812,11 +812,11 @@ class TestPartialExecution:
         - Only specified questions are executed
         - Other questions remain unexecuted
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_execute import main as execute_main
 
         with patch_database_path(temp_db_file):
             # Setup
@@ -882,11 +882,11 @@ class TestPartialExecution:
         - Appropriate message is shown
         - Exit code is 0 (not an error)
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_execute import main as execute_main
 
         with patch_database_path(temp_db_file):
             # Setup and execute once
@@ -975,8 +975,8 @@ class TestIdempotentOperations:
         - No duplicate created
         - Appropriate error message shown
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         with patch_database_path(temp_db_file):
             # Create experiment
@@ -1031,8 +1031,8 @@ class TestIdempotentOperations:
         - No duplicate created
         - Message indicates skip
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_questions import main as questions_main
 
         with patch_database_path(temp_db_file):
             # Create experiment
@@ -1086,7 +1086,7 @@ class TestIdempotentOperations:
         - Second create is rejected (collision)
         - No duplicate created
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_experiment import main as experiment_main
 
         with patch_database_path(temp_db_file):
             # Create experiment first time
@@ -1138,9 +1138,9 @@ class TestErrorScenarios:
 
     def test_experiment_not_found(self, temp_db_file, capsys):
         """Test error when experiment doesn't exist."""
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
 
         with patch_database_path(temp_db_file):
             # Try to add model to non-existent experiment
@@ -1175,8 +1175,8 @@ class TestErrorScenarios:
 
     def test_run_not_found(self, temp_db_file, capsys):
         """Test error when run doesn't exist."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_run import main as run_main
 
         with patch_database_path(temp_db_file):
             # Create experiment
@@ -1200,8 +1200,8 @@ class TestErrorScenarios:
 
     def test_invalid_question_spec(self, temp_db_file, capsys):
         """Test error when question spec is invalid."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_questions import main as questions_main
 
         with patch_database_path(temp_db_file):
             with patch.object(sys, "argv", [
@@ -1233,8 +1233,8 @@ class TestErrorScenarios:
 
     def test_create_run_without_models(self, temp_db_file, capsys):
         """Test creating run without models (may or may not validate)."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_run import main as run_main
 
         with patch_database_path(temp_db_file):
             # Create experiment without models
@@ -1255,9 +1255,9 @@ class TestErrorScenarios:
 
     def test_create_run_without_questions(self, temp_db_file, capsys):
         """Test creating run without questions (may or may not validate)."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_run import main as run_main
 
         with patch_database_path(temp_db_file):
             # Create experiment with model but no questions
@@ -1285,8 +1285,8 @@ class TestErrorScenarios:
 
     def test_variant_not_in_experiment(self, temp_db_file, capsys):
         """Test error when variant doesn't belong to experiment."""
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
 
         with patch_database_path(temp_db_file):
             # Create two experiments
@@ -1349,10 +1349,10 @@ class TestCrossInvocationPersistence:
         - Questions added in invocation 3 are visible in invocation 4
         - Run created in invocation 4 is visible in invocation 5
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
 
         with patch_database_path(temp_db_file):
             # Invocation 1: Create experiment

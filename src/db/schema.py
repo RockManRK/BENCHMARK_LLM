@@ -1,190 +1,178 @@
-"""Database schema and connection management for benchmark_llm.
+"""TO-BE database schema creation.
 
-This module provides the database schema definition, initialization functions,
-and connection management utilities for the SQLite database layer.
+This module creates the complete TO-BE schema with:
+- 6 tables: experiments, model_variants, question_snapshots, runs, responses, errors
+- Foreign key relationships
+- UNIQUE and CHECK constraints
+- Indexes for common query patterns
+- NO soft delete (is_active removed from all tables)
+
+Schema is created programmatically (no migration scripts).
 """
 
-import logging
 import sqlite3
-from pathlib import Path
-from typing import Final
-
-logger = logging.getLogger(__name__)
 
 
 def get_schema_sql() -> str:
-    """Return the SQL schema for creating all database tables.
-
-    Reads the schema from the schema.sql file for maintainability.
+    """Return complete TO-BE schema SQL.
 
     Returns:
-        A string containing CREATE TABLE statements for all tables:
-        experiments, runs, models, questions, responses, and errors.
-
-    Example:
-        >>> schema = get_schema_sql()
-        >>> assert "CREATE TABLE experiments" in schema
-        >>> assert "CREATE TABLE runs" in schema
+        SQL script to create all tables, constraints, and indexes.
     """
-    # Get the directory containing this module
-    schema_path = Path(__file__).parent / "schema.sql"
-    
-    if not schema_path.exists():
-        logger.error(f"Schema file not found at {schema_path}")
-        raise FileNotFoundError(f"Schema file not found at {schema_path}")
-    
-    return schema_path.read_text(encoding="utf-8")
+    return """
+    -- Enable foreign keys
+    PRAGMA foreign_keys = ON;
 
+    -- ============================================================================
+    -- experiments table
+    -- ============================================================================
+    CREATE TABLE IF NOT EXISTS experiments (
+        experiment_id     TEXT PRIMARY KEY,
+        name              TEXT UNIQUE NOT NULL,
+        description       TEXT,
+        config_json       TEXT NOT NULL,
+        config_hash       TEXT NOT NULL,
+        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
 
-class DatabaseManager:
-    """Manages SQLite database connections and initialization.
+    -- ============================================================================
+    -- model_variants table (with experiment_id FK)
+    -- ============================================================================
+    CREATE TABLE IF NOT EXISTS model_variants (
+        variant_id        TEXT PRIMARY KEY,
+        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
+        model_id          TEXT NOT NULL,
+        variant_signature TEXT NOT NULL,
+        config            TEXT NOT NULL,
+        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(experiment_id, variant_signature)
+    );
 
-    This class provides a centralized way to manage database connections,
-    handle initialization, and ensure proper cleanup.
+    -- Index for variants by experiment
+    CREATE INDEX IF NOT EXISTS idx_variants_by_experiment ON model_variants(experiment_id);
 
-    Attributes:
-        database_path: Path to the SQLite database file.
+    -- ============================================================================
+    -- question_snapshots table (with experiment_id FK)
+    -- ============================================================================
+    CREATE TABLE IF NOT EXISTS question_snapshots (
+        snapshot_id       TEXT PRIMARY KEY,
+        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
+        json_question_id  TEXT NOT NULL,
+        question_position INTEGER NOT NULL,
+        question_payload  TEXT NOT NULL,
+        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(experiment_id, question_position)
+    );
 
-    Example:
-        >>> from pathlib import Path
-        >>> manager = DatabaseManager(Path("./data/benchmark.db"))
-        >>> manager.initialize()
-        >>> conn = manager.get_connection()
-        >>> # ... use connection ...
-        >>> conn.close()
-        >>> manager.close()
+    -- Index for snapshots by experiment
+    CREATE INDEX IF NOT EXISTS idx_snapshots_by_experiment ON question_snapshots(experiment_id);
+
+    -- ============================================================================
+    -- runs table
+    -- ============================================================================
+    CREATE TABLE IF NOT EXISTS runs (
+        run_id            TEXT PRIMARY KEY,
+        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
+        config            TEXT NOT NULL,
+        status            TEXT NOT NULL DEFAULT 'pending',
+        duration          INTEGER DEFAULT 0,
+        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK(status IN ('pending', 'running', 'completed', 'failed', 'partial_failed'))
+    );
+
+    -- Index for listing runs by experiment
+    CREATE INDEX IF NOT EXISTS idx_runs_by_experiment ON runs(experiment_id);
+
+    -- Partial index for pending runs (common query for execution)
+    CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pending';
+
+    -- ============================================================================
+    -- responses table
+    -- ============================================================================
+    CREATE TABLE IF NOT EXISTS responses (
+        response_id       TEXT PRIMARY KEY,
+        run_id            TEXT NOT NULL REFERENCES runs(run_id),
+        variant_id        TEXT NOT NULL REFERENCES model_variants(variant_id),
+        snapshot_id       TEXT NOT NULL REFERENCES question_snapshots(snapshot_id),
+        model_id          TEXT NOT NULL,
+        question_id       TEXT NOT NULL,
+        status            TEXT,
+        finish_reason     TEXT,
+        error_details     TEXT,
+        response_text     TEXT,
+        selected_answer   TEXT,
+        is_correct        BOOLEAN,
+        parse_confidence  TEXT DEFAULT 'unknown',
+        review_status     TEXT,
+        manual_answer     TEXT,
+        raw_response      TEXT,
+        cost              REAL,
+        input_tokens      INTEGER,
+        response_tokens   INTEGER,
+        reasoning_tokens  INTEGER,
+        effective_tokens  INTEGER,
+        latency_ms        INTEGER,
+        started_at        TIMESTAMP,
+        finished_at       TIMESTAMP,
+        UNIQUE(run_id, variant_id, snapshot_id)
+    );
+
+    -- Index for listing responses by run
+    CREATE INDEX IF NOT EXISTS idx_responses_by_run ON responses(run_id);
+
+    -- Partial index for responses needing review
+    CREATE INDEX IF NOT EXISTS idx_responses_needs_review ON responses(review_status) WHERE review_status = 'needs_review';
+
+    -- ============================================================================
+    -- errors table
+    -- ============================================================================
+    CREATE TABLE IF NOT EXISTS errors (
+        error_id          TEXT PRIMARY KEY,
+        run_id            TEXT NOT NULL REFERENCES runs(run_id),
+        variant_id        TEXT NOT NULL REFERENCES model_variants(variant_id),
+        snapshot_id       TEXT NOT NULL REFERENCES question_snapshots(snapshot_id),
+        question_id       TEXT NOT NULL,
+        error_type        TEXT NOT NULL,
+        error_message     TEXT NOT NULL,
+        attempt_count     INTEGER NOT NULL DEFAULT 1,
+        stack_trace       TEXT,
+        occurred_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Index for listing errors by run
+    CREATE INDEX IF NOT EXISTS idx_errors_by_run ON errors(run_id);
     """
 
-    def __init__(self, database_path: Path) -> None:
-        """Initialize the DatabaseManager.
 
-        Args:
-            database_path: Path to the SQLite database file.
+def create_schema(conn: sqlite3.Connection) -> None:
+    """Create all TO-BE tables with constraints and indexes.
 
-        Example:
-            >>> manager = DatabaseManager(Path("./data/benchmark.db"))
-        """
-        self.database_path = database_path
-        self._connection: sqlite3.Connection | None = None
+    Args:
+        conn: SQLite database connection.
 
-    def initialize(self) -> None:
-        """Initialize the database by creating all tables.
+    Note:
+        This is a greenfield schema creation - no migrations.
+        Commits changes to the database.
+    """
+    conn.executescript(get_schema_sql())
+    conn.commit()
 
-        This method executes the schema SQL to create all required tables
-        and indexes if they don't exist.
 
-        Raises:
-            sqlite3.Error: If there's an error creating the tables.
+def drop_all_tables(conn: sqlite3.Connection) -> None:
+    """Drop all TO-BE tables (for testing).
 
-        Example:
-            >>> manager = DatabaseManager(Path("./data/benchmark.db"))
-            >>> manager.initialize()
-        """
-        # Ensure parent directory exists (skip for in-memory databases)
-        if str(self.database_path) != ":memory:":
-            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+    Args:
+        conn: SQLite database connection.
 
-        conn = self.get_connection()
-        try:
-            cursor = conn.cursor()
-            schema_sql = get_schema_sql()
-            cursor.executescript(schema_sql)
-            conn.commit()
-        except sqlite3.Error as e:
-            conn.rollback()
-            raise e
-        finally:
-            if not self.is_in_memory():
-                conn.close()
-
-        logger.debug(f"Database initialized at {self.database_path}")
-
-    def get_connection(self) -> sqlite3.Connection:
-        """Get a database connection.
-
-        For in-memory databases, returns the same connection to ensure
-        tables persist. For file databases, returns a new connection each
-        time to ensure thread safety and proper isolation.
-
-        Returns:
-            A SQLite connection to the database.
-
-        Raises:
-            sqlite3.Error: If there's an error connecting to the database.
-
-        Example:
-            >>> manager = DatabaseManager(Path("./data/benchmark.db"))
-            >>> conn = manager.get_connection()
-            >>> cursor = conn.cursor()
-            >>> cursor.execute("SELECT 1")
-            >>> conn.close()
-        """
-        # For in-memory databases, reuse the same connection
-        if str(self.database_path) == ":memory:":
-            if self._connection is None:
-                self._connection = sqlite3.connect(":memory:")
-                self._connection.row_factory = sqlite3.Row
-                self._connection.execute("PRAGMA foreign_keys = ON")
-            return self._connection
-        
-        # For file databases, create a new connection each time
-        conn = sqlite3.connect(str(self.database_path))
-        conn.row_factory = sqlite3.Row
-        # Enable foreign key support
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
-
-    def close(self) -> None:
-        """Close any open connections and release resources.
-
-        This method should be called when the DatabaseManager is no
-        longer needed to ensure proper cleanup.
-
-        Example:
-            >>> manager = DatabaseManager(Path("./data/benchmark.db"))
-            >>> manager.initialize()
-            >>> # ... use manager ...
-            >>> manager.close()
-        """
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
-
-    def should_close_connection(self) -> bool:
-        """Check if connections should be closed after operations.
-
-        For in-memory databases, connections should NOT be closed
-        after each operation to preserve data.
-
-        Returns:
-            True if connections should be closed (file databases),
-            False for in-memory databases.
-        """
-        return str(self.database_path) != ":memory:"
-    
-    def is_in_memory(self) -> bool:
-        """Check if the database is in-memory.
-
-        Returns:
-            True if using in-memory database, False for file databases.
-        """
-        return str(self.database_path) == ":memory:"
-
-    def __enter__(self) -> "DatabaseManager":
-        """Context manager entry.
-
-        Returns:
-            The DatabaseManager instance.
-        """
-        self.initialize()
-        return self
-
-    def __exit__(self, exc_type: type | None, exc_val: Exception | None, exc_tb: object | None) -> None:
-        """Context manager exit.
-
-        Args:
-            exc_type: Exception type if an exception was raised.
-            exc_val: Exception value if an exception was raised.
-            exc_tb: Exception traceback if an exception was raised.
-        """
-        self.close()
+    Warning:
+        This is for testing only. Deletes all data.
+    """
+    conn.executescript("""
+        DROP TABLE IF EXISTS errors;
+        DROP TABLE IF EXISTS responses;
+        DROP TABLE IF EXISTS runs;
+        DROP TABLE IF EXISTS question_snapshots;
+        DROP TABLE IF EXISTS model_variants;
+        DROP TABLE IF EXISTS experiments;
+    """)
+    conn.commit()

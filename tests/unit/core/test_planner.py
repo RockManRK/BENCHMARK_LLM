@@ -16,7 +16,7 @@ Tests the Planner's domain rules:
 import json
 import pytest
 from datetime import datetime
-from src_v2.core import Planner, ExecutionPlan, PlannerValidationError
+from src.core import Planner, ExecutionPlan, PlannerValidationError
 from tests.factories import (
     ExperimentFactory,
     VariantFactory,

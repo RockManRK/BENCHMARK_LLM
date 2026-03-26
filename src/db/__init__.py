@@ -1,45 +1,46 @@
-"""Database module for SQLite persistence.
+"""TO-BE database layer.
 
-This module provides the complete database layer for the benchmark_llm project,
-including schema management, data models, and repository classes for CRUD operations.
-
-Example:
-    >>> from src.db import DatabaseManager, RunRepository, Run
-    >>> from pathlib import Path
-    >>>
-    >>> with DatabaseManager(Path("./data/benchmark.db")) as db_manager:
-    ...     run_repo = RunRepository(db_manager)
-    ...     run = Run(run_id="run-001")
-    ...     run_repo.create(run)
+Exports:
+- schema: create_schema(), get_schema_sql()
+- models: Experiment, ModelVariant, QuestionSnapshot, Run, Response, Error
+- repository: ExperimentRepository, VariantRepository, SnapshotRepository,
+              RunRepository, ResponseRepository, ErrorRepository
 """
 
-from src.db.models import Error, Experiment, Model, Question, Response, Run
-from src.db.repository import (
-    ErrorRepository,
-    ExperimentRepository,
-    ModelRepository,
-    QuestionRepository,
-    ResponseRepository,
-    RunRepository,
+from src.db.schema import create_schema, get_schema_sql
+from src.db.models import (
+    Experiment,
+    ModelVariant,
+    QuestionSnapshot,
+    Run,
+    Response,
+    Error,
 )
-from src.db.schema import DatabaseManager, get_schema_sql
+from src.db.repository import (
+    ExperimentRepository,
+    VariantRepository,
+    SnapshotRepository,
+    RunRepository,
+    ResponseRepository,
+    ErrorRepository,
+)
 
 __all__ = [
     # Schema
-    "DatabaseManager",
+    "create_schema",
     "get_schema_sql",
     # Models
+    "Experiment",
+    "ModelVariant",
+    "QuestionSnapshot",
     "Run",
-    "Model",
-    "Question",
     "Response",
     "Error",
-    "Experiment",
     # Repositories
+    "ExperimentRepository",
+    "VariantRepository",
+    "SnapshotRepository",
     "RunRepository",
-    "ModelRepository",
-    "QuestionRepository",
     "ResponseRepository",
     "ErrorRepository",
-    "ExperimentRepository",
 ]

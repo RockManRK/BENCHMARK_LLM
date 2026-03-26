@@ -2,11 +2,11 @@ from setuptools import setup, find_packages
 
 setup(
     name="benchmark_llm",
-    version="1.0.0",
+    version="2.0.0",
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "bcllm=src.main:main",
+            "bcllm=src.cli.bcllm_main:main",
         ],
     },
     install_requires=[

@@ -1,58 +1,140 @@
-"""Purified ExecutionEngine for benchmark_llm.
+"""ExecutionEngine module for TO-BE architecture.
 
-This module provides a unified, context-agnostic execution engine for running
-benchmarks. It executes ONLY an ExecutionPlan and returns ExecutionResults.
+This module provides the pure execution engine that executes ExecutionPlans.
+The engine has NO database access - it is pure execution only.
 
-Design Principles:
-    - ExecutionEngine does NOT know about database
-    - ExecutionEngine does NOT persist results
-    - ExecutionEngine ONLY executes API calls and returns raw results
-    - Persistence is the responsibility of the caller (ResultWriter)
+Key Principles:
+- No database access (pure execution)
+- No configuration resolution (uses effective config as-is)
+- No scope decisions (executes what's in the plan)
+- Returns pure data only (ExecutionResult list)
+
+The ExecutionEngine is initialized with:
+- OpenRouterClient: For API calls
+- AnswerRandomizer: For answer option randomization
+- AnswerParser: For parsing LLM responses
 
 Example:
-    >>> engine = ExecutionEngine(api_client, randomizer, settings)
+    >>> engine = ExecutionEngine(api_client, randomizer, parser)
     >>> results = engine.execute(plan)
-    >>> # Results are pure data - caller persists them
+    >>> for result in results:
+    ...     print(f"Item {result.item_id}: {result.status}")
 """
 
-import asyncio
-import json
-import logging
-import time
-from typing import Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Literal
 
-from src.api.client import MessageBuilder, OpenRouterClient
 from src.core.execution_plan import (
     ExecutionPlan,
-    ExecutionResult,
-    PlanItem,
     PlanRun,
+    PlanItem,
     PlanVariant,
+    ModelConfig,
 )
 from src.core.randomizer import AnswerRandomizer
-from src.utils.config import Settings
+from src.core.answer_parser import AnswerParser, ParsedAnswer
 
-logger = logging.getLogger(__name__)
+
+@dataclass
+class ExecutionResult:
+    """Result of executing a single PlanItem.
+
+    This dataclass contains the complete result of executing one item
+    in an execution plan. It includes both success and failure cases.
+
+    Attributes:
+        item_id: Unique identifier for the executed item
+        run_id: Parent run identifier
+        variant_id: Model variant identifier (internal identity)
+        snapshot_id: Question snapshot identifier
+        question_id: Original question identifier
+        status: Execution status ('success' or 'failure')
+        response_text: Full LLM response text (None on failure)
+        selected_answer: Parsed answer letter (None on failure)
+        parse_confidence: Confidence level of parsed answer (None on failure)
+        latency_ms: API call latency in milliseconds (None on failure)
+        input_tokens: Number of input tokens (None on failure)
+        output_tokens: Number of output tokens (None on failure)
+        error_type: Type of error if failed (None on success)
+        error_message: Error message if failed (None on success)
+        attempt_count: Number of API call attempts made
+
+    Example:
+        >>> result = ExecutionResult(
+        ...     item_id="run-001::var-abc::snap-xyz::it-1",
+        ...     run_id="run-001",
+        ...     variant_id="var-abc",
+        ...     snapshot_id="snap-xyz",
+        ...     question_id="q1",
+        ...     status="success",
+        ...     response_text="The answer is (B).",
+        ...     selected_answer="B",
+        ...     parse_confidence="clear",
+        ...     latency_ms=500,
+        ...     input_tokens=50,
+        ...     output_tokens=10,
+        ...     error_type=None,
+        ...     error_message=None,
+        ...     attempt_count=1,
+        ... )
+    """
+
+    item_id: str
+    run_id: str
+    variant_id: str
+    snapshot_id: str
+    question_id: str
+    status: Literal['success', 'failure']
+    response_text: str | None
+    selected_answer: str | None
+    parse_confidence: str | None
+    latency_ms: int | None
+    input_tokens: int | None
+    output_tokens: int | None
+    error_type: str | None
+    error_message: str | None
+    attempt_count: int
+
+
+class OpenRouterClient:
+    """Type hint for OpenRouterClient.
+
+    This is a placeholder for type hints. The actual implementation
+    is in src.api.client (to be implemented).
+    """
+
+    async def chat_completion(
+        self,
+        model_id: str,
+        messages: list[dict],
+        **kwargs: Any,
+    ) -> Any:
+        """Call OpenRouter chat completion API."""
+        ...
 
 
 class ExecutionEngine:
-    """Pure execution engine. NO DB ACCESS.
+    """Pure execution engine with no database access.
 
-    This engine executes an ExecutionPlan by making API calls and returning
-    ExecutionResults. It does NOT:
-    - Access the database
-    - Create or modify model variants
-    - Create or modify question snapshots
-    - Persist results
-    - Decide scope or deduplicate
+    The ExecutionEngine is responsible for executing all items in an
+    ExecutionPlan. It:
+
+    - Applies randomization (if seed is set)
+    - Calls the API for each item
+    - Parses the response
+    - Returns ExecutionResult list
+
+    The engine has NO database access. It receives a fully-resolved
+    ExecutionPlan from the Planner and executes it as-is.
 
     Attributes:
-        api_client: OpenRouter API client for model inference
-        randomizer: Answer randomizer for shuffling options
-        settings: Application settings
+        api_client: OpenRouter API client
+        randomizer: Answer option randomizer
+        parser: Response parser
 
     Example:
-        >>> engine = ExecutionEngine(api_client, randomizer, settings)
+        >>> engine = ExecutionEngine(api_client, randomizer, parser)
         >>> results = engine.execute(plan)
     """
 
@@ -60,97 +142,76 @@ class ExecutionEngine:
         self,
         api_client: OpenRouterClient,
         randomizer: AnswerRandomizer,
-        settings: Settings,
+        parser: AnswerParser,
     ) -> None:
-        """Initialize the execution engine.
+        """Initialize engine with dependencies.
 
         Args:
-            api_client: OpenRouter API client for model inference
-            randomizer: Answer randomizer for shuffling options
-            settings: Application settings
+            api_client: OpenRouter API client
+            randomizer: Answer option randomizer (seeded)
+            parser: Response parser with confidence levels
 
         Example:
-            >>> engine = ExecutionEngine(api_client, randomizer, settings)
+            >>> engine = ExecutionEngine(api_client, randomizer, parser)
         """
         self.api_client = api_client
         self.randomizer = randomizer
-        self.settings = settings
-
-        logger.debug("ExecutionEngine initialized (NO DB ACCESS)")
+        self.parser = parser
 
     def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
-        """Execute all items in plan.
+        """Execute all items in the plan.
 
-        This method executes all items in the ExecutionPlan by:
-        1. For each run in plan
-        2. For each variant in run
-        3. For each item in run.items
-           - Build API request (prompts + question_payload)
-           - Apply answer randomization
-           - Call API
-           - Parse response
-           - Return ExecutionResult
+        This method executes all items in all runs in the execution plan.
+        For each item:
+
+        1. Apply randomization (if seed is set)
+        2. Build the prompt
+        3. Call the API
+        4. Parse the response
+        5. Create ExecutionResult
 
         Args:
-            plan: ExecutionPlan to execute
+            plan: Immutable execution plan from Planner
 
         Returns:
-            List of ExecutionResult objects (pure data, no persistence)
+            List of ExecutionResult (one per item)
+
+        Constraints:
+            - NO database access
+            - NO configuration resolution
+            - NO scope decisions
+            - Returns pure data only
 
         Example:
             >>> results = engine.execute(plan)
             >>> for result in results:
-            ...     print(f"{result.question_id}: {result.status}")
+            ...     print(f"Item {result.item_id}: {result.status}")
         """
-        all_results = []
+        all_results: list[ExecutionResult] = []
 
-        logger.info(f"Starting execution of plan {plan.plan_id}")
-        logger.info(f"Plan: {len(plan.runs)} run(s), experiment={plan.experiment_name}")
-
-        for plan_run in plan.runs:
-            logger.info(f"Executing run {plan_run.run_id}")
-
-            # Execute all items in this run
-            run_results = self._execute_run(plan_run)
+        for run in plan.runs:
+            run_results = self._execute_run(run)
             all_results.extend(run_results)
 
-            logger.info(
-                f"Completed run {plan_run.run_id}: {len(run_results)} items executed"
-            )
-
-        logger.info(
-            f"Execution completed: {len(all_results)} total results for plan {plan.plan_id}"
-        )
         return all_results
 
-    def _execute_run(self, plan_run: PlanRun) -> list[ExecutionResult]:
+    def _execute_run(self, run: PlanRun) -> list[ExecutionResult]:
         """Execute all items in a single run.
 
         Args:
-            plan_run: PlanRun to execute
+            run: Plan run to execute
 
         Returns:
-            List of ExecutionResult objects for this run
+            List of ExecutionResult for this run
         """
-        results = []
+        results: list[ExecutionResult] = []
 
-        # Initialize randomizer with run seed (only if seed is not None)
-        # seed=None means "no randomization, preserve natural order"
-        if self.randomizer and plan_run.seed_effective is not None:
-            self.randomizer.reset_seed(plan_run.seed_effective)
-            logger.debug(f"Randomizer set seed={plan_run.seed_effective}")
-        elif self.randomizer:
-            logger.debug("seed_effective is None, randomization disabled (natural order)")
+        # Apply randomization seed if set
+        if run.seed_effective is not None:
+            self.randomizer.set_seed(run.seed_effective)
 
-        # Execute all items
-        for item in plan_run.items:
-            logger.debug(f"Executing item {item.item_id}")
-
-            # Execute item
-            result = self._execute_item(
-                item=item,
-                plan_run=plan_run,
-            )
+        for item in run.items:
+            result = self._execute_item(item, run)
             results.append(result)
 
         return results
@@ -158,334 +219,349 @@ class ExecutionEngine:
     def _execute_item(
         self,
         item: PlanItem,
-        plan_run: PlanRun,
+        run: PlanRun,
     ) -> ExecutionResult:
         """Execute a single item.
 
         Args:
-            item: PlanItem to execute
-            plan_run: PlanRun containing the item
+            item: Plan item to execute
+            run: Parent run containing retry policy
 
         Returns:
             ExecutionResult for this item
         """
-        start_time = time.time()
+        attempt_count = 0
+        last_error_type: str | None = None
+        last_error_message: str | None = None
 
-        try:
-            # Build question payload with options
-            question_payload = item.question_payload
-            stem = question_payload.get("stem", "")
-            options = question_payload.get("options", {})
-            correct_answer = question_payload.get("answer_key", None)
-
-            # Build options text
-            options_text = "\n".join([f"{k}) {v}" for k, v in options.items()])
-
-            # Build prompt
-            prompt = f"""{stem}
-
-{options_text}
-
-{plan_run.user_prompt}"""
-
-            # Apply answer randomization ONLY if:
-            # 1. Randomizer is available
-            # 2. seed_effective is NOT None (None = no randomization)
-            # 3. correct_answer exists
-            should_randomize = (
-                self.randomizer is not None
-                and plan_run.seed_effective is not None
-                and correct_answer is not None
+        # Get the variant for this item
+        variant = self._get_variant_for_item(run, item.variant_id)
+        if variant is None:
+            return ExecutionResult(
+                item_id=item.item_id,
+                run_id=item.run_id,
+                variant_id=item.variant_id,
+                snapshot_id=item.snapshot_id,
+                question_id=item.question_id,
+                status="failure",
+                response_text=None,
+                selected_answer=None,
+                parse_confidence=None,
+                latency_ms=None,
+                input_tokens=None,
+                output_tokens=None,
+                error_type="config_error",
+                error_message=f"Variant {item.variant_id} not found in run",
+                attempt_count=0,
             )
 
-            if should_randomize:
-                # Randomize options and get new correct answer
-                randomized = self.randomizer.randomize_options(options, correct_answer)
-                randomized_options = randomized["options"]
-                randomized_correct = randomized["correct_answer"]
+        # Retry loop
+        max_attempts = run.retry_policy.max_attempts
 
-                # Build reverse mapping: randomized letter -> canonical letter
-                # This is needed to store canonical answer in database
-                reverse_mapping = {}
-                for canonical_letter, option_text in options.items():
-                    for randomized_letter, randomized_text in randomized_options.items():
-                        if option_text == randomized_text:
-                            reverse_mapping[randomized_letter] = canonical_letter
-                            break
+        for attempt in range(1, max_attempts + 1):
+            attempt_count = attempt
 
-                # Rebuild options text with randomized order
-                options_text = "\n".join([f"{k}) {v}" for k, v in randomized_options.items()])
-
-                # Rebuild prompt with randomized options
-                prompt = f"""{stem}
-
-{options_text}
-
-{plan_run.user_prompt}"""
-
-                logger.debug(
-                    f"Randomized question {item.question_id}: correct answer {correct_answer} -> {randomized_correct}"
-                )
-            else:
-                # No randomization: use original order
-                randomized_correct = correct_answer
-                reverse_mapping = None  # No mapping needed
-                if plan_run.seed_effective is None:
-                    logger.debug(f"Question {item.question_id}: no randomization (seed=None)")
-
-            # Build user message
-            if item.question_payload.get("has_image") and item.question_payload.get("image_path"):
-                # Multimodal message
-                from pathlib import Path
-
-                image_path = Path(item.question_payload["image_path"])
-                if image_path.exists():
-                    user_message = MessageBuilder.build_multimodal_message(prompt, image_path)
-                else:
-                    logger.warning(f"Image not found for question {item.question_id}: {image_path}")
-                    user_message = MessageBuilder.build_user_message(prompt)
-            else:
-                # Text-only message
-                user_message = MessageBuilder.build_user_message(prompt)
-
-            # Build messages array with system prompt
-            messages = [
-                {"role": "system", "content": plan_run.system_prompt},
-                user_message,
-            ]
-
-            # Build model config from variant
-            model_config = self._get_variant_model_config(item)
-
-            # Execute API call (handle both sync and async contexts)
             try:
-                # Try to get the current event loop
-                loop = asyncio.get_running_loop()
-                # We're in an async context - use create_task
-                api_response = asyncio.run_coroutine_threadsafe(
+                # Apply randomization if seed is set
+                options = list(item.question_payload.options)
+                if run.seed_effective is not None:
+                    randomized = self.randomizer.randomize_options(
+                        options,
+                        seed=run.seed_effective,
+                    )
+                    options = randomized["options"]
+
+                # Build the prompt
+                user_prompt = self._build_user_prompt(
+                    item.question_payload.stem,
+                    options,
+                    run.prompts_effective.user,
+                )
+
+                # Build messages - filter out null content (null means "do not send")
+                messages = []
+                if run.prompts_effective.system is not None:
+                    messages.append({"role": "system", "content": run.prompts_effective.system})
+                if user_prompt is not None:
+                    messages.append({"role": "user", "content": user_prompt})
+
+                # Get model config
+                model_config = variant.model_config_effective
+
+                # Call API
+                # CRITICAL: Use variant.model_id for API calls (external identifier)
+                # variant.variant_id is for internal identity tracking only
+                response = self._call_api_sync(
+                    variant.model_id,  # External API identifier
+                    messages,
+                    model_config,
+                )
+
+                # Extract response data
+                response_text = self._extract_response_content(response)
+                latency_ms = self._extract_latency(response)
+                input_tokens = self._extract_input_tokens(response)
+                output_tokens = self._extract_output_tokens(response)
+
+                # Parse the answer
+                parsed = self.parser.parse(response_text)
+
+                # Success!
+                return ExecutionResult(
+                    item_id=item.item_id,
+                    run_id=item.run_id,
+                    variant_id=item.variant_id,  # Internal identity
+                    snapshot_id=item.snapshot_id,
+                    question_id=item.question_id,
+                    status="success",
+                    response_text=response_text,
+                    selected_answer=parsed.answer,
+                    parse_confidence=parsed.confidence,
+                    latency_ms=latency_ms,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    error_type=None,
+                    error_message=None,
+                    attempt_count=attempt_count,
+                )
+
+            except Exception as e:
+                # Record error
+                last_error_type = self._classify_error(e)
+                last_error_message = str(e)
+
+                # Continue to next attempt
+                if attempt < max_attempts:
+                    continue
+
+        # All attempts failed
+        return ExecutionResult(
+            item_id=item.item_id,
+            run_id=item.run_id,
+            variant_id=item.variant_id,  # Internal identity
+            snapshot_id=item.snapshot_id,
+            question_id=item.question_id,
+            status="failure",
+            response_text=None,
+            selected_answer=None,
+            parse_confidence=None,
+            latency_ms=None,
+            input_tokens=None,
+            output_tokens=None,
+            error_type=last_error_type,
+            error_message=last_error_message,
+            attempt_count=attempt_count,
+        )
+
+    def _call_api_sync(
+        self,
+        model_id: str,
+        messages: list[dict],
+        model_config: ModelConfig,
+    ) -> Any:
+        """Call the API synchronously.
+
+        Args:
+            model_id: Model identifier for API call
+            messages: Chat messages
+            model_config: Model configuration
+
+        Returns:
+            API response
+        """
+        import asyncio
+
+        # Build response_format if structured_output is enabled
+        response_format: dict[str, Any] | None = None
+        if model_config.structured_output:
+            response_format = {"type": "json_object"}
+
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context - run in a new thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        self.api_client.chat_completion(
+                            model_id=model_id,
+                            messages=messages,
+                            temperature=model_config.temperature,
+                            top_p=model_config.top_p,
+                            max_tokens=model_config.max_output_tokens,
+                            response_format=response_format,
+                        )
+                    )
+                    return future.result()
+            else:
+                # No running loop - use asyncio.run directly
+                return asyncio.run(
                     self.api_client.chat_completion(
-                        model=item.model_id,
+                        model_id=model_id,
                         messages=messages,
-                        **model_config,
-                    ),
-                    loop
-                ).result()
-            except RuntimeError:
-                # No running loop - use asyncio.run
-                api_response = asyncio.run(
-                    self.api_client.chat_completion(
-                        model=item.model_id,
-                        messages=messages,
-                        **model_config,
+                        temperature=model_config.temperature,
+                        top_p=model_config.top_p,
+                        max_tokens=model_config.max_output_tokens,
+                        response_format=response_format,
                     )
                 )
-
-            # Parse response (compares against randomized_correct)
-            parsed = self._parse_api_response(api_response, randomized_correct)
-
-            # Map randomized answer back to canonical letter for storage
-            # Database stores ONLY canonical answers (per contract)
-            canonical_selected_answer = parsed.get("selected_answer")
-            if reverse_mapping and canonical_selected_answer:
-                canonical_selected_answer = reverse_mapping.get(canonical_selected_answer, canonical_selected_answer)
-                logger.debug(f"Mapped randomized answer {parsed.get('selected_answer')} -> canonical {canonical_selected_answer}")
-
-            # Calculate latency
-            latency_ms = int((time.time() - start_time) * 1000)
-
-            # Extract token usage
-            tokens = self._extract_token_usage(api_response)
-
-            # Build execution result (with CANONICAL selected_answer)
-            result = ExecutionResult(
-                item_id=item.item_id,
-                run_id=item.run_id,
-                variant_id=item.variant_id,
-                model_id=item.model_id,
-                snapshot_id=item.snapshot_id,
-                question_id=item.question_id,
-                iteration_number=item.iteration_number,
-                status="success",
-                response_text=parsed.get("response_text", ""),
-                selected_answer=canonical_selected_answer,  # Canonical, not randomized
-                is_correct=parsed.get("is_correct"),  # Evaluated against randomized (correct for the model's view)
-                latency_ms=latency_ms,
-                input_tokens=tokens.get("input_tokens", 0),
-                output_tokens=tokens.get("output_tokens", 0),
+        except RuntimeError:
+            # No event loop exists - create new one
+            return asyncio.run(
+                self.api_client.chat_completion(
+                    model_id=model_id,
+                    messages=messages,
+                    temperature=model_config.temperature,
+                    top_p=model_config.top_p,
+                    max_tokens=model_config.max_output_tokens,
+                    response_format=response_format,
+                )
             )
 
-            logger.info(
-                f"Item {item.item_id} completed: "
-                f"answer={parsed.get('selected_answer')}, "
-                f"correct={parsed.get('is_correct')}, "
-                f"latency={latency_ms}ms"
-            )
-
-            return result
-
-        except Exception as e:
-            logger.exception(f"Failed to execute item {item.item_id}: {e}")
-
-            # Build error result
-            result = ExecutionResult(
-                item_id=item.item_id,
-                run_id=item.run_id,
-                variant_id=item.variant_id,
-                model_id=item.model_id,
-                snapshot_id=item.snapshot_id,
-                question_id=item.question_id,
-                iteration_number=item.iteration_number,
-                status="failure",
-                response_text="",
-                selected_answer=None,
-                is_correct=None,
-                latency_ms=int((time.time() - start_time) * 1000),
-                input_tokens=0,
-                output_tokens=0,
-                error_type=type(e).__name__,
-                error_message=str(e),
-            )
-
-            return result
-
-    def _get_variant_model_config(self, item: PlanItem) -> dict[str, Any]:
-        """Build model config from variant settings.
-
-        Args:
-            item: PlanItem with variant information
-
-        Returns:
-            Dictionary of model kwargs for API call
-        """
-        config = {}
-
-        # Add generation parameters from settings
-        if hasattr(self.settings, 'model_max_tokens') and self.settings.model_max_tokens is not None:
-            config["max_tokens"] = self.settings.model_max_tokens
-
-        if hasattr(self.settings, 'model_temperature') and self.settings.model_temperature is not None:
-            config["temperature"] = self.settings.model_temperature
-
-        if hasattr(self.settings, 'model_top_p') and self.settings.model_top_p is not None:
-            config["top_p"] = self.settings.model_top_p
-
-        # Build reasoning config from settings
-        reasoning = self._build_reasoning_config()
-        if reasoning is not None:
-            config["reasoning"] = reasoning
-
-        # Add structured output if enabled
-        if hasattr(self.settings, 'use_structured_outputs') and self.settings.use_structured_outputs:
-            from src.utils.answer_schema import ANSWER_SCHEMA
-            config["response_format"] = ANSWER_SCHEMA
-
-        return config
-
-    def _build_reasoning_config(self) -> Optional[dict[str, Any]]:
-        """Build reasoning configuration from settings.
-
-        Returns:
-            Reasoning config dict or None if not configured
-        """
-        if not self.settings:
-            return None
-
-        reasoning_config = {}
-
-        if hasattr(self.settings, 'reasoning_effort') and self.settings.reasoning_effort is not None:
-            if self.settings.reasoning_effort == 'none':
-                reasoning_config["enabled"] = False
-            else:
-                reasoning_config["effort"] = self.settings.reasoning_effort
-
-        if hasattr(self.settings, 'reasoning_max_tokens') and self.settings.reasoning_max_tokens is not None:
-            reasoning_config["max_tokens"] = self.settings.reasoning_max_tokens
-
-        if hasattr(self.settings, 'reasoning_enabled') and self.settings.reasoning_enabled is not None:
-            reasoning_config["enabled"] = self.settings.reasoning_enabled
-
-        return reasoning_config if reasoning_config else None
-
-    def _parse_api_response(
+    def _get_variant_for_item(
         self,
-        api_response: dict[str, Any],
-        correct_answer: Optional[str],
-    ) -> dict[str, Any]:
-        """Parse API response and extract answer.
+        run: PlanRun,
+        variant_id: str,
+    ) -> PlanVariant | None:
+        """Get the variant for an item.
 
         Args:
-            api_response: Raw API response dictionary
-            correct_answer: Correct answer for comparison
+            run: Plan run containing variants
+            variant_id: Variant ID to find
 
         Returns:
-            Dictionary with parsed response data
+            PlanVariant or None if not found
         """
-        # Extract content from response
-        choices = api_response.get("choices", [])
-        content = ""
-        if choices:
-            message = choices[0].get("message", {})
-            content = message.get("content", "")
+        for variant in run.variants:
+            if variant.variant_id == variant_id:
+                return variant
+        return None
 
-        # Parse answer from content
-        selected_answer = self._parse_answer(content)
-
-        # Determine if correct
-        is_correct = selected_answer == correct_answer if selected_answer and correct_answer else None
-
-        return {
-            "response_text": content,
-            "selected_answer": selected_answer,
-            "is_correct": is_correct,
-        }
-
-    def _parse_answer(self, content: str) -> Optional[str]:
-        """Parse answer letter from response content.
+    def _build_user_prompt(
+        self,
+        stem: str,
+        options: list[str],
+        user_prompt_template: str,
+    ) -> str:
+        """Build the user prompt from template.
 
         Args:
-            content: Response content from model
+            stem: Question stem
+            options: Answer options (may be randomized)
+            user_prompt_template: User prompt template
 
         Returns:
-            Answer letter (A, B, C, D) or None
+            Formatted user prompt
         """
-        if not content:
-            return None
+        # Build options text
+        option_letters = ["A", "B", "C", "D"]
+        options_text = "\n".join(
+            f"{letter}) {option}"
+            for letter, option in zip(option_letters, options[:len(option_letters)])
+        )
 
-        # Try to extract answer letter using AnswerParser
-        try:
-            from src.core.answer_parser import AnswerParser
+        # Build question text
+        question_text = f"{stem}\n\n{options_text}"
 
-            parser = AnswerParser()
-            parsed = parser.parse(content)
-            return parsed.answer if parsed.answer else None
-        except Exception:
-            # Fallback: simple regex extraction
-            import re
+        # Format template
+        user_prompt = user_prompt_template.replace("{question}", question_text)
 
-            match = re.search(r'\b([A-D])\b', content.upper())
-            if match:
-                return match.group(1)
+        return user_prompt
 
-            # Try to find "answer is X" pattern
-            match = re.search(r'answer\s+is\s+([A-D])', content.upper())
-            if match:
-                return match.group(1)
-
-            return None
-
-    def _extract_token_usage(self, api_response: dict[str, Any]) -> dict[str, int]:
-        """Extract token usage from API response.
+    def _extract_response_content(self, response: Any) -> str:
+        """Extract content from API response.
 
         Args:
-            api_response: Raw API response dictionary
+            response: API response (dict or object)
 
         Returns:
-            Dictionary with input_tokens, output_tokens, total_tokens
+            Response content as string
         """
-        usage = api_response.get("usage", {})
+        if isinstance(response, dict):
+            # Handle dict response
+            if "choices" in response:
+                return response["choices"][0].get("message", {}).get("content", "")
+            if "content" in response:
+                return str(response["content"])
+            return str(response)
 
-        return {
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-        }
+        # Handle object response
+        if hasattr(response, "content"):
+            return str(response.content)
+
+        return str(response)
+
+    def _extract_latency(self, response: Any) -> int | None:
+        """Extract latency from API response.
+
+        Args:
+            response: API response
+
+        Returns:
+            Latency in milliseconds or None
+        """
+        if isinstance(response, dict):
+            return response.get("latency_ms")
+        if hasattr(response, "latency_ms"):
+            return response.latency_ms
+        return None
+
+    def _extract_input_tokens(self, response: Any) -> int | None:
+        """Extract input tokens from API response.
+
+        Args:
+            response: API response
+
+        Returns:
+            Input token count or None
+        """
+        if isinstance(response, dict):
+            usage = response.get("usage", {})
+            return usage.get("prompt_tokens") or usage.get("input_tokens")
+        if hasattr(response, "input_tokens"):
+            return response.input_tokens
+        return None
+
+    def _extract_output_tokens(self, response: Any) -> int | None:
+        """Extract output tokens from API response.
+
+        Args:
+            response: API response
+
+        Returns:
+            Output token count or None
+        """
+        if isinstance(response, dict):
+            usage = response.get("usage", {})
+            return usage.get("completion_tokens") or usage.get("output_tokens")
+        if hasattr(response, "output_tokens"):
+            return response.output_tokens
+        return None
+
+    def _classify_error(self, error: Exception) -> str:
+        """Classify an error type.
+
+        Args:
+            error: Exception to classify
+
+        Returns:
+            Error type string
+        """
+        error_str = str(error).lower()
+
+        if "timeout" in error_str:
+            return "timeout"
+        if "429" in error_str or "rate limit" in error_str:
+            return "http_429"
+        if "500" in error_str or "502" in error_str or "503" in error_str:
+            return "http_5xx"
+        if "connection" in error_str or "network" in error_str:
+            return "network_error"
+        if "authentication" in error_str or "401" in error_str:
+            return "authentication_error"
+        if "parse" in error_str:
+            return "parse_error"
+
+        return "api_error"

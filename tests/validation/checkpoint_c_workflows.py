@@ -3,7 +3,7 @@
 
 This script validates that all TO-BE commands from the specification are:
 1. Recognized by the CLI (no "unrecognized arguments" errors)
-2. Route exclusively to src_v2 (no legacy /src imports)
+2. Route exclusively to src (no legacy /src imports)
 3. Fail loudly when appropriate (unknown commands)
 
 TO-BE Command List:

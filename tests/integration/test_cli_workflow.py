@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 from io import StringIO
 
-# Add src_v2 to path for imports
+# Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
@@ -35,7 +35,7 @@ class TestCLIWorkflow:
         - List command shows created experiment
         - Output is human-readable
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_experiment import main as experiment_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Create experiment
@@ -75,8 +75,8 @@ class TestCLIWorkflow:
         - List command shows added model
         - Model details are displayed
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Create experiment first
@@ -123,8 +123,8 @@ class TestCLIWorkflow:
         - List command shows added questions
         - Question count is correct
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_questions import main as questions_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Create experiment first
@@ -185,10 +185,10 @@ class TestCLIWorkflow:
         - Run ID is displayed
         - Show command displays run details
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Setup: Create experiment with model and question
@@ -258,10 +258,10 @@ class TestCLIWorkflow:
         - Error messages include hints for resolution
         - Exit codes are correct (1 for errors)
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
-        from src_v2.cli.bcllm_run import main as run_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_run import main as run_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Test 1: Experiment not found
@@ -345,7 +345,7 @@ class TestCLIParserValidation:
         - Mixed specs work (q1,q2,5-10)
         - Invalid specs raise errors
         """
-        from src_v2.cli.bcllm_questions import parse_question_spec
+        from src.cli.bcllm_questions import parse_question_spec
         
         # Test comma-separated
         result = parse_question_spec("q1,q2,q3")
@@ -378,7 +378,7 @@ class TestCLIParserValidation:
         - Invalid formats rejected
         - Error messages are clear
         """
-        from src_v2.cli.bcllm_model import validate_model_id
+        from src.cli.bcllm_model import validate_model_id
         
         # Valid formats
         assert validate_model_id("openai/gpt-4") == True
@@ -401,7 +401,7 @@ class TestCLIParserValidation:
         - Duplicate names rejected
         - Valid names accepted
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_experiment import main as experiment_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Create first experiment
@@ -437,9 +437,9 @@ class TestCLIOutputFormatting:
         - Columns are aligned
         - Data is readable
         """
-        from src_v2.cli.bcllm_experiment import main as experiment_main
-        from src_v2.cli.bcllm_model import main as model_main
-        from src_v2.cli.bcllm_questions import main as questions_main
+        from src.cli.bcllm_experiment import main as experiment_main
+        from src.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_questions import main as questions_main
         
         with patch("sqlite3.connect", return_value=in_memory_db):
             # Create experiment

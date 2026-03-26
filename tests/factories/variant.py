@@ -9,7 +9,7 @@ import uuid
 class ModelVariant:
     """ModelVariant entity for testing.
     
-    Matches src_v2.db.models.ModelVariant structure.
+    Matches src.db.models.ModelVariant structure.
     """
     variant_id: str
     experiment_id: str

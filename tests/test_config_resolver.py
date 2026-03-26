@@ -10,7 +10,7 @@ Tests cover:
 
 import pytest
 
-from src_v2.core.config_resolver import ConfigResolver
+from src.core.config_resolver import ConfigResolver
 
 
 class TestResolvePrompt:

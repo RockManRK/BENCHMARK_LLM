@@ -16,9 +16,9 @@ import pytest
 import sys
 from unittest.mock import patch
 
-from src_v2.db import create_schema
-from src_v2.db.repository import ExperimentRepository, VariantRepository
-from src_v2.db.models import Experiment, ModelVariant
+from src.db import create_schema
+from src.db.repository import ExperimentRepository, VariantRepository
+from src.db.models import Experiment, ModelVariant
 from tests.factories import ExperimentFactory, VariantFactory
 
 
@@ -30,7 +30,7 @@ from tests.factories import ExperimentFactory, VariantFactory
 def test_add_model_success(in_memory_db, capsys):
     """--add-model creates variant and prints success with variant_id."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -43,7 +43,7 @@ def test_add_model_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -60,7 +60,7 @@ def test_add_model_success(in_memory_db, capsys):
 def test_add_model_experiment_not_found(in_memory_db, capsys):
     """--add-model fails with 'experiment not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     test_args = [
         "bcllm_model.py",
@@ -69,7 +69,7 @@ def test_add_model_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -85,7 +85,7 @@ def test_add_model_experiment_not_found(in_memory_db, capsys):
 def test_add_model_invalid_model_id_format(in_memory_db, capsys):
     """--add-model fails with 'invalid model ID format' message."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -99,7 +99,7 @@ def test_add_model_invalid_model_id_format(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -116,7 +116,7 @@ def test_add_model_invalid_model_id_format(in_memory_db, capsys):
 def test_add_model_with_dots_in_model_name(in_memory_db, capsys):
     """--add-model succeeds with dots in model name (e.g., gemini-3.1)."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -129,7 +129,7 @@ def test_add_model_with_dots_in_model_name(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -146,7 +146,7 @@ def test_add_model_with_dots_in_model_name(in_memory_db, capsys):
 def test_add_model_with_colon_suffix(in_memory_db, capsys):
     """--add-model succeeds with colon suffix (e.g., :free)."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -159,7 +159,7 @@ def test_add_model_with_colon_suffix(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -176,7 +176,7 @@ def test_add_model_with_colon_suffix(in_memory_db, capsys):
 def test_add_model_with_multiple_special_chars(in_memory_db, capsys):
     """--add-model succeeds with mixed special characters."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -189,7 +189,7 @@ def test_add_model_with_multiple_special_chars(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -206,7 +206,7 @@ def test_add_model_with_multiple_special_chars(in_memory_db, capsys):
 def test_add_model_variant_signature_collision(in_memory_db, capsys):
     """--add-model fails with 'variant already exists' on signature collision."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -228,7 +228,7 @@ def test_add_model_variant_signature_collision(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -247,7 +247,7 @@ def test_add_model_variant_signature_collision(in_memory_db, capsys):
 def test_list_models_empty(in_memory_db, capsys):
     """--list-models shows 'no models' message when empty."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -260,7 +260,7 @@ def test_list_models_empty(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -276,7 +276,7 @@ def test_list_models_empty(in_memory_db, capsys):
 def test_list_models_with_data(in_memory_db, capsys):
     """--list-models lists models in table format."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -309,7 +309,7 @@ def test_list_models_with_data(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -331,7 +331,7 @@ def test_list_models_with_data(in_memory_db, capsys):
 def test_list_models_for_experiment(in_memory_db, capsys):
     """--list-models filters by experiment."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -355,7 +355,7 @@ def test_list_models_for_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -376,7 +376,7 @@ def test_list_models_for_experiment(in_memory_db, capsys):
 def test_remove_model_success(in_memory_db, capsys):
     """--remove-model soft deletes variant and prints confirmation."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment
     exp = ExperimentFactory.create(name="test-exp")
@@ -397,7 +397,7 @@ def test_remove_model_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -420,7 +420,7 @@ def test_remove_model_success(in_memory_db, capsys):
 def test_remove_model_not_found(in_memory_db, capsys):
     """--remove-model fails with 'variant not found' message."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create experiment (but no variant)
     exp = ExperimentFactory.create(name="test-exp")
@@ -433,7 +433,7 @@ def test_remove_model_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -449,7 +449,7 @@ def test_remove_model_not_found(in_memory_db, capsys):
 def test_remove_model_from_wrong_experiment(in_memory_db, capsys):
     """--remove-model fails if variant is not in specified experiment."""
     # Arrange
-    from src_v2.cli.bcllm_model import main as model_main
+    from src.cli.bcllm_model import main as model_main
 
     # Pre-create two experiments
     exp1 = ExperimentFactory.create(name="experiment-one")
@@ -473,7 +473,7 @@ def test_remove_model_from_wrong_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -494,7 +494,7 @@ class TestAddModelIntegration:
 
     def test_add_and_list_model(self, in_memory_db, capsys):
         """Add model and verify it appears in list."""
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_model import main as model_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="integration-test")
@@ -507,7 +507,7 @@ class TestAddModelIntegration:
             "--add-model", "openai/gpt-4",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0
@@ -520,7 +520,7 @@ class TestAddModelIntegration:
             "--list-models",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0
@@ -529,7 +529,7 @@ class TestAddModelIntegration:
 
     def test_add_duplicate_signature_fails(self, in_memory_db, capsys):
         """Adding model with duplicate signature fails."""
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_model import main as model_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="duplicate-test")
@@ -542,14 +542,14 @@ class TestAddModelIntegration:
             "--add-model", "openai/gpt-4",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0
 
         # Try to add same model again
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 1
@@ -562,7 +562,7 @@ class TestRemoveModelIntegration:
 
     def test_remove_then_list_excludes(self, in_memory_db, capsys):
         """Removed model should not appear in list."""
-        from src_v2.cli.bcllm_model import main as model_main
+        from src.cli.bcllm_model import main as model_main
 
         # Pre-create experiment
         exp = ExperimentFactory.create(name="remove-test")
@@ -575,7 +575,7 @@ class TestRemoveModelIntegration:
             "--add-model", "openai/gpt-4",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 model_main()
 
@@ -591,7 +591,7 @@ class TestRemoveModelIntegration:
             "--remove-model", variant_id,
         ]
         with patch.object(sys, "argv", remove_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 model_main()
 
@@ -605,7 +605,7 @@ class TestRemoveModelIntegration:
             "--list-models",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src_v2.cli.database.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = model_main()
                 assert result == 0

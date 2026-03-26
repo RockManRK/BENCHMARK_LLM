@@ -1,7 +1,7 @@
 """Tests for variant signature generation."""
 
 import pytest
-from src_v2.utils.variant_signature import (
+from src.utils.variant_signature import (
     generate_variant_signature,
     parse_variant_signature,
     normalize_float,

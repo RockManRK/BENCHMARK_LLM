@@ -15,12 +15,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
 
-from src_v2.api.client import (
+from src.api.client import (
     CompletionProvider,
     OpenRouterClient,
     CompletionResponse,
 )
-from src_v2.api.errors import (
+from src.api.errors import (
     AuthenticationError,
     RateLimitError,
     ServerError,
@@ -147,7 +147,7 @@ class TestOpenRouterClientChatCompletion:
         client = OpenRouterClient(api_key="test-key")
 
         # Mock the actual HTTP call
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -172,7 +172,7 @@ class TestOpenRouterClientChatCompletion:
         """Temperature, top_p, max_tokens passed correctly to API."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -205,7 +205,7 @@ class TestOpenRouterClientChatCompletion:
         """API key included in Authorization header."""
         client = OpenRouterClient(api_key="secret-key-123")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -232,7 +232,7 @@ class TestOpenRouterClientChatCompletion:
         """Content-Type header set to application/json."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -257,7 +257,7 @@ class TestOpenRouterClientChatCompletion:
         """Latency extracted from response timing."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -286,7 +286,7 @@ class TestOpenRouterClientErrorHandling:
         """401 → AuthenticationError."""
         client = OpenRouterClient(api_key="invalid-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             import httpx
             mock_response = MagicMock()
             mock_response.status_code = 401
@@ -312,7 +312,7 @@ class TestOpenRouterClientErrorHandling:
         """429 → RateLimitError."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             import httpx
             mock_response = MagicMock()
             mock_response.status_code = 429
@@ -338,7 +338,7 @@ class TestOpenRouterClientErrorHandling:
         """500 → ServerError."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             import httpx
             mock_response = MagicMock()
             mock_response.status_code = 500
@@ -364,7 +364,7 @@ class TestOpenRouterClientErrorHandling:
         """Timeout → TimeoutError."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             import httpx
             mock_post.side_effect = httpx.TimeoutException("Request timed out")
 
@@ -380,7 +380,7 @@ class TestOpenRouterClientErrorHandling:
         """Network failure → NetworkError."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             import httpx
             mock_post.side_effect = httpx.ConnectError("Connection refused")
 
@@ -396,7 +396,7 @@ class TestOpenRouterClientErrorHandling:
         """4xx (non-auth) → ClientError."""
         client = OpenRouterClient(api_key="test-key")
 
-        with patch("src_v2.api.client.httpx.AsyncClient.post") as mock_post:
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             import httpx
             mock_response = MagicMock()
             mock_response.status_code = 400

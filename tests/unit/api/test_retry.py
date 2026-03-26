@@ -12,9 +12,9 @@ Domain Rules:
 """
 
 import pytest
-from src_v2.core.execution_plan import RetryPolicy
-from src_v2.api.retry import RetryHandler
-from src_v2.api.errors import (
+from src.core.execution_plan import RetryPolicy
+from src.api.retry import RetryHandler
+from src.api.errors import (
     APIError,
     RateLimitError,
     ServerError,

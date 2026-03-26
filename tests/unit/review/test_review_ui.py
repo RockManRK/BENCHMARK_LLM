@@ -15,9 +15,9 @@ import sqlite3
 
 import pytest
 
-from src_v2.db.models import Response
-from src_v2.db.schema import create_schema
-from src_v2.review.review_ui import ReviewItem, ReviewStatistics, ReviewUI
+from src.db.models import Response
+from src.db.schema import create_schema
+from src.review.review_ui import ReviewItem, ReviewStatistics, ReviewUI
 
 
 @pytest.fixture

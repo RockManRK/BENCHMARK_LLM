@@ -18,10 +18,10 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Add src_v2 to path for imports
+# Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src_v2.db.repository import (
+from src.db.repository import (
     ExperimentRepository,
     VariantRepository,
     SnapshotRepository,
@@ -29,8 +29,8 @@ from src_v2.db.repository import (
     ResponseRepository,
     ErrorRepository,
 )
-from src_v2.api.client import CompletionResponse
-from src_v2.api.errors import APIError
+from src.api.client import CompletionResponse
+from src.api.errors import APIError
 
 
 # =============================================================================
@@ -59,7 +59,7 @@ class TestFullExperimentLifecycle:
         
         # Step 1: Create experiment
         exp_id = f"exp_{uuid.uuid4().hex[:8]}"
-        from src_v2.db.models import Experiment
+        from src.db.models import Experiment
         exp = Experiment(
             experiment_id=exp_id,
             name="test-exp",
@@ -73,7 +73,7 @@ class TestFullExperimentLifecycle:
         
         # Step 2: Add model
         var_id = f"var_{uuid.uuid4().hex[:8]}"
-        from src_v2.db.models import ModelVariant
+        from src.db.models import ModelVariant
         variant = ModelVariant(
             variant_id=var_id,
             experiment_id=exp_id,
@@ -85,7 +85,7 @@ class TestFullExperimentLifecycle:
         
         # Step 3: Add questions
         snap_id = f"snap_{uuid.uuid4().hex[:8]}"
-        from src_v2.db.models import QuestionSnapshot
+        from src.db.models import QuestionSnapshot
         snapshot = QuestionSnapshot(
             snapshot_id=snap_id,
             experiment_id=exp_id,
@@ -100,7 +100,7 @@ class TestFullExperimentLifecycle:
         
         # Step 4: Create run
         run_id = f"run_{uuid.uuid4().hex[:8]}"
-        from src_v2.db.models import Run
+        from src.db.models import Run
         run = Run(
             run_id=run_id,
             experiment_id=exp_id,
@@ -110,11 +110,11 @@ class TestFullExperimentLifecycle:
         RunRepository(in_memory_db).save(run)
         
         # Step 5: Execute run
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
         
         planner = Planner(in_memory_db)
         plan = planner.build_plan("test-exp", run_ids=[run_id])
@@ -143,12 +143,12 @@ class TestFullExperimentLifecycle:
         - Execution creates responses for each model
         - Results are correctly associated with variants
         """
-        from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
+        from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
         import json
         import uuid
         
@@ -254,12 +254,12 @@ class TestFullExperimentLifecycle:
         - Each run executes independently
         - Results are correctly isolated by run_id
         """
-        from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
+        from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
         import json
         import uuid
         
@@ -365,11 +365,11 @@ class TestExecutionFlow:
         - ResultWriter persists all results
         - Run status is updated correctly
         """
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
         
         run_id = full_experiment_setup['run_id']
         
@@ -406,12 +406,12 @@ class TestExecutionFlow:
         - Errors are persisted to errors table
         - Run status reflects partial failure
         """
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
-        from src_v2.api.errors import APIError
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
+        from src.api.errors import APIError
         
         run_id = full_experiment_setup['run_id']
         
@@ -453,12 +453,12 @@ class TestExecutionFlow:
         - Success on retry is recorded
         - Attempt count is tracked
         """
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
-        from src_v2.api.errors import APIError
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
+        from src.api.errors import APIError
         
         run_id = full_experiment_setup['run_id']
         
@@ -500,11 +500,11 @@ class TestExecutionFlow:
         - Idempotency uses UNIQUE constraint
         - Skipped responses are tracked in report
         """
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
         
         run_id = full_experiment_setup['run_id']
         
@@ -549,8 +549,8 @@ class TestReviewWorkflow:
         - needs_review = True when selected_answer is None
         - needs_review = False otherwise
         """
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.execution_engine import ExecutionResult
+        from src.core.result_writer import ResultWriter
+        from src.core.execution_engine import ExecutionResult
         import uuid
         
         writer = ResultWriter(in_memory_db)
@@ -639,11 +639,11 @@ class TestReviewWorkflow:
         - is_correct is recalculated based on manual answer
         - Original parse_confidence is preserved
         """
-        from src_v2.core.planner import Planner
-        from src_v2.core.execution_engine import ExecutionEngine
-        from src_v2.core.result_writer import ResultWriter
-        from src_v2.core.randomizer import AnswerRandomizer
-        from src_v2.core.answer_parser import AnswerParser
+        from src.core.planner import Planner
+        from src.core.execution_engine import ExecutionEngine
+        from src.core.result_writer import ResultWriter
+        from src.core.randomizer import AnswerRandomizer
+        from src.core.answer_parser import AnswerParser
         
         run_id = full_experiment_setup['run_id']
         snapshot_ids = full_experiment_setup['snapshot_ids']
@@ -704,9 +704,9 @@ class TestErrorHandling:
         - PlannerValidationError is raised
         - Error message is user-friendly
         """
-        from src_v2.core.planner import Planner, PlannerValidationError
-        from src_v2.db.repository import ExperimentRepository
-        from src_v2.db.models import Experiment
+        from src.core.planner import Planner, PlannerValidationError
+        from src.db.repository import ExperimentRepository
+        from src.db.models import Experiment
         import uuid
         
         # Create experiment without models
@@ -739,9 +739,9 @@ class TestErrorHandling:
         - PlannerValidationError is raised
         - Error message is user-friendly
         """
-        from src_v2.core.planner import Planner, PlannerValidationError
-        from src_v2.db.repository import ExperimentRepository, VariantRepository
-        from src_v2.db.models import Experiment, ModelVariant
+        from src.core.planner import Planner, PlannerValidationError
+        from src.db.repository import ExperimentRepository, VariantRepository
+        from src.db.models import Experiment, ModelVariant
         import uuid
         
         # Create experiment with model but no snapshots
@@ -785,7 +785,7 @@ class TestErrorHandling:
         - Exit code is 1
         - Error message is user-friendly
         """
-        from src_v2.cli.bcllm_execute import main as execute_main
+        from src.cli.bcllm_execute import main as execute_main
         
         with patch.object(sys, "argv", [
             "bcllm_execute.py",
