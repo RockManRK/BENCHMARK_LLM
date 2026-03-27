@@ -134,7 +134,7 @@ runs:
         variant_id: "var-93517b5b"
         model_id: "google/gemini-3.1-flash-lite-preview"
         snapshot_id: 1
-        question_id: "Q001"
+        question_position: "1"
         question_payload: { ... }
 ```
 

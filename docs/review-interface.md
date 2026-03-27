@@ -142,7 +142,7 @@ REVIEW MANUAL DE RESPOSTAS  |  Item 1/23
 Pendentes: 23  |  Processadas: 0
 ================================================================================
 
-Pergunta: Q001
+Pergunta: 1
 Modelo: openai/gpt-4
 Resposta Correta: B
 Status: AMBIGUOUS

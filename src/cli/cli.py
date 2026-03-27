@@ -212,14 +212,14 @@ Incremental Flow (add models to existing run):
             help="Number of test iterations per model (default: 1)",
         )
 
-        # Question filtering
+        # Question filtering (NUMERIC POSITIONS ONLY)
         parser.add_argument(
             "--questions",
             "-q",
             nargs="+",
             type=str,
             required=False,
-            help="Filter questions by ID or range (e.g., Q001 or Q001-Q010)",
+            help="Select questions by numeric position (1-indexed from dataset order). Formats: '1 3 5' (list), '1-10' (range), '1 5 10-15' (mixed). Use quotes for args with spaces: --questions \"1, 3, 5\"",
         )
 
         # Question metadata filtering
@@ -229,7 +229,7 @@ Incremental Flow (add models to existing run):
             type=str,
             required=False,
             default=[],
-            help="Filter questions by metadata (e.g., --where status=valid has_image=false)",
+            help="Include questions matching metadata (e.g., --where status=valid has_image=false). Operates on question_position and metadata fields.",
         )
 
         parser.add_argument(
@@ -238,7 +238,7 @@ Incremental Flow (add models to existing run):
             type=str,
             required=False,
             default=[],
-            help="Exclude questions by metadata (e.g., --exclude status=annulled has_image=true)",
+            help="Exclude questions matching metadata (e.g., --exclude status=annulled). Operates on question_position and metadata fields.",
         )
 
         # Configuration file

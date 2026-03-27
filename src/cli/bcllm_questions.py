@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 
 from src.cli.database import get_database_connection
-from src.core import QuestionLoader
+from src.core.loader import QuestionLoader
 from src.core.config_resolver import ConfigResolver
 from src.db.models import QuestionSnapshot
 from src.db.repository import ExperimentRepository, SnapshotRepository

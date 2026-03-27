@@ -23,6 +23,7 @@ Example:
 """
 
 import argparse
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -33,19 +34,55 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from src.db.models import Experiment, ModelVariant, Run, RunModel
+from src.db.models import Experiment, ModelVariant, Run
 from src.db.repository import (
     ExperimentRepository,
-    ModelVariantRepository,
-    QuestionSnapshotRepository,
-    RunModelRepository,
+    VariantRepository,
+    SnapshotRepository,
     RunRepository,
 )
-from src.db.schema import DatabaseManager
+from src.db.schema import create_schema
+from src.cli.database import get_database_connection, get_database_path
 from src.utils.config import Settings, get_settings
+from src.core.config_resolver import ConfigResolver
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+class DatabaseManager:
+    """Simple database manager wrapper for backward compatibility.
+    
+    This class provides a consistent interface for database operations.
+    """
+    
+    def __init__(self, db_path):
+        """Initialize with database path."""
+        self.db_path = db_path
+        self.conn = None
+    
+    def initialize(self):
+        """Initialize database connection and schema."""
+        import sqlite3
+        from pathlib import Path
+        
+        # Create data directory if needed
+        db_path = Path(self.db_path)
+        if not db_path.is_absolute():
+            db_path = Path.cwd() / db_path
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Create connection
+        self.conn = sqlite3.connect(str(db_path))
+        self.conn.row_factory = sqlite3.Row
+        
+        # Initialize schema
+        create_schema(self.conn)
+    
+    def close(self):
+        """Close database connection."""
+        if self.conn:
+            self.conn.close()
 
 
 class ExperimentManager:
@@ -57,16 +94,8 @@ class ExperimentManager:
     Attributes:
         db_manager: DatabaseManager instance for database operations.
         experiment_repo: ExperimentRepository for experiment CRUD.
-        variant_repo: ModelVariantRepository for variant management.
-        snapshot_repo: QuestionSnapshotRepository for snapshot creation.
-
-    Example:
-        >>> manager = ExperimentManager(db_manager)
-        >>> experiment = manager.create_experiment(
-        ...     name="my_experiment",
-        ...     questions_filter=["Q001", "Q002"],
-        ...     seed="AUTO"
-        ... )
+        variant_repo: VariantRepository for variant management.
+        snapshot_repo: SnapshotRepository for snapshot creation.
     """
 
     def __init__(self, db_manager: DatabaseManager) -> None:
@@ -80,15 +109,17 @@ class ExperimentManager:
             >>> manager = ExperimentManager(db_manager)
         """
         self.db_manager = db_manager
-        self.experiment_repo = ExperimentRepository(db_manager)
-        self.variant_repo = ModelVariantRepository(db_manager)
-        self.snapshot_repo = QuestionSnapshotRepository(db_manager)
+        self.experiment_repo = ExperimentRepository(db_manager.conn)
+        self.variant_repo = VariantRepository(db_manager.conn)
+        self.snapshot_repo = SnapshotRepository(db_manager.conn)
         logger.info("ExperimentManager initialized")
 
     def create_experiment(
         self,
         name: str,
-        questions_filter: list[str],
+        questions_spec: Optional[str] = None,
+        where_filters: Optional[list[str]] = None,
+        exclude_filters: Optional[list[str]] = None,
         seed: Optional[str | int] = None,
         description: Optional[str] = None,
     ) -> Experiment:
@@ -101,7 +132,9 @@ class ExperimentManager:
 
         Args:
             name: Unique experiment name.
-            questions_filter: List of question IDs or ranges to include.
+            questions_spec: Question position specification (e.g., "1-10", "1 5 10", None for all).
+            where_filters: List of inclusion filters (e.g., ["status=valid"]).
+            exclude_filters: List of exclusion filters (e.g., ["status=annulled"]).
             seed: Seed policy ('AUTO', integer, or None for no randomization).
             description: Optional description of the experiment.
 
@@ -115,34 +148,68 @@ class ExperimentManager:
             >>> manager = ExperimentManager(db_manager)
             >>> experiment = manager.create_experiment(
             ...     name="gpt4_vs_claude3",
-            ...     questions_filter=["Q001", "Q002", "Q003"],
+            ...     questions_spec="1-10",
+            ...     where_filters=["status=valid"],
             ...     seed="AUTO"
             ... )
             >>> print(experiment.experiment_id)
             exp-<uuid>
         """
-        # Check if experiment already exists
+        # === VALIDATION PHASE ===
+        
+        # 1. Empty experiment name
+        if not name or not name.strip():
+            raise ValueError("Experiment name cannot be empty")
+        
+        name = name.strip()
+        
+        # 2. Duplicate experiment name
         existing = self.experiment_repo.get_by_name(name)
         if existing:
             raise ValueError(f"Experiment '{name}' already exists")
+        
+        # 3. Validate filter syntax (before loading dataset)
+        if where_filters:
+            for f in where_filters:
+                try:
+                    self._parse_filter(f)
+                except ValueError as e:
+                    raise ValueError(f"Invalid --where filter '{f}': {e}")
+        
+        if exclude_filters:
+            for f in exclude_filters:
+                try:
+                    self._parse_filter(f)
+                except ValueError as e:
+                    raise ValueError(f"Invalid --exclude filter '{f}': {e}")
+        
+        # === END VALIDATION PHASE ===
 
         # Get settings for config hash
         settings = get_settings()
+
+        # Validate dataset path exists (7. Dataset existence)
+        if not settings.questionnaire_path.exists():
+            raise ValueError(f"Questions dataset not found at {settings.questionnaire_path}. Set QUESTIONS_DATASET_PATH in .env.")
+
+        # Generate experiment_id
+        import uuid
+        experiment_id = f"exp_{uuid.uuid4().hex[:8]}"
 
         # Create experiment with frozen configuration
         config_json = self._build_config_json(settings, seed)
         config_hash = self._build_config_hash(settings, seed)
 
         experiment = Experiment(
+            experiment_id=experiment_id,
             name=name,
             config_json=config_json,
             config_hash=config_hash,
             description=description or f"Experiment created on {datetime.now().isoformat()}",
-            system_prompt_template=settings.system_prompt,
-            user_prompt_template=settings.user_prompt_template,
         )
 
-        created = self.experiment_repo.create(experiment)
+        self.experiment_repo.save(experiment)
+        created = self.experiment_repo.get_by_id(experiment_id)
         logger.info(f"Created experiment: {created.name} (hash={config_hash})")
 
         # Create question snapshots
@@ -153,44 +220,109 @@ class ExperimentManager:
         # Step 1: Load ALL questions from JSON dataset (source of truth)
         loader = QuestionLoader(str(settings.questionnaire_path))
         all_questions = loader.load()
+        total_count = len(all_questions)
+        
+        # Validate dataset has questions (no placeholders)
+        if total_count == 0:
+            raise ValueError(f"Questions dataset is empty or contains no valid questions: {settings.questionnaire_path}")
 
-        # Step 2: Determine which questions to snapshot
-        if not questions_filter:
-            question_ids = [q.question_id for q in all_questions]
-            logger.info(f"No questions specified, using all {len(question_ids)} available questions from {settings.questionnaire_path}")
+        # Step 2: Assign internal IDs (positions) to questions
+        questions_with_positions = []
+        for idx, q in enumerate(all_questions, start=1):
+            questions_with_positions.append({
+                'internal_id': idx,
+                'question_id': q.question_id,
+                'stem': q.stem,
+                'options': json.loads(q.options_json),
+                'correct_answer': q.correct_answer,
+                'has_image': q.has_image,
+                'image_path': q.image_path,
+                'status': q.status,
+            })
+
+        # Step 3: Determine which positions to snapshot
+        if questions_spec is None:
+            # No specification - use all positions
+            positions = list(range(1, total_count + 1))
+            logger.info(f"No questions specified, using all {len(positions)} available questions")
         else:
-            question_ids = self._expand_question_filters(questions_filter)
-            logger.info(f"Using filtered questions: {question_ids}")
+            # Parse position specification
+            positions = self._parse_question_positions(questions_spec, total_count)
+            logger.info(f"Parsed question positions: {positions}")
 
-        # Step 3: Build question lookup from loaded data
-        question_lookup = {q.question_id: q for q in all_questions}
+        # Step 4: Apply filters
+        parsed_where = []
+        parsed_exclude = []
+        
+        if where_filters:
+            for f in where_filters:
+                parsed_where.append(self._parse_filter(f))
+        
+        if exclude_filters:
+            for f in exclude_filters:
+                parsed_exclude.append(self._parse_filter(f))
 
-        # Step 4: Create question snapshots
+        if parsed_where or parsed_exclude:
+            positions = self._filter_questions_by_position(
+                positions, questions_with_positions, parsed_where, parsed_exclude
+            )
+            logger.info(f"After filtering: {len(positions)} positions remain")
+            
+            # Validate that at least one question remains after filtering
+            if len(positions) == 0:
+                raise ValueError("No questions match the specified filters")
+
+        # Step 5: Build question lookup by position
+        question_lookup = {q['internal_id']: q for q in questions_with_positions}
+
+        # Step 6: Create question snapshots
         snapshots_created = 0
 
-        for question_id in question_ids:
-            question = question_lookup.get(question_id)
+        for position in positions:
+            question = question_lookup.get(position)
             if not question:
-                logger.warning(f"Question {question_id} not found in dataset, skipping")
+                logger.warning(f"Question at position {position} not found in dataset, skipping")
                 continue
 
             # Build question JSON for snapshot
-            question_json = self._build_question_json(question)
+            question_json = self._build_question_json_from_dict(question)
 
             # Create snapshot (idempotent - won't duplicate)
             self.snapshot_repo.create_if_not_exists(
                 experiment_id=created.experiment_id,
-                question_id=question_id,
+                question_id=question['question_id'],
                 question_payload=question_json,
+                question_position=position,  # Store numeric position
             )
             snapshots_created += 1
 
         logger.info(f"Created {snapshots_created} question snapshots for experiment {created.name}")
 
         # Display success message
-        self._show_experiment_creation_summary(created, question_ids, snapshots_created, seed)
+        self._show_experiment_creation_summary(created, positions, snapshots_created, seed)
 
         return created
+
+    def _build_question_json_from_dict(self, question: dict) -> str:
+        """Build question JSON for snapshot from dictionary.
+
+        Args:
+            question: Question dictionary with keys: question_id, stem, options, etc.
+
+        Returns:
+            JSON string representation of the question.
+        """
+        import json
+
+        return json.dumps({
+            "id": question['question_id'],
+            "stem": question['stem'],
+            "options": question['options'],
+            "correct_answer": question['correct_answer'],
+            "has_image": question['has_image'],
+            "image_path": question['image_path'],
+            "status": question['status'],
+        }, sort_keys=True, default=str)
 
     def add_questions_to_experiment(
         self,
@@ -488,7 +620,7 @@ class ExperimentManager:
             structured_enabled: Whether to enable structured outputs.
 
         Raises:
-            ValueError: If experiment not found.
+            ValueError: If experiment not found or invalid model/boolean values.
 
         Example:
             >>> manager.add_models_to_experiment(
@@ -497,6 +629,19 @@ class ExperimentManager:
             ...     reasoning_mode="auto"
             ... )
         """
+        # === VALIDATION PHASE ===
+        
+        # 4. Boolean value validation (vision/structured)
+        # Note: vision_enabled and structured_enabled are already bool type from argparse
+        # This validation is for programmatic calls or future CLI extensions
+        
+        # 5. Model ID format validation
+        for model_id in models:
+            if not self._validate_model_id(model_id):
+                raise ValueError(f"Invalid model ID format: {model_id}. Expected: provider/model-name (e.g., openai/gpt-4)")
+        
+        # === END VALIDATION PHASE ===
+        
         # Verify experiment exists
         experiment = self.experiment_repo.get_by_name(experiment_name)
         if not experiment:
@@ -912,6 +1057,230 @@ class ExperimentManager:
             border_style="green",
         ))
 
+    @staticmethod
+    def _parse_filter(filter_str: str) -> tuple[str, str]:
+        """Parse a filter string into field and value.
+
+        Args:
+            filter_str: Filter in format "field=value".
+
+        Returns:
+            Tuple of (field, value).
+
+        Raises:
+            ValueError: If filter format is invalid.
+        """
+        if '=' not in filter_str:
+            raise ValueError(f"Invalid filter format: {filter_str} (expected field=value)")
+
+        field, value = filter_str.split('=', 1)
+        return field.strip(), value.strip()
+
+    @staticmethod
+    def _get_nested_field(obj: dict, field_path: str) -> str | None:
+        """Get a nested field from a dictionary.
+
+        Supports three access patterns:
+        1. Direct field: obj['status']
+        2. Dot notation: obj['meta']['status'] for field_path='meta.status'
+        3. Recursive search: searches through nested dicts for field_path='status'
+
+        Args:
+            obj: Dictionary to search.
+            field_path: Field path (e.g., "status" or "meta.status").
+
+        Returns:
+            Field value as string, or None if not found.
+        """
+        if '.' in field_path:
+            parts = field_path.split('.')
+            current = obj
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return None
+            return str(current) if current is not None else None
+
+        if field_path in obj:
+            return str(obj[field_path]) if obj[field_path] is not None else None
+
+        for key, value in obj.items():
+            if key == field_path:
+                return str(value) if value is not None else None
+            if isinstance(value, dict):
+                result = ExperimentManager._get_nested_field(value, field_path)
+                if result is not None:
+                    return result
+
+        return None
+
+    @staticmethod
+    def _matches_filters(
+        question: dict,
+        include_filters: list[tuple[str, str]] | None = None,
+        exclude_filters: list[tuple[str, str]] | None = None,
+    ) -> bool:
+        """Check if a question matches the given filters.
+
+        Args:
+            question: Question data dictionary.
+            include_filters: List of (field, value) pairs for inclusion.
+            exclude_filters: List of (field, value) pairs for exclusion.
+
+        Returns:
+            True if question passes all filters, False otherwise.
+        """
+        if exclude_filters:
+            for field, value in exclude_filters:
+                if ExperimentManager._get_nested_field(question, field) == value:
+                    return False
+
+        if include_filters:
+            for field, value in include_filters:
+                if ExperimentManager._get_nested_field(question, field) != value:
+                    return False
+
+        return True
+
+    @staticmethod
+    def _filter_questions_by_position(
+        positions: list[int],
+        questions: list[dict],
+        include_filters: list[tuple[str, str]] | None = None,
+        exclude_filters: list[tuple[str, str]] | None = None,
+    ) -> list[int]:
+        """Filter question positions based on inclusion and exclusion criteria.
+
+        Args:
+            positions: List of question positions to filter.
+            questions: List of question data dictionaries (with internal_id/position).
+            include_filters: List of (field, value) pairs for inclusion.
+            exclude_filters: List of (field, value) pairs for exclusion.
+
+        Returns:
+            Filtered list of question positions.
+        """
+        # Build index by position
+        questions_index = {q.get('internal_id'): q for q in questions if q.get('internal_id') is not None}
+        
+        filtered = []
+        for pos in positions:
+            if pos not in questions_index:
+                continue
+            
+            question = questions_index[pos]
+            if ExperimentManager._matches_filters(question, include_filters, exclude_filters):
+                filtered.append(pos)
+        
+        return filtered
+
+    @staticmethod
+    def _parse_question_positions(spec: str, total_count: int) -> list[int]:
+        """Parse question position specification into list of positions.
+
+        Supports:
+        - Individual positions: "1", "5", "10"
+        - Ranges: "1-10" (positions 1 through 10)
+        - Comma-separated: "1, 3, 5"
+        - Mixed: "1, 3-5, 10"
+
+        Args:
+            spec: Position specification string.
+            total_count: Total number of questions in dataset (for range validation).
+
+        Returns:
+            List of validated positions (1-indexed).
+
+        Raises:
+            ValueError: If specification format is invalid.
+        """
+        positions = []
+        
+        # Split by comma first (handles "1, 3, 5" format)
+        parts = spec.split(',')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+                
+            if '-' in part and part.count('-') == 1:
+                # Range: 1-10
+                try:
+                    start, end = part.split('-')
+                    start_num = int(start.strip())
+                    end_num = int(end.strip())
+                    if start_num < 1 or end_num > total_count:
+                        raise ValueError(f"Range {start_num}-{end_num} out of bounds (1-{total_count})")
+                    if start_num > end_num:
+                        raise ValueError(f"Invalid range: start ({start_num}) > end ({end_num})")
+                    for num in range(start_num, end_num + 1):
+                        positions.append(num)
+                except ValueError as e:
+                    if "invalid literal" in str(e):
+                        raise ValueError(f"Invalid range format: {part} (expected start-end)")
+                    raise
+            else:
+                # Single number
+                try:
+                    num = int(part)
+                    if num < 1 or num > total_count:
+                        raise ValueError(f"Position {num} out of bounds (1-{total_count})")
+                    positions.append(num)
+                except ValueError as e:
+                    if "invalid literal" in str(e):
+                        raise ValueError(f"Invalid position format: {part} (expected integer)")
+                    raise
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_positions = []
+        for pos in positions:
+            if pos not in seen:
+                seen.add(pos)
+                unique_positions.append(pos)
+        
+        return unique_positions
+
+    @staticmethod
+    def _validate_bool_value(value: str | None) -> bool:
+        """Validate boolean CLI value.
+
+        Args:
+            value: String value to validate.
+
+        Returns:
+            True if valid (case-insensitive true/false/null), False otherwise.
+        """
+        if value is None:
+            return True
+        normalized = value.lower()
+        return normalized in ('true', 'false', 'null')
+
+    @staticmethod
+    def _validate_model_id(model_id: str) -> bool:
+        """Validate model ID format.
+
+        Args:
+            model_id: Model ID to validate.
+
+        Returns:
+            True if valid format (provider/model-name), False otherwise.
+        """
+        if not model_id or '/' not in model_id:
+            return False
+        
+        parts = model_id.split('/')
+        if len(parts) != 2:
+            return False
+        
+        provider, model = parts
+        if not provider.strip() or not model.strip():
+            return False
+        
+        return True
+
 
 class RunManager:
     """Handles run-related commands.
@@ -922,8 +1291,8 @@ class RunManager:
     Attributes:
         db_manager: DatabaseManager instance for database operations.
         run_repo: RunRepository for run CRUD.
-        run_model_repo: RunModelRepository for run-model associations.
         experiment_repo: ExperimentRepository for experiment access.
+        variant_repo: ModelVariantRepository for variant access.
 
     Example:
         >>> manager = RunManager(db_manager)
@@ -946,7 +1315,6 @@ class RunManager:
         """
         self.db_manager = db_manager
         self.run_repo = RunRepository(db_manager)
-        self.run_model_repo = RunModelRepository(db_manager)
         self.experiment_repo = ExperimentRepository(db_manager)
         self.variant_repo = ModelVariantRepository(db_manager)
         logger.info("RunManager initialized")
@@ -1052,82 +1420,21 @@ class RunManager:
     ) -> None:
         """Add model variants to an existing run.
 
-        This method allows adding new models to a run that has already been
-        created, enabling incremental benchmark execution.
-
-        Rules:
-        - Run must exist and be in 'running' status
-        - Seed, dataset, prompts are inherited from run (cannot change)
-        - Models are registered in run_models table with status 'pending'
-        - Existing responses are NOT re-executed
+        Note: This method is DEPRECATED in TO-BE architecture.
+        Run-model associations are no longer used.
+        Models are filtered at execution time via --models flag.
 
         Args:
             run_id: ID of the run to add models to.
             model_ids: List of model IDs to add.
-            reasoning_mode: Reasoning mode for variant identity.
-            reasoning_effort: Reasoning effort level.
-            reasoning_max_tokens: Maximum reasoning tokens.
-            vision_enabled: Whether vision is enabled.
-            structured_enabled: Whether structured outputs are enabled.
 
         Raises:
-            ValueError: If run doesn't exist or is not in 'running' status.
-
-        Example:
-            >>> manager.add_models_to_run(
-            ...     run_id="run-20260314-abc123",
-            ...     model_ids=["qwen/qwen-2.5", "meta/llama-3"]
-            ... )
+            NotImplementedError: Always raised - method is deprecated.
         """
-        # Verify run exists and is in 'running' status
-        run = self.run_repo.get_by_id(run_id)
-        if not run:
-            raise ValueError(f"Run {run_id} does not exist")
-
-        if run.status != "running":
-            raise ValueError(
-                f"Cannot add models to run {run_id}: status is '{run.status}', "
-                f"must be 'running'. Use --complete-run only after all models are done."
-            )
-
-        logger.info(f"Adding {len(model_ids)} models to run {run_id}")
-
-        added_variants = []
-
-        for model_id in model_ids:
-            # Register base model if needed
-            self._register_base_model(model_id)
-
-            # Create variant
-            variant = self._create_model_variant(
-                model_id=model_id,
-                reasoning_mode=reasoning_mode,
-                reasoning_effort=reasoning_effort,
-                reasoning_max_tokens=reasoning_max_tokens,
-                vision_enabled=vision_enabled,
-                structured_enabled=structured_enabled,
-            )
-
-            # Check if variant already associated with this run
-            existing = self.run_model_repo.get_by_run_and_variant(run_id, variant.variant_id)
-            if existing:
-                logger.warning(f"Model {model_id} (variant {variant.variant_id}) already in run {run_id}, skipping")
-                continue
-
-            # Create run-model association with status 'pending'
-            run_model = RunModel(
-                run_id=run_id,
-                variant_id=variant.variant_id,
-                status="pending",
-                added_at=datetime.now(),
-            )
-
-            self.run_model_repo.create(run_model)
-            added_variants.append(variant)
-            logger.info(f"Added model {model_id} (variant {variant.variant_id}) to run {run_id}")
-
-        # Display success message
-        self._show_models_added_to_run_summary(run_id, added_variants)
+        raise NotImplementedError(
+            "add_models_to_run is deprecated in TO-BE architecture. "
+            "Models are filtered at execution time via --models flag."
+        )
 
     def _determine_seed_value(self, seed: Optional[str | int]) -> tuple[Optional[int], str]:
         """Determine the seed value based on input.

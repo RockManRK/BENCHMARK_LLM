@@ -20,7 +20,8 @@ from src.cli.output_formatter import ConsoleFormatter, OutputFormatter, create_f
 from src.cli.statistics import StatisticsCalculator
 from src.core.randomizer import AnswerRandomizer
 from src.core.run_manager import RunManager
-from src.db.schema import DatabaseManager
+from src.core.config_resolver import ConfigResolver
+from src.cli.experiment_commands import DatabaseManager
 from src.utils.config import get_settings
 from src.utils.logging_config import LoggingConfig, setup_logging, log_initialization_summary
 from rich.console import Console
@@ -231,7 +232,7 @@ class BenchmarkRunner:
         """
         try:
             from src.db.repository import ResponseRepository
-            from src.db.schema import DatabaseManager
+            from src.cli.experiment_commands import DatabaseManager
             from src.utils.config import get_settings
             import json
 
@@ -384,7 +385,7 @@ class BenchmarkRunner:
         """
         try:
             from src.cli.experiment_commands import ExperimentManager
-            from src.utils.config_hierarchy import format_config_summary, resolve_with_feedback, ConfigSource
+            from src.utils.config_hierarchy import format_config_summary
 
             # Initialize database
             settings = get_settings()
@@ -396,67 +397,54 @@ class BenchmarkRunner:
 
             # Get arguments
             name = self.args.create_experiment
-            
-            # CRITICAL: Validate questions dataset path
-            # The JSON dataset is the SOURCE OF TRUTH for questions
-            if not settings.questions_dataset_path.exists():
-                console = Console()
-                console.print(f"[yellow]⚠ WARNING: Questions dataset not found at {settings.questions_dataset_path}[/yellow]")
-                console.print("[dim]Set QUESTIONS_DATASET_PATH in .env to specify the correct path.[/dim]")
-            
-            # Resolve questions with hierarchy: CLI > .env > default (all from JSON)
+
+            # Use ConfigResolver for .env resolution (authoritative source)
+            resolver = ConfigResolver()
+            env_dict = resolver.load_env()
+
+            # Resolve questions: CLI > .env (DEFAULT_QUESTIONS) > all from dataset
             cli_questions = self.args.questions if self.args.questions else None
             
-            # If CLI questions not provided, check for DEFAULT_QUESTIONS in .env
-            if cli_questions is None:
-                env_questions = settings.default_questions if hasattr(settings, 'default_questions') and settings.default_questions else None
+            if cli_questions:
+                # CLI takes precedence - use CLI value, ignore .env
+                questions_spec = ' '.join(cli_questions) if isinstance(cli_questions, list) else cli_questions
+                questions_msg = f"Questions: using CLI specification '{questions_spec}'"
             else:
-                env_questions = None
-                
-            default_questions = None  # None means "all questions from JSON"
-            
-            questions, questions_msg = resolve_with_feedback(
-                cli_value=cli_questions,
-                env_value=env_questions,
-                default_value=default_questions,
-                config_name="Questions",
-                cli_flag_name="--questions",
-            )
-            
-            # Convert questions string to list (handle ranges like "Q001-Q005")
-            if questions and isinstance(questions, str):
-                # Parse questions string (could be "Q001,Q002" or "Q001-Q005")
-                from src.cli.cli import CLIParser
-                parser = CLIParser()
-                questions = parser._expand_question_ranges([questions])
-            
-            # Convert None to empty list (means "all questions from JSON")
-            # This is the default behavior: use ALL questions from JSON if nothing specified
-            if questions is None:
-                questions = []
-                # Only show feedback if not already set by resolve_with_feedback
-                if questions_msg is None:
+                # Check .env for DEFAULT_QUESTIONS
+                env_questions = env_dict.get('DEFAULT_QUESTIONS')
+                if env_questions:
+                    questions_spec = env_questions
+                    questions_msg = f"Questions: using DEFAULT_QUESTIONS from .env '{env_questions}'"
+                else:
+                    questions_spec = None  # None means "all questions"
                     questions_msg = "Questions: using all available questions from dataset (default)"
-            
-            # Resolve seed with hierarchy: CLI > .env > default (None)
+
+            # Resolve seed: CLI > .env (RANDOM_SEED) > None
             cli_seed = self.args.seed if hasattr(self.args, 'seed') and self.args.seed else None
-            env_seed = settings.random_seed if hasattr(settings, 'random_seed') else None
-            default_seed = None
+            env_seed = env_dict.get('RANDOM_SEED')
             
-            seed, seed_msg = resolve_with_feedback(
-                cli_value=cli_seed,
-                env_value=env_seed,
-                default_value=default_seed,
-                config_name="Seed",
-                cli_flag_name="--seed",
-            )
-            
+            if cli_seed:
+                seed = cli_seed
+                seed_msg = f"Seed: using CLI specification '{cli_seed}'"
+            elif env_seed:
+                seed = env_seed
+                seed_msg = f"Seed: using RANDOM_SEED from .env '{env_seed}'"
+            else:
+                seed = None
+                seed_msg = "Seed: None (original order, no randomization)"
+
+            # Get filters from CLI
+            where_filters = getattr(self.args, 'where', []) or []
+            exclude_filters = getattr(self.args, 'exclude', []) or []
+
             description = self.args.description if hasattr(self.args, 'description') else None
 
-            # Create experiment
+            # Create experiment with ConfigResolver-based resolution
             exp_manager.create_experiment(
                 name=name,
-                questions_filter=questions,
+                questions_spec=questions_spec,  # Now accepts position spec (e.g., "1-10", "1 5 10")
+                where_filters=where_filters,
+                exclude_filters=exclude_filters,
                 seed=seed,
                 description=description,
             )
@@ -799,7 +787,7 @@ class BenchmarkRunner:
         """
         try:
             from src.db.repository import RunRepository, ResponseRepository
-            from src.db.schema import DatabaseManager
+            from src.cli.experiment_commands import DatabaseManager
             from rich.table import Table
 
             # Initialize database

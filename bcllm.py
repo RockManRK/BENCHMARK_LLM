@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""CLI entry point — dispatches exclusively to src."""
+"""CLI entry point — dispatches exclusively to src.
+
+After Phase 1 consolidation (create-experiment), all experiment commands
+now flow through bcllm_main (src/main.py → ExperimentManager).
+
+Standalone scripts removed:
+- bcllm_experiment.py (consolidated into main.py)
+"""
 import sys
 
 
@@ -13,7 +20,6 @@ def route_to_src(module_name: str) -> int:
         Exit code from the module (0 for success, 1 for error).
     """
     from src.cli import (
-        bcllm_experiment,
         bcllm_model,
         bcllm_questions,
         bcllm_run,
@@ -24,8 +30,6 @@ def route_to_src(module_name: str) -> int:
 
     if module_name == "bcllm_main":
         return bcllm_main.main()
-    elif module_name == "bcllm_experiment":
-        return bcllm_experiment.main()
     elif module_name == "bcllm_model":
         return bcllm_model.main()
     elif module_name == "bcllm_questions":
@@ -44,11 +48,15 @@ def route_to_src(module_name: str) -> int:
 def determine_command(argv: list[str]) -> str | None:
     """Determine which command to route to based on argv.
 
+    After Phase 1 consolidation:
+    - --create-experiment routes to bcllm_main (unified entry point)
+    - --experiment (show/list/remove) routes to bcllm_main
+    
     Args:
         argv: Command-line arguments (including script name).
 
     Returns:
-        Module name (e.g., "bcllm_experiment") or None (unknown command).
+        Module name (e.g., "bcllm_main") or None (unknown command).
     """
     args = argv[1:]
 
@@ -64,10 +72,10 @@ def determine_command(argv: list[str]) -> str | None:
     if "--execute" in args:
         return "bcllm_execute"
 
-    # Check for experiment creation with optional flags
-    # --create-experiment takes precedence when combined with --add-model or --add-questions
+    # === PHASE 1 CONSOLIDATED: All experiment commands → bcllm_main ===
+    # --create-experiment now flows through main.py → ExperimentManager
     if "--create-experiment" in args:
-        return "bcllm_experiment"
+        return "bcllm_main"
 
     # Check for model commands (require --experiment but take precedence)
     if "--add-model" in args or "--list-models" in args or "--remove-model" in args:
@@ -81,9 +89,9 @@ def determine_command(argv: list[str]) -> str | None:
     if "--add-run" in args or "--create-run" in args or "--list-runs" in args or "--run" in args or "--remove-run" in args:
         return "bcllm_run"
 
-    # Check for experiment commands (lowest priority)
+    # Check for experiment commands (show/list/remove) → bcllm_main
     if "--experiment" in args or "--list-experiments" in args or "--remove-experiment" in args:
-        return "bcllm_experiment"
+        return "bcllm_main"
 
     return None
 

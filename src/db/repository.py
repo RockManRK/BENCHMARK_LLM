@@ -309,6 +309,37 @@ class SnapshotRepository:
             return None
         return self._row_to_snapshot(row)
 
+    def create_if_not_exists(self, experiment_id: str, question_id: str, question_payload: str, question_position: int) -> str:
+        """Create snapshot if it doesn't exist, return snapshot_id.
+        
+        Args:
+            experiment_id: Experiment ID.
+            question_id: Question ID (json_question_id).
+            question_payload: JSON payload string.
+            question_position: Numeric position (1-indexed).
+            
+        Returns:
+            Snapshot ID (existing or newly created).
+        """
+        import uuid
+        
+        # Check if exists
+        existing = self.get_by_experiment_and_question(experiment_id, question_id)
+        if existing:
+            return existing.snapshot_id
+        
+        # Create new
+        snapshot_id = f"snap_{uuid.uuid4().hex[:8]}"
+        snapshot = QuestionSnapshot(
+            snapshot_id=snapshot_id,
+            experiment_id=experiment_id,
+            json_question_id=question_id,
+            question_position=question_position,
+            question_payload=question_payload,
+        )
+        self.save(snapshot)
+        return snapshot_id
+
     def list_by_experiment(self, experiment_id: str) -> list[QuestionSnapshot]:
         """List snapshots for an experiment."""
         cursor = self.conn.cursor()

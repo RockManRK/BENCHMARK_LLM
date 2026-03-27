@@ -11,10 +11,27 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from dataclasses import dataclass
 
-from src.db.models import Question
+from src.db.models import QuestionSnapshot
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Question:
+    """Question data class for loader output.
+    
+    This is an intermediate data structure used during loading
+    before converting to database models.
+    """
+    question_id: str
+    stem: str
+    options_json: str
+    correct_answer: str
+    has_image: bool
+    image_path: Optional[str]
+    status: str
 
 
 class MetaData(BaseModel):
@@ -154,11 +171,48 @@ class QuestionLoader:
         self.json_path = json_path
         self._validated_data: Optional[QuestionnaireSchema] = None
 
+    def _extract_questions(self, data: Any) -> list[dict]:
+        """Extract questions list from dataset structure.
+
+        Supports multiple dataset formats:
+        - Flat list: [question1, question2, ...]
+        - Wrapped: {"questions": [...]}
+        - Metadata + questions: {"dataset": {...}, "questions": [...]}
+
+        Args:
+            data: Parsed JSON data.
+
+        Returns:
+            List of question dictionaries.
+
+        Raises:
+            ValueError: If dataset format is not recognized.
+        """
+        if isinstance(data, list):
+            # Flat list format
+            return data
+        elif isinstance(data, dict):
+            # Wrapped format - look for 'questions' key
+            if 'questions' in data:
+                return data['questions']
+            else:
+                raise ValueError(
+                    "Invalid dataset format: expected list or dict with 'questions' key. "
+                    "Supported formats: [q1, q2, ...], {'questions': [...]}, or {'dataset': {...}, 'questions': [...]}"
+                )
+        else:
+            raise ValueError(f"Invalid dataset format: expected list or dict, got {type(data).__name__}")
+
     def load(self) -> list[Question]:
         """Load and validate the questionnaire from JSON file.
 
         Reads the JSON file, validates its structure using pydantic,
         and converts it to a list of Question objects.
+
+        Supports multiple dataset formats:
+        - Wrapped: {"dataset": {...}, "questions": [...]}
+        - Wrapped (no dataset): {"questions": [...]}
+        - Flat list: [question1, question2, ...]
 
         Returns:
             List of Question objects parsed from the JSON file.
@@ -191,8 +245,16 @@ class QuestionLoader:
             logger.error(f"Invalid JSON in {self.json_path}: {e}")
             raise ValueError(f"Invalid JSON format: {e}") from e
 
+        # Support multiple dataset formats
+        questions_data = self._extract_questions(data)
+
         try:
-            self._validated_data = QuestionnaireSchema(**data)
+            # Validate questions using pydantic
+            validated_questions = [QuestionSchema(**q) for q in questions_data]
+            self._validated_data = QuestionnaireSchema(
+                dataset=DatasetInfo(name="unknown", version="1.0", language="pt", source="file"),
+                questions=validated_questions
+            )
         except ValidationError as e:
             logger.error(f"Schema validation error: {e}")
             raise ValueError(f"Invalid questionnaire structure: {e}") from e

@@ -13,13 +13,43 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from src.db.models import Experiment, Model, ModelVariant, Run, RunModel
-from src.db.repository import ExperimentRepository, ModelRepository, ModelVariantRepository, RunModelRepository, RunRepository
-from src.db.schema import DatabaseManager
+from src.db.models import Experiment, ModelVariant, Run
+from src.db.repository import ExperimentRepository, VariantRepository, RunRepository
+from src.db.schema import create_schema
+from src.cli.database import get_database_connection
 from src.utils.config import Settings
 from src.core.variant_config import VariantConfig
 
 logger = logging.getLogger(__name__)
+
+
+class DatabaseManager:
+    """Simple database manager wrapper for backward compatibility."""
+    
+    def __init__(self, db_path):
+        """Initialize with database path."""
+        self.db_path = db_path
+        self.conn = None
+    
+    def initialize(self):
+        """Initialize database connection and schema."""
+        import sqlite3
+        from pathlib import Path
+        
+        db_path = Path(self.db_path)
+        if not db_path.is_absolute():
+            db_path = Path.cwd() / db_path
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        self.conn = sqlite3.connect(str(db_path))
+        self.conn.row_factory = sqlite3.Row
+        
+        create_schema(self.conn)
+    
+    def close(self):
+        """Close database connection."""
+        if self.conn:
+            self.conn.close()
 
 
 class RunManager:
@@ -57,11 +87,9 @@ class RunManager:
         """
         self.db_manager = db_manager
         self.settings = settings
-        self._run_repository = RunRepository(db_manager)
-        self._experiment_repository = ExperimentRepository(db_manager)
-        self._model_repository = ModelRepository(db_manager)
-        self._variant_repository = ModelVariantRepository(db_manager)
-        self._run_model_repository = RunModelRepository(db_manager)
+        self._run_repository = RunRepository(db_manager.conn)
+        self._experiment_repository = ExperimentRepository(db_manager.conn)
+        self._variant_repository = VariantRepository(db_manager.conn)
         self.current_run: Optional[Run] = None
         self.current_experiment: Optional[Experiment] = None
         logger.info("RunManager initialized")

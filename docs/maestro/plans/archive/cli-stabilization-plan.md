@@ -117,7 +117,6 @@
   ```
   --add-questions 1-4
   ```
-- Optional temporary support for `Q001-Q004`
 
 **Acceptance Criteria**
 - Internal IDs are stable regardless of dataset formatting

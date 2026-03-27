@@ -134,7 +134,7 @@ bcllm --experiment <nome> --add-questions
 ### Seed do experimento
 
 ```bash
-bcllm --experiment <nome> --seed <AUTO | vazio | número>
+bcllm --experiment <nome> --seed <AUTO | vazio | número | null>
 ```
 
 - `AUTO`: gera seed fixo por RUN
@@ -163,7 +163,8 @@ bcllm experiment <nome> --add-model <model_id>
 - `--top-k`
 - `--vision`
 - `--structured`
-- `--base-url`
+- `--url`
+- `--repeat_penalty`
 
 > **Nota**: O sistema pode aceitar `--add-models` como alias interno, mas o comando documentado e recomendado é `--add-model`.
 

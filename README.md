@@ -119,10 +119,10 @@ The `--add-questions` (or `--questions`) flag accepts question specifications in
 
 | Format | Example | Description |
 |--------|---------|-------------|
-| **Single ID** | `1` or `Q001` | Select single question |
-| **Comma-separated** | `"1, 3, 5"` or `"Q001,Q003,Q005"` | Select multiple specific questions |
-| **Range** | `"1-10"` or `"Q001-Q010"` | Select range of questions |
-| **Mixed** | `"1, 3-5, Q010"` | Combine formats |
+| **Single ID** | `1` | Select single question |
+| **Comma-separated** | `"1, 3, 5"` | Select multiple specific questions |
+| **Range** | `"1-10"` | Select range of questions |
+| **Mixed** | `"1, 3-5"` | Combine formats |
 
 **IMPORTANT: Quoting Requirement**
 

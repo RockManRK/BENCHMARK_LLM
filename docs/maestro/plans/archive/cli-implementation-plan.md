@@ -60,14 +60,14 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 4: Question Commands
 **Agent:** `coder`  
 **Dependencies:** Phase 1 complete  
-**Validation:** `python -m src_v2.cli.bcllm_questions --experiment test_exp --add-questions Q001-Q010`  
+**Validation:** `python -m src_v2.cli.bcllm_questions --experiment test_exp --add-questions 1-10`  
 **Files:**
 - Read: `src_v2/cli/bcllm_questions.py` - Current implementation
 - Modify: `src_v2/cli/bcllm_questions.py` - Add range and filter support
 
 **Work:**
-1. Implement range parsing: `Q001-Q050`
-2. Implement individual question list: `Q001 Q005 Q010`
+1. Implement range parsing: `1-50`
+2. Implement individual question list: `1 5 10`
 3. Add `--where` and `--exclude` filter support
 4. Ensure idempotent snapshotting
 
@@ -167,7 +167,7 @@ Phase 1 (Infrastructure)
 | 1 | `bcllm --experiment test --add-model stepfun/step-3.5-flash:free` | Success (colon accepted) |
 | 2 | `bcllm --experiment test --add-model openai/gpt-4 --structured` | Success (structured flag stored) |
 | 3 | `bcllm --create-experiment test_exp --seed AUTO` | Success (experiment created) |
-| 4 | `bcllm --experiment test_exp --add-questions Q001-Q010` | Success (10 questions snapshotted) |
+| 4 | `bcllm --experiment test_exp --add-questions 1-10` | Success (10 questions snapshotted) |
 | 5 | `bcllm --experiment test_exp --add-run` | Success (run created) |
 | 6 | `bcllm --experiment test_exp --execute` | Success (execution plan generated and executed) |
 | 7 | `bcllm --review-experiment test_exp` | Success (review UI launches) |

@@ -43,8 +43,9 @@ from src.core.config_resolver import (
     ConfigResolver,
 )
 
-from src.core.question_loader import (
+from src.core.loader import (
     QuestionLoader,
+    Question,
 )
 
 __all__ = [

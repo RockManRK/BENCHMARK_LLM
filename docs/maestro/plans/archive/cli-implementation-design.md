@@ -96,6 +96,6 @@ Implement a complete, stable CLI for the `bcllm` benchmark system following the 
 
 - `python -m src_v2.cli --create-experiment test_exp`
 - `python -m src_v2.cli --experiment test_exp --add-model google/gemini-3.1-flash-lite-preview`
-- `python -m src_v2.cli --experiment test_exp --add-questions Q001-Q010`
+- `python -m src_v2.cli --experiment test_exp --add-questions 1-10`
 - `python -m src_v2.cli --experiment test_exp --execute`
 - `python -m src_v2.cli --review-experiment test_exp`
