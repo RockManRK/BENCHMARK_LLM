@@ -227,7 +227,7 @@ def validate_filters(conn, experiment_id: str, run_id: str | None, question_ids:
     if question_ids:
         snapshot_repo = SnapshotRepository(conn)
         snapshots = snapshot_repo.list_by_experiment(experiment_id, active_only=True)
-        existing_question_ids = {s.question_id for s in snapshots}
+        existing_question_ids = {s.json_question_id for s in snapshots}
 
         for qid in question_ids:
             if qid not in existing_question_ids:

@@ -77,13 +77,13 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--system_prompt",
+        "--system-prompt",
         metavar="PROMPT",
         help="Custom system prompt (inherits from experiment if not specified)",
     )
 
     parser.add_argument(
-        "--user_prompt",
+        "--user-prompt",
         metavar="PROMPT",
         help="Custom user prompt (inherits from experiment if not specified)",
     )

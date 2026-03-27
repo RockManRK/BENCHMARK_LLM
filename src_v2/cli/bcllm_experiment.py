@@ -34,57 +34,13 @@ from src_v2.validators.model_id_validator import validate_model_id
 from src_v2.cli.bcllm_questions import parse_filter, filter_questions
 
 
-class DuplicateFlagWarningParser(argparse.ArgumentParser):
-    """ArgumentParser that warns on duplicate flag usage.
-    
-    When a flag is specified multiple times, warns and uses the last value.
-    """
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._raw_args = None
-    
-    def parse_args(self, args=None, namespace=None):
-        import sys
-        raw_args = sys.argv[1:] if args is None else args
-        self._raw_args = raw_args
-        
-        warnings = self._check_duplicate_flags(raw_args)
-        for warning in warnings:
-            print(warning, file=sys.stderr)
-        
-        return super().parse_args(args, namespace)
-    
-    def _check_duplicate_flags(self, args):
-        """Check for duplicate flags and return warning messages."""
-        warnings = []
-        seen = {}
-        
-        i = 0
-        while i < len(args):
-            arg = args[i]
-            if arg.startswith('--'):
-                if '=' in arg:
-                    flag = arg.split('=', 1)[0]
-                else:
-                    flag = arg
-                
-                if flag in seen:
-                    warnings.append(f"Warning: {flag} specified multiple times, using last value")
-                else:
-                    seen[flag] = True
-            i += 1
-        
-        return warnings
-
-
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for experiment commands.
 
     Returns:
         ArgumentParser configured with all experiment commands.
     """
-    parser = DuplicateFlagWarningParser(
+    parser = argparse.ArgumentParser(
         prog="bcllm_experiment.py",
         description="Experiment lifecycle management",
     )
@@ -124,12 +80,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Set experiment seed (AUTO, empty, or number)",
     )
     parser.add_argument(
-        "--system_prompt",
+        "--system-prompt",
         metavar="PROMPT",
         help="Custom system prompt (run default)",
     )
     parser.add_argument(
-        "--user_prompt",
+        "--user-prompt",
         metavar="PROMPT",
         help="Custom user prompt (run default)",
     )
@@ -139,13 +95,13 @@ def create_parser() -> argparse.ArgumentParser:
         help="Base URL for model API (model default)",
     )
     parser.add_argument(
-        "--max_reasoning",
+        "--max-reasoning",
         metavar="TOKENS",
         type=int,
         help="Max tokens for reasoning (model default)",
     )
     parser.add_argument(
-        "--max_tokens",
+        "--max-tokens",
         metavar="TOKENS",
         type=int,
         help="Max total tokens (model default)",
@@ -156,7 +112,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Reasoning effort level (model default)",
     )
     parser.add_argument(
-        "--repeat_penalty",
+        "--repeat-penalty",
         metavar="VALUE",
         type=float,
         help="Repeat penalty (model default)",
@@ -168,13 +124,13 @@ def create_parser() -> argparse.ArgumentParser:
         help="Temperature (model default)",
     )
     parser.add_argument(
-        "--top_k",
+        "--top-k",
         metavar="VALUE",
         type=int,
         help="Top-K sampling (model default)",
     )
     parser.add_argument(
-        "--top_p",
+        "--top-p",
         metavar="VALUE",
         type=float,
         help="Top-P sampling (model default)",
@@ -201,33 +157,28 @@ def create_parser() -> argparse.ArgumentParser:
         "--add-model",
         action="append",
         metavar="MODEL_ID",
-        dest="add_models",
         help="Add model variant at creation time (can be used multiple times)",
     )
     parser.add_argument(
         "--add-questions",
         metavar="SPEC",
-        dest="add_questions",
         help="Add questions at creation time. Format: \"1, 3, 5\" (comma-separated), \"1-10\" (range), or \"1, 3-5, Q010\" (mixed). Quote arguments with spaces.",
     )
     parser.add_argument(
         "--questions",
         metavar="SPEC",
-        dest="add_questions",
         help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
     )
     parser.add_argument(
         "--where",
         metavar="FILTER",
         action="append",
-        dest="where_filters",
         help="Include filter for questions (format: field=value, e.g., status=valid)",
     )
     parser.add_argument(
         "--exclude",
         metavar="FILTER",
         action="append",
-        dest="exclude_filters",
         help="Exclude filter for questions (format: field=value, e.g., status=annulled)",
     )
 
@@ -326,8 +277,8 @@ def handle_create_experiment(args, conn) -> int:
     repo.save(experiment)
     print(f"✓ Experiment '{experiment.name}' created (ID: {experiment.experiment_id})")
 
-    if args.add_models:
-        exit_code = _add_models_at_creation(args.add_models, experiment, conn, resolver)
+    if args.add_model:
+        exit_code = _add_models_at_creation(args.add_model, experiment, conn, resolver)
         if exit_code != 0:
             return exit_code
 
@@ -462,8 +413,8 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     include_filters = []
     exclude_filters = []
 
-    if args.where_filters:
-        for filter_str in args.where_filters:
+    if args.where:
+        for filter_str in args.where:
             try:
                 include_filters.append(parse_filter(filter_str))
             except ValueError as e:
@@ -478,8 +429,8 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
                 print(f"Error: Invalid QUESTIONS_STATUS_ADD filter: {e}", file=sys.stderr)
                 return 1
 
-    if args.exclude_filters:
-        for filter_str in args.exclude_filters:
+    if args.exclude:
+        for filter_str in args.exclude:
             try:
                 exclude_filters.append(parse_filter(filter_str))
             except ValueError as e:

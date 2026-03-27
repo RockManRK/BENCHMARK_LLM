@@ -37,18 +37,22 @@ def get_database_path() -> Path:
 
 def get_database_connection() -> sqlite3.Connection:
     """Get connection to persistent database with schema initialized.
-    
+
     Returns:
         SQLite connection to persistent database with row_factory set.
-        
+
     Note:
         Schema is created idempotently - safe to call on existing database.
         Caller is responsible for closing the connection.
+        Foreign keys are enabled for CASCADE delete support.
     """
     db_path = get_database_path()
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     
+    # Enable foreign keys for CASCADE delete
+    conn.execute("PRAGMA foreign_keys = ON")
+
     create_schema(conn)
-    
+
     return conn

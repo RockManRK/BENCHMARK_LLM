@@ -80,14 +80,12 @@ def create_parser() -> argparse.ArgumentParser:
         "--max-reasoning",
         type=int,
         metavar="N",
-        dest="max_reasoning",
         help="MODEL_MAX_TOKENS_REASONING - Maximum reasoning tokens",
     )
     parser.add_argument(
         "--max-tokens",
         type=int,
         metavar="N",
-        dest="max_tokens",
         help="MODEL_MAX_TOKENS_TOTAL - Maximum total tokens",
     )
     parser.add_argument(
@@ -99,7 +97,6 @@ def create_parser() -> argparse.ArgumentParser:
         "--repeat-penalty",
         type=float,
         metavar="N",
-        dest="repeat_penalty",
         help="MODEL_REPEAT_PENALTY - Repetition penalty",
     )
     parser.add_argument(
@@ -112,21 +109,18 @@ def create_parser() -> argparse.ArgumentParser:
         "--top-k",
         type=int,
         metavar="N",
-        dest="top_k",
         help="MODEL_TOP_K - Top-K sampling",
     )
     parser.add_argument(
         "--top-p",
         type=float,
         metavar="N",
-        dest="top_p",
         help="MODEL_TOP_P - Top-P sampling",
     )
     parser.add_argument(
         "--reasoning-tokens",
         type=int,
         metavar="N",
-        dest="reasoning_tokens",
         help="MODEL_MAX_TOKENS_REASONING - Maximum reasoning tokens",
     )
     parser.add_argument(

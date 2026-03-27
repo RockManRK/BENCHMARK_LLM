@@ -40,7 +40,7 @@ def get_schema_sql() -> str:
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS model_variants (
         variant_id        TEXT PRIMARY KEY,
-        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
+        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id) ON DELETE CASCADE,
         model_id          TEXT NOT NULL,
         variant_signature TEXT NOT NULL,
         config            TEXT NOT NULL,
@@ -56,7 +56,7 @@ def get_schema_sql() -> str:
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS question_snapshots (
         snapshot_id       TEXT PRIMARY KEY,
-        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
+        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id) ON DELETE CASCADE,
         json_question_id  TEXT NOT NULL,
         question_position INTEGER NOT NULL,
         question_payload  TEXT NOT NULL,
@@ -72,7 +72,7 @@ def get_schema_sql() -> str:
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS runs (
         run_id            TEXT PRIMARY KEY,
-        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id),
+        experiment_id     TEXT NOT NULL REFERENCES experiments(experiment_id) ON DELETE CASCADE,
         config            TEXT NOT NULL,
         status            TEXT NOT NULL DEFAULT 'pending',
         duration          INTEGER DEFAULT 0,

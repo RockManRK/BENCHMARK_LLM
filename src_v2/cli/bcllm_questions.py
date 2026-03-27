@@ -53,13 +53,11 @@ def create_parser() -> argparse.ArgumentParser:
     group.add_argument(
         "--add-questions",
         metavar="SPEC",
-        dest="add_questions",
         help="Add questions. Format: \"1, 3, 5\" (comma-separated), \"1-10\" (range), or \"1, 3-5, Q010\" (mixed). Quote arguments with spaces.",
     )
     group.add_argument(
         "--questions",
         metavar="SPEC",
-        dest="add_questions",
         help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
     )
     group.add_argument(
@@ -436,7 +434,7 @@ def handle_list_questions(args, conn) -> int:
         payload = json.loads(s.question_payload)
         stem = payload.get('stem', '')
         stem_display = stem[:47] + '...' if len(stem) > 50 else stem
-        print(f"{s.snapshot_id:<15} {s.question_id:<15} {stem_display:<50}")
+        print(f"{s.snapshot_id:<15} {s.json_question_id:<15} {stem_display:<50}")
 
     return 0
 
@@ -469,7 +467,7 @@ def handle_remove_question(args, conn) -> int:
         return 1
 
     snap_repo.delete(snapshot.snapshot_id)
-    print(f"✓ Question '{snapshot.question_id}' removed from '{experiment.name}'")
+    print(f"✓ Question '{snapshot.json_question_id}' removed from '{experiment.name}'")
     return 0
 
 
