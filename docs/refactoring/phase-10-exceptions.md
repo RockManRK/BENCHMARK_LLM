@@ -7,7 +7,7 @@
 
 ## Documented Exceptions
 
-### src_v2/db/repository.py (735 lines)
+### src/db/repository.py (735 lines)
 
 **Exception Type**: File size limit (target: 300 lines)
 
@@ -16,7 +16,7 @@ This file contains 6 repositories (Experiment, Variant, Snapshot, Run, Response,
 
 1. **Consistency**: All repositories follow identical CRUD patterns with the same structure
 2. **Reduced duplication**: Splitting would create 6 files of ~120 lines each with ~40% boilerplate overhead (connection handling, row-to-model conversion)
-3. **Import simplicity**: Single import point (`from src_v2.db.repository import XRepository`)
+3. **Import simplicity**: Single import point (`from src.db.repository import XRepository`)
 4. **Schema cohesion**: All repositories share the same database connection and schema
 5. **Maintainability**: Schema changes require updates in one location, not six
 
@@ -33,7 +33,7 @@ Each repository is clearly separated with section headers and is independent:
 
 ---
 
-### src_v2/core/answer_parser.py — parse() method (60 lines)
+### src/core/answer_parser.py — parse() method (60 lines)
 
 **Exception Type**: Function size limit (target: 50 lines)
 
@@ -50,7 +50,7 @@ This is a **cohesive algorithm** — the logic flows naturally from most-specifi
 
 ---
 
-### src_v2/core/execution_engine.py — _execute_item() method (95 lines)
+### src/core/execution_engine.py — _execute_item() method (95 lines)
 
 **Exception Type**: Function size limit (target: 50 lines)
 
@@ -68,7 +68,7 @@ The function has a single responsibility: execute one item and return a result. 
 
 ---
 
-### src_v2/core/planner.py — build_plan() method (50 lines)
+### src/core/planner.py — build_plan() method (50 lines)
 
 **Exception Type**: Function size limit (target: 50 lines)
 
@@ -90,22 +90,22 @@ The function is at the target limit (50 lines) and is cohesive orchestration.
 
 | File | Lines | Status |
 |------|-------|--------|
-| src_v2/cli/bcllm_experiment.py | 218 | ✅ Pass |
-| src_v2/cli/bcllm_model.py | 268 | ✅ Pass |
-| src_v2/cli/bcllm_questions.py | 299 | ✅ Pass |
-| src_v2/cli/bcllm_run.py | 240 | ✅ Pass |
-| src_v2/cli/bcllm_execute.py | 177 | ✅ Pass |
-| src_v2/core/execution_plan.py | 271 | ✅ Pass |
-| src_v2/core/randomizer.py | 130 | ✅ Pass |
-| src_v2/api/client.py | 250 | ✅ Pass |
-| src_v2/api/errors.py | 200 | ✅ Pass |
-| src_v2/api/retry.py | 130 | ✅ Pass |
+| src/cli/bcllm_experiment.py | 218 | ✅ Pass |
+| src/cli/bcllm_model.py | 268 | ✅ Pass |
+| src/cli/bcllm_questions.py | 299 | ✅ Pass |
+| src/cli/bcllm_run.py | 240 | ✅ Pass |
+| src/cli/bcllm_execute.py | 177 | ✅ Pass |
+| src/core/execution_plan.py | 271 | ✅ Pass |
+| src/core/randomizer.py | 130 | ✅ Pass |
+| src/api/client.py | 250 | ✅ Pass |
+| src/api/errors.py | 200 | ✅ Pass |
+| src/api/retry.py | 130 | ✅ Pass |
 
 ---
 
 ## Refactoring Applied
 
-### src_v2/core/result_writer.py
+### src/core/result_writer.py
 
 **Before**: 363 lines
 **After**: 416 lines
@@ -157,11 +157,11 @@ The function is at the target limit (50 lines) and is cohesive orchestration.
 
 | File | Lines | Change | Status |
 |------|-------|--------|--------|
-| src_v2/db/repository.py | 735 | — | ✅ Exception documented |
-| src_v2/core/answer_parser.py | 200 | — | ✅ Exception documented |
-| src_v2/core/execution_engine.py | 450 | — | ✅ Exception documented |
-| src_v2/core/planner.py | 280 | — | ✅ Exception documented |
-| src_v2/core/result_writer.py | 416 | +53 (docstrings) | ✅ Refactored |
+| src/db/repository.py | 735 | — | ✅ Exception documented |
+| src/core/answer_parser.py | 200 | — | ✅ Exception documented |
+| src/core/execution_engine.py | 450 | — | ✅ Exception documented |
+| src/core/planner.py | 280 | — | ✅ Exception documented |
+| src/core/result_writer.py | 416 | +53 (docstrings) | ✅ Refactored |
 
 ---
 

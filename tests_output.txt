@@ -252,7 +252,7 @@ D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\unit\db\test_repository.py:371
 E   AttributeError: 'RunRepository' object has no attribute 'list_pending'
 D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\unit\db\test_repository.py:402: AttributeError: 'RunRepository' object has no attribute 'list_pending'
 E   sqlite3.IntegrityError: NOT NULL constraint failed: errors.model_id
-D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\db\repository.py:677: sqlite3.IntegrityError: NOT NULL constraint failed: errors.model_id
+D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\db\repository.py:677: sqlite3.IntegrityError: NOT NULL constraint failed: errors.model_id
 =========================== short test summary info ===========================
 FAILED tests/unit/cli/test_bcllm_execute.py::test_execute_with_api_error - assert 0 == 1
 FAILED tests/unit/core/test_planner.py::test_planner_validates_has_models - sqlite3.IntegrityError: NOT NULL constraint failed: experiments.config_json

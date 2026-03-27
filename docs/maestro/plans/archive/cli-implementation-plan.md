@@ -15,10 +15,10 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 1: CLI Infrastructure Fixes
 **Agent:** `refactor`  
 **Dependencies:** None  
-**Validation:** `python -m src_v2.cli.bcllm_model --experiment test --add-model google/gemini-3.1-flash-lite-preview`  
+**Validation:** `python -m src.cli.bcllm_model --experiment test --add-model google/gemini-3.1-flash-lite-preview`  
 **Files:**
-- Modify: `src_v2/cli/bcllm_model.py` - Relax model ID validation
-- Create: `src_v2/validators/model_id_validator.py` - Dedicated validator module
+- Modify: `src/cli/bcllm_model.py` - Relax model ID validation
+- Create: `src/validators/model_id_validator.py` - Dedicated validator module
 
 **Work:**
 1. Replace restrictive regex with permissive `provider/model_id` format check
@@ -33,8 +33,8 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 **Validation:** Compare legacy vs v2 structured behavior  
 **Files:**
 - Read: `src/api/client.py` (lines 188-239) for reference
-- Create: `src_v2/api/structured_output.py` - Structured output handler
-- Modify: `src_v2/cli/bcllm_model.py` - Add `--structured` flag support
+- Create: `src/api/structured_output.py` - Structured output handler
+- Modify: `src/cli/bcllm_model.py` - Add `--structured` flag support
 
 **Work:**
 1. Inspect legacy `response_format` implementation in `src/api/client.py`
@@ -46,9 +46,9 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 3: Experiment Commands
 **Agent:** `coder`  
 **Dependencies:** Phase 1 complete  
-**Validation:** `python -m src_v2.cli.bcllm_experiment --create-experiment test_exp`  
+**Validation:** `python -m src.cli.bcllm_experiment --create-experiment test_exp`  
 **Files:**
-- Modify: `src_v2/cli/bcllm_experiment.py` - Add optional flags support
+- Modify: `src/cli/bcllm_experiment.py` - Add optional flags support
 
 **Work:**
 1. Add optional flags to `--create-experiment`: `--add-questions`, `--seed`, `--add-model`, `--system_prompt`, `--user_prompt`, `--retry_policy`
@@ -60,10 +60,10 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 4: Question Commands
 **Agent:** `coder`  
 **Dependencies:** Phase 1 complete  
-**Validation:** `python -m src_v2.cli.bcllm_questions --experiment test_exp --add-questions 1-10`  
+**Validation:** `python -m src.cli.bcllm_questions --experiment test_exp --add-questions 1-10`  
 **Files:**
-- Read: `src_v2/cli/bcllm_questions.py` - Current implementation
-- Modify: `src_v2/cli/bcllm_questions.py` - Add range and filter support
+- Read: `src/cli/bcllm_questions.py` - Current implementation
+- Modify: `src/cli/bcllm_questions.py` - Add range and filter support
 
 **Work:**
 1. Implement range parsing: `1-50`
@@ -76,10 +76,10 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 5: Run Commands
 **Agent:** `coder`  
 **Dependencies:** Phase 1 complete  
-**Validation:** `python -m src_v2.cli.bcllm_run --experiment test_exp --add-run`  
+**Validation:** `python -m src.cli.bcllm_run --experiment test_exp --add-run`  
 **Files:**
-- Read: `src_v2/cli/bcllm_run.py` - Current implementation
-- Modify: `src_v2/cli/bcllm_run.py` - Full CRUD support
+- Read: `src/cli/bcllm_run.py` - Current implementation
+- Modify: `src/cli/bcllm_run.py` - Full CRUD support
 
 **Work:**
 1. Implement `--add-run` with optional `--seed`, `--system_prompt`, `--user_prompt`
@@ -92,11 +92,11 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 6: Execute Command
 **Agent:** `coder`  
 **Dependencies:** Phases 3-5 complete  
-**Validation:** `python -m src_v2.cli.bcllm_execute --experiment test_exp --execute`  
+**Validation:** `python -m src.cli.bcllm_execute --experiment test_exp --execute`  
 **Files:**
-- Read: `src_v2/cli/bcllm_execute.py` - Current implementation
-- Read: `src_v2/core/planner.py` - Execution plan generation
-- Modify: `src_v2/cli/bcllm_execute.py` - Add filters and retry policy
+- Read: `src/cli/bcllm_execute.py` - Current implementation
+- Read: `src/core/planner.py` - Execution plan generation
+- Modify: `src/cli/bcllm_execute.py` - Add filters and retry policy
 
 **Work:**
 1. Add `--run`, `--questions`, `--models`, `--retry_policy` filters
@@ -109,10 +109,10 @@ Implement and stabilize the bcllm CLI per the TO-BE specification (`docs/archite
 ### Phase 7: Manual Review Interface
 **Agent:** `coder`  
 **Dependencies:** Phase 6 complete  
-**Validation:** `python -m src_v2.cli.bcllm_review --experiment test_exp`  
+**Validation:** `python -m src.cli.bcllm_review --experiment test_exp`  
 **Files:**
 - Read: `src/cli/review_ui.py` - Legacy reference
-- Create: `src_v2/review/review_ui.py` - Manual review interface
+- Create: `src/review/review_ui.py` - Manual review interface
 
 **Work:**
 1. Implement keyboard navigation interface

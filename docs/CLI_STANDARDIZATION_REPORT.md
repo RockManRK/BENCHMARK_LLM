@@ -28,8 +28,8 @@ Removed 3 transient keys from `experiment.config_json` persistence:
 - **Config keys reduced**: 17 → 14
 - **Behavior**: Transient configs still work via `.env`, but not persisted
 - **Files modified**: 
-  - `src_v2/core/config_resolver.py`
-  - `src_v2/cli/bcllm_experiment.py`
+  - `src/core/config_resolver.py`
+  - `src/cli/bcllm_experiment.py`
 
 ### Validation
 ```bash
@@ -142,7 +142,7 @@ python bcllm.py --experiment integration_test --execute
 |------|---------|
 | `README.md` | Updated config key counts (18→14), added transient config note, updated key lists |
 | `docs/architecture/to-be/comandos_simples.md` | Complete rewrite v2.0 with quoting requirements, boolean values, standardized flags |
-| `src_v2/cli/*.py` | Help strings updated with format examples, valid values, case-insensitivity notes |
+| `src/cli/*.py` | Help strings updated with format examples, valid values, case-insensitivity notes |
 
 ### Key Documentation Added
 
@@ -178,11 +178,11 @@ python bcllm.py --experiment integration_test --execute
 
 | File | Lines Changed | Purpose |
 |------|---------------|---------|
-| `src_v2/core/config_resolver.py` | ~30 lines | Remove transient keys, update config building |
-| `src_v2/cli/bcllm_experiment.py` | ~50 lines | Standardize flags, add transient `.env` reading |
-| `src_v2/cli/bcllm_run.py` | ~10 lines | Standardize flag names |
-| `src_v2/cli/bcllm_model.py` | ~5 lines | Help string updates |
-| `src_v2/cli/bcllm_execute.py` | ~20 lines | Enhanced error handling |
+| `src/core/config_resolver.py` | ~30 lines | Remove transient keys, update config building |
+| `src/cli/bcllm_experiment.py` | ~50 lines | Standardize flags, add transient `.env` reading |
+| `src/cli/bcllm_run.py` | ~10 lines | Standardize flag names |
+| `src/cli/bcllm_model.py` | ~5 lines | Help string updates |
+| `src/cli/bcllm_execute.py` | ~20 lines | Enhanced error handling |
 | `README.md` | ~30 lines | Config key documentation |
 | `docs/architecture/to-be/comandos_simples.md` | ~200 lines | Complete rewrite |
 

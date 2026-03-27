@@ -11,7 +11,7 @@ Key Principles:
 
 Example:
     >>> import sqlite3
-    >>> from src_v2.core.result_writer import ResultWriter
+    >>> from src.core.result_writer import ResultWriter
     >>>
     >>> conn = sqlite3.connect(':memory:')
     >>> writer = ResultWriter(conn)
@@ -23,7 +23,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Literal
 
-from src_v2.core.execution_engine import ExecutionResult
+from src.core.execution_engine import ExecutionResult
 
 
 @dataclass

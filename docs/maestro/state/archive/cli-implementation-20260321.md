@@ -29,12 +29,12 @@ phases:
     completed: '2026-03-22T03:49:00.196Z'
     blocked_by: []
     files_created:
-      - src_v2/validators/model_id_validator.py
-      - src_v2/validators/__init__.py
+      - src/validators/model_id_validator.py
+      - src/validators/__init__.py
       - tests/unit/validators/test_model_id_validator.py
       - tests/unit/validators/__init__.py
     files_modified:
-      - src_v2/cli/bcllm_model.py
+      - src/cli/bcllm_model.py
       - tests/unit/cli/test_bcllm_model.py
     files_deleted: []
     downstream_context:
@@ -56,8 +56,8 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - src_v2/api/client.py
-      - src_v2/core/execution_engine.py
+      - src/api/client.py
+      - src/core/execution_engine.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -78,7 +78,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - src_v2/cli/bcllm_experiment.py
+      - src/cli/bcllm_experiment.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -99,7 +99,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - src_v2/cli/bcllm_questions.py
+      - src/cli/bcllm_questions.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -120,9 +120,9 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - src_v2/cli/bcllm_run.py
-      - src_v2/db/schema.py
-      - src_v2/db/repository.py
+      - src/cli/bcllm_run.py
+      - src/db/schema.py
+      - src/db/repository.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -144,8 +144,8 @@ phases:
     files_created:
       - tests/test_bcllm_execute.py
     files_modified:
-      - src_v2/cli/bcllm_execute.py
-      - src_v2/core/planner.py
+      - src/cli/bcllm_execute.py
+      - src/core/planner.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -165,9 +165,9 @@ phases:
     completed: '2026-03-22T04:45:47.026Z'
     blocked_by: []
     files_created:
-      - src_v2/review/__init__.py
-      - src_v2/review/review_ui.py
-      - src_v2/cli/bcllm_review.py
+      - src/review/__init__.py
+      - src/review/review_ui.py
+      - src/cli/bcllm_review.py
       - tests/unit/review/__init__.py
       - tests/unit/review/test_review_ui.py
       - docs/review-interface.md

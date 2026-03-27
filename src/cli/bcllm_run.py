@@ -24,9 +24,9 @@ import json
 import sys
 import uuid
 
-from src_v2.cli.database import get_database_connection
-from src_v2.db.models import Run
-from src_v2.db.repository import ExperimentRepository, RunRepository
+from src.cli.database import get_database_connection
+from src.db.models import Run
+from src.db.repository import ExperimentRepository, RunRepository
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -113,7 +113,7 @@ def handle_add_run(args, conn) -> int:
         - Experiment must have at least one active model variant
         - Experiment must have at least one active question snapshot
     """
-    from src_v2.core.config_resolver import ConfigResolver
+    from src.core.config_resolver import ConfigResolver
 
     exp_repo = ExperimentRepository(conn)
     run_repo = RunRepository(conn)

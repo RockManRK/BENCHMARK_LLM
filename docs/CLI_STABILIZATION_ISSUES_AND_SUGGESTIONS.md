@@ -25,18 +25,18 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### C1. Hardcoded Prompts em `bcllm_experiment.py`
 **Checkpoint:** A  
-**Arquivo:** `src_v2/cli/bcllm_experiment.py` (linhas 173-174)  
+**Arquivo:** `src/cli/bcllm_experiment.py` (linhas 173-174)  
 **Problema:** Prompts hardcoded `"You are a helpful assistant."` e `"Answer the following question."`  
 **Impacto:** Viola princípio null-by-default; mascara falhas de configuração  
 **Correção:** Implementado `ConfigResolver` com resolução `CLI > .env > NULL`  
 **Status:** ✅ Corrigido  
-**Arquivo:** `src_v2/core/config_resolver.py`
+**Arquivo:** `src/core/config_resolver.py`
 
 ---
 
 ### C2. Config JSON Vazio Mesmo com Defaults
 **Checkpoint:** A  
-**Arquivo:** `src_v2/cli/bcllm_experiment.py`  
+**Arquivo:** `src/cli/bcllm_experiment.py`  
 **Problema:** `config_json = "{}"` mesmo quando defaults existem  
 **Impacto:** Impossível auditar configuração real do experimento  
 **Correção:** `ConfigResolver.resolve_config_dict()` inclui todos os valores resolvidos  
@@ -56,7 +56,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### C4. Planner Lendo Colunas Deprecadas
 **Checkpoint:** D  
-**Arquivo:** `src_v2/core/planner.py` (linhas 384-388)  
+**Arquivo:** `src/core/planner.py` (linhas 384-388)  
 **Problema:** `_build_model_config()` lia `vision_enabled`, `structured_output`, `reasoning_mode` diretamente do DB  
 **Impacto:** `KeyError` em runtime — colunas não existem no schema novo  
 **Correção:** Parser agora lê coluna `config` (JSON) e extrai valores  
@@ -68,7 +68,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### M1. Fallback Payload com Placeholder em `bcllm_questions.py`
 **Checkpoint:** B  
-**Arquivo:** `src_v2/cli/bcllm_questions.py` (linhas 370-375)  
+**Arquivo:** `src/cli/bcllm_questions.py` (linhas 370-375)  
 **Problema:** Criava payload placeholder quando ID da questão não encontrado  
 **Impacto:** Dados inválidos no banco; viola princípio "fail loudly"  
 **Correção:** Retorna erro e exit code 1 quando ID não existe  
@@ -88,7 +88,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### M3. Schema Migration Incompleta
 **Checkpoint:** D  
-**Arquivo:** `src_v2/db/schema.py`  
+**Arquivo:** `src/db/schema.py`  
 **Problema:** Coluna `config` adicionada, mas código legado ainda referenciava colunas antigas  
 **Impacto:** Inconsistência entre schema e código  
 **Correção:** Atualizados `planner.py`, `bcllm_model.py`, `bcllm_experiment.py`  
@@ -110,7 +110,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m1. Docstring Examples com Hardcoded Prompts
 **Checkpoint:** A  
-**Arquivo:** `src_v2/core/execution_plan.py` (linhas 34, 124, 129)  
+**Arquivo:** `src/core/execution_plan.py` (linhas 34, 124, 129)  
 **Problema:** Examples em docstrings mostram prompts hardcoded  
 **Impacto:** Baixo — documentação apenas, não código executável  
 **Mitigação:** Atualizado para `system=None` com comentários explicativos  
@@ -120,7 +120,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m2. `load_env()` Carrega Todas Environment Variables
 **Checkpoint:** A  
-**Arquivo:** `src_v2/core/config_resolver.py` (linhas 74-77)  
+**Arquivo:** `src/core/config_resolver.py` (linhas 74-77)  
 **Problema:** Carrega variáveis irrelevantes além das do `.env`  
 **Impacto:** Baixo — não afeta correção, mas poderia ser mais limpo  
 **Mitigação:** Documentado; filtragem poderia ser adicionada futuramente  
@@ -150,7 +150,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m5. `variant_signature` com Hardcoded Default
 **Checkpoint:** D  
-**Arquivo:** `src_v2/utils/variant_signature.py` (linha 78)  
+**Arquivo:** `src/utils/variant_signature.py` (linha 78)  
 **Problema:** Default `"data/enamed_questions.json"` hardcoded  
 **Impacto:** Baixo — CLI usa `.env`; direto só em testes  
 **Mitigação:** Adicionar comentário explicando uso  
@@ -160,7 +160,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m6. Config Display em `--list-models`
 **Checkpoint:** D  
-**Arquivo:** `src_v2/cli/bcllm_model.py` (linha 201)  
+**Arquivo:** `src/cli/bcllm_model.py` (linha 201)  
 **Problema:** Mostra JSON cru em vez de formato legível  
 **Impacto:** UX poderia ser melhor  
 **Mitigação:** Formatar saída com label e campos relevantes  
@@ -170,7 +170,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m7. `parse_variant_signature` para Debug
 **Checkpoint:** D  
-**Arquivo:** `src_v2/utils/variant_signature.py` (linhas 94-112)  
+**Arquivo:** `src/utils/variant_signature.py` (linhas 94-112)  
 **Problema:** Função marcada "apenas debug" mas pode ser útil para audit  
 **Impacto:** Baixo  
 **Mitigação:** Considerar mover para módulo `audit` se usada elsewhere  
@@ -200,7 +200,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m10. Redundant `resolve_config_dict()` Call
 **Checkpoint:** A  
-**Arquivo:** `src_v2/cli/bcllm_experiment.py` (linhas 154-168)  
+**Arquivo:** `src/cli/bcllm_experiment.py` (linhas 154-168)  
 **Problema:** `config_dict` construído via `resolve_config_dict()` mas prompts resolvidos separadamente  
 **Impacto:** Duplicação de código  
 **Mitigação:** Usar apenas `resolve_config_dict()` e extrair prompts do resultado  
@@ -210,7 +210,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m11. Docstring Desatualizada em `planner.py`
 **Checkpoint:** A  
-**Arquivo:** `src_v2/core/planner.py` (linhas 278-284)  
+**Arquivo:** `src/core/planner.py` (linhas 278-284)  
 **Problema:** Docstring diz "runs don't have prompts" mas schema tem `system_prompt`, `user_prompt`  
 **Impacto:** Documentação incorreta  
 **Mitigação:** Atualizar docstring para refletir schema atual  
@@ -220,7 +220,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### m12. System Prompt Handling When `None`
 **Checkpoint:** A  
-**Arquivo:** `src_v2/core/execution_engine.py` (linhas 244-247)  
+**Arquivo:** `src/core/execution_engine.py` (linhas 244-247)  
 **Problema:** Envia `{"role": "system", "content": None}` para API  
 **Impacto:** Algumas APIs podem rejeitar `null`  
 **Mitigação:** Filtrar mensagem system quando `system is None`  
@@ -260,7 +260,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### s3. Validate Answer Key Uniqueness in CLI
 **Checkpoint:** B  
-**Arquivo:** `src_v2/core/question_loader.py`  
+**Arquivo:** `src/core/question_loader.py`  
 **Sugestão:** Chamar `validate_answer_key_uniqueness()` durante snapshot creation  
 **Benefício:** Camada extra de segurança contra placeholder data  
 **Status:** ℹ️ Para implementação futura
@@ -278,7 +278,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### s5. Extract Config Parsing Helper
 **Checkpoint:** D  
-**Arquivo:** `src_v2/core/planner.py` (linhas 370-388)  
+**Arquivo:** `src/core/planner.py` (linhas 370-388)  
 **Sugestão:** Extrair `_parse_config_dict(config_json: str) -> ModelConfig`  
 **Benefício:** Reusabilidade  
 **Status:** ℹ️ Para implementação futura
@@ -287,7 +287,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### s6. Example Config JSON in Docstring
 **Checkpoint:** D  
-**Arquivo:** `src_v2/db/models.py` (linhas 57-69)  
+**Arquivo:** `src/db/models.py` (linhas 57-69)  
 **Sugestão:** Adicionar exemplo: `config='{"reasoning_effort":"low","vision":true}'`  
 **Benefício:** Clareza na documentação  
 **Status:** ℹ️ Para implementação futura
@@ -314,7 +314,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### s9. Interactive Mode Implementation
 **Checkpoint:** E  
-**Arquivo:** `src_v2/cli/bcllm_model.py`  
+**Arquivo:** `src/cli/bcllm_model.py`  
 **Sugestão:** Implementar modo interativo real para `--remove-model ?`  
 **Benefício:** UX melhorada  
 **Status:** ℹ️ Para implementação futura
@@ -332,7 +332,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### s11. Float Precision Documentation
 **Checkpoint:** D  
-**Arquivo:** `src_v2/utils/variant_signature.py`  
+**Arquivo:** `src/utils/variant_signature.py`  
 **Sugestão:** Documentar por que 3 casas decimais foram escolhidas  
 **Benefício:** Clareza para manutenção futura  
 **Status:** ℹ️ Para implementação futura
@@ -341,7 +341,7 @@ Durante a estabilização do CLI, foram identificados **33 achados** distribuíd
 
 ### s12. Config Field Mapping Documentation
 **Checkpoint:** D  
-**Arquivo:** `src_v2/cli/bcllm_model.py` (linhas 124-142)  
+**Arquivo:** `src/cli/bcllm_model.py` (linhas 124-142)  
 **Sugestão:** Adicionar comentários mapeando CLI flags para config keys  
 **Benefício:** Clareza na transformação de dados  
 **Status:** ℹ️ Para implementação futura

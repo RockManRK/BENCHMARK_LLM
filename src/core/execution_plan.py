@@ -15,7 +15,7 @@ the ExecutionEngine.
 
 Example:
     from datetime import datetime
-    from src_v2.core.execution_plan import (
+    from src.core.execution_plan import (
         ExecutionPlan,
         PlanRun,
         PlanVariant,

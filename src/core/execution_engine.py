@@ -25,15 +25,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-from src_v2.core.execution_plan import (
+from src.core.execution_plan import (
     ExecutionPlan,
     PlanRun,
     PlanItem,
     PlanVariant,
     ModelConfig,
 )
-from src_v2.core.randomizer import AnswerRandomizer
-from src_v2.core.answer_parser import AnswerParser, ParsedAnswer
+from src.core.randomizer import AnswerRandomizer
+from src.core.answer_parser import AnswerParser, ParsedAnswer
 
 
 @dataclass
@@ -101,7 +101,7 @@ class OpenRouterClient:
     """Type hint for OpenRouterClient.
 
     This is a placeholder for type hints. The actual implementation
-    is in src_v2.api.client (to be implemented).
+    is in src.api.client (to be implemented).
     """
 
     async def chat_completion(

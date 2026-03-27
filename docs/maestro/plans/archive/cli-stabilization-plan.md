@@ -2,7 +2,7 @@
 
 **Status:** Draft — Ready for Execution  
 **Scope:** Stabilize CLI behavior, persistence, and dataset handling to fully comply with TO‑BE specification  
-**Codebase:** `/src_v2` only  
+**Codebase:** `/src` only  
 **Legacy:** `/src` read‑only reference
 
 ---
@@ -129,7 +129,7 @@
 **Problem:** `--help` crashes due to legacy imports.
 
 **Actions**
-- Ensure CLI entrypoint imports **only** `/src_v2`
+- Ensure CLI entrypoint imports **only** `/src`
 - Remove any residual `src.*` imports
 
 **Acceptance Criteria**
@@ -221,10 +221,10 @@ After each experiment:
 ---
 
 ## 📌 Notes on Directory Renaming
-- **Do NOT rename `/src_v2` yet**
+- **Do NOT rename `/src` yet**
 - First pass all checkpoints
 - Then consider:
-  - `/src_v2 → /src`
+  - `/src → /src`
   - `/src → /src_old`
 
 ---

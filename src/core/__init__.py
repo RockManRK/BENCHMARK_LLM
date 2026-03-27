@@ -1,10 +1,10 @@
-"""Package initialization for src_v2.core.
+"""Package initialization for src.core.
 
 This module contains the core domain logic of the TO-BE architecture,
 including immutable data structures and execution orchestration.
 """
 
-from src_v2.core.execution_plan import (
+from src.core.execution_plan import (
     ExecutionPlan,
     PlanRun,
     PlanItem,
@@ -15,35 +15,35 @@ from src_v2.core.execution_plan import (
     QuestionPayload,
 )
 
-from src_v2.core.execution_engine import (
+from src.core.execution_engine import (
     ExecutionEngine,
     ExecutionResult,
 )
 
-from src_v2.core.randomizer import (
+from src.core.randomizer import (
     AnswerRandomizer,
 )
 
-from src_v2.core.answer_parser import (
+from src.core.answer_parser import (
     AnswerParser,
     ParsedAnswer,
 )
 
-from src_v2.core.result_writer import (
+from src.core.result_writer import (
     ResultWriter,
     WriteReport,
 )
 
-from src_v2.core.planner import (
+from src.core.planner import (
     Planner,
     PlannerValidationError,
 )
 
-from src_v2.core.config_resolver import (
+from src.core.config_resolver import (
     ConfigResolver,
 )
 
-from src_v2.core.question_loader import (
+from src.core.question_loader import (
     QuestionLoader,
 )
 

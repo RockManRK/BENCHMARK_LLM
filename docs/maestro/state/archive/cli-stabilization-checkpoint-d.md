@@ -29,9 +29,9 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\db\schema.py
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\db\models.py
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\db\repository.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\db\schema.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\db\models.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\db\repository.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\unit\db\test_schema.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\unit\db\test_repository.py
     files_deleted: []
@@ -52,8 +52,8 @@ phases:
     completed: '2026-03-23T02:22:36.349Z'
     blocked_by: []
     files_created:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\utils\__init__.py
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\utils\variant_signature.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\utils\__init__.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\utils\variant_signature.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\test_variant_signature.py
     files_modified: []
     files_deleted: []
@@ -76,7 +76,7 @@ phases:
     files_created:
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\scripts\migrate_model_variants_config.py
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_model.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_model.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -96,7 +96,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_experiment.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_experiment.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []

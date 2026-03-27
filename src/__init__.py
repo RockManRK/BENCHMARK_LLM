@@ -1,4 +1,4 @@
-"""Package initialization for src_v2.
+"""Package initialization for src.
 
 This is the TO-BE architecture implementation namespace.
 All code here follows the clean-slate design from the TO-BE

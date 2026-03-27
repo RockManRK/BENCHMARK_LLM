@@ -28,10 +28,10 @@ phases:
     completed: '2026-03-22T21:02:28.326Z'
     blocked_by: []
     files_created:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\core\question_loader.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\core\question_loader.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\test_question_loader.py
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\core\__init__.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\core\__init__.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -51,7 +51,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_questions.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_questions.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -72,7 +72,7 @@ phases:
     files_created:
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\data\enamed_questions.json
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_experiment.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_experiment.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\bcllm.py
     files_deleted: []
     downstream_context:
@@ -113,7 +113,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_questions.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_questions.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []

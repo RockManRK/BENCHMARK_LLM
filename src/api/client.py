@@ -13,7 +13,7 @@ The client translates HTTP errors into domain-specific error types
 for consistent error handling throughout the system.
 
 Example:
-    >>> from src_v2.api.client import OpenRouterClient
+    >>> from src.api.client import OpenRouterClient
     >>>
     >>> client = OpenRouterClient(api_key="your-api-key")
     >>>
@@ -33,7 +33,7 @@ from typing import Any
 
 import httpx
 
-from src_v2.api.errors import (
+from src.api.errors import (
     APIError,
     AuthenticationError,
     ClientError,

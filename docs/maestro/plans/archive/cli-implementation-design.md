@@ -29,15 +29,15 @@ Implement a complete, stable CLI for the `bcllm` benchmark system following the 
 
 ### 3. Compatibility Strategy
 **Decision:** Inspect-and-Reimplement  
-**Rationale:** Preserve validated `--structured` behavior from legacy `/src` without carrying technical debt into `/src_v2`.
+**Rationale:** Preserve validated `--structured` behavior from legacy `/src` without carrying technical debt into `/src`.
 
 ### 4. Validation Strategy
 **Decision:** Command-by-Command Validation  
 **Rationale:** Sequential validation minimizes risk and enables incremental testing with clear completion gates.
 
 ### 5. Directory Scope
-**Decision:** `/src_v2` only  
-**Rationale:** Legacy `/src` is read-only reference; all new implementation in `/src_v2`.
+**Decision:** `/src` only  
+**Rationale:** Legacy `/src` is read-only reference; all new implementation in `/src`.
 
 ## Mandatory Fixes
 
@@ -86,16 +86,16 @@ Implement a complete, stable CLI for the `bcllm` benchmark system following the 
 
 | Action | Path | Purpose |
 |--------|------|---------|
-| Create | `src_v2/cli/` | CLI argument parsing and command routing |
-| Create | `src_v2/commands/` | Command implementations for each CLI operation |
-| Modify | `src_v2/validators/` | Model ID validation (relaxed format) |
-| Create | `src_v2/structured/` | Structured output handler (legacy-compatible) |
-| Create | `src_v2/review/` | Manual review interface |
+| Create | `src/cli/` | CLI argument parsing and command routing |
+| Create | `src/commands/` | Command implementations for each CLI operation |
+| Modify | `src/validators/` | Model ID validation (relaxed format) |
+| Create | `src/structured/` | Structured output handler (legacy-compatible) |
+| Create | `src/review/` | Manual review interface |
 
 ## Validation Commands
 
-- `python -m src_v2.cli --create-experiment test_exp`
-- `python -m src_v2.cli --experiment test_exp --add-model google/gemini-3.1-flash-lite-preview`
-- `python -m src_v2.cli --experiment test_exp --add-questions 1-10`
-- `python -m src_v2.cli --experiment test_exp --execute`
-- `python -m src_v2.cli --review-experiment test_exp`
+- `python -m src.cli --create-experiment test_exp`
+- `python -m src.cli --experiment test_exp --add-model google/gemini-3.1-flash-lite-preview`
+- `python -m src.cli --experiment test_exp --add-questions 1-10`
+- `python -m src.cli --experiment test_exp --execute`
+- `python -m src.cli --review-experiment test_exp`

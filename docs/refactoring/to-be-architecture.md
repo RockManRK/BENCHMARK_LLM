@@ -29,7 +29,7 @@ This specification defines the **clean-slate architecture** for the Benchmark LL
 ### Directory Layout
 
 ```
-src_v2/
+src/
 ├── cli/
 │   ├── __init__.py
 │   ├── bcllm_experiment.py      # Experiment lifecycle commands
@@ -1122,10 +1122,10 @@ def test_end_to_end_execution(in_memory_db, mock_api_client):
 
 | Module | Target | Rationale |
 |--------|--------|-----------|
-| `src_v2/core/` | 80% line coverage | Domain logic is critical |
-| `src_v2/api/` | 70% line coverage | External integration, harder to test |
-| `src_v2/db/` | 70% line coverage | CRUD is straightforward |
-| `src_v2/cli/` | 60% line coverage | Thin wrappers, integration tested |
+| `src/core/` | 80% line coverage | Domain logic is critical |
+| `src/api/` | 70% line coverage | External integration, harder to test |
+| `src/db/` | 70% line coverage | CRUD is straightforward |
+| `src/cli/` | 60% line coverage | Thin wrappers, integration tested |
 
 ---
 
@@ -1312,7 +1312,7 @@ max-public-methods = 20
 
 **Steps**:
 1. Archive `src/` → `Arquivos_Mortos/_archived/legacy-src/`
-2. Move `src_v2/` → `src/`
+2. Move `src/` → `src/`
 3. Update `bcllm.py` entry point to new CLI modules
 4. Update documentation references
 5. Tag release: `v2.0.0`
@@ -1323,7 +1323,7 @@ max-public-methods = 20
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| **AI confusion (old vs new code)** | High | Medium | Legacy is read-only reference; never read `src/` during TO-BE implementation; use `src_v2/` namespace |
+| **AI confusion (old vs new code)** | High | Medium | Legacy is read-only reference; never read `src/` during TO-BE implementation; use `src/` namespace |
 | **Scope creep** | Medium | Medium | Strict adherence to contracts; one file at a time; test-first discipline; reject features not in specification |
 | **Test debt accumulation** | Medium | Medium | Test-first for domain rules; coverage gates in Phase 10; CI/CD integration |
 | **File size creep** | Low | High | Warnings in Phase 1; hard linting limits in Phase 10; refactoring triggers documented |

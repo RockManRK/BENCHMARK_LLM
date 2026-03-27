@@ -8,7 +8,7 @@ This module provides shared database connection management for all CLI modules:
 - Proper connection lifecycle management
 
 Usage:
-    from src_v2.cli.database import get_database_connection
+    from src.cli.database import get_database_connection
     
     conn = get_database_connection()
     try:
@@ -20,7 +20,7 @@ Usage:
 import sqlite3
 from pathlib import Path
 
-from src_v2.db.schema import create_schema
+from src.db.schema import create_schema
 
 
 def get_database_path() -> Path:

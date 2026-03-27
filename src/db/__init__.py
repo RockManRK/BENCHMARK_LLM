@@ -7,8 +7,8 @@ Exports:
               RunRepository, ResponseRepository, ErrorRepository
 """
 
-from src_v2.db.schema import create_schema, get_schema_sql
-from src_v2.db.models import (
+from src.db.schema import create_schema, get_schema_sql
+from src.db.models import (
     Experiment,
     ModelVariant,
     QuestionSnapshot,
@@ -16,7 +16,7 @@ from src_v2.db.models import (
     Response,
     Error,
 )
-from src_v2.db.repository import (
+from src.db.repository import (
     ExperimentRepository,
     VariantRepository,
     SnapshotRepository,

@@ -16,8 +16,8 @@ Exit Codes:
 import argparse
 import sys
 
-from src_v2.cli.database import get_database_connection
-from src_v2.review.review_ui import ReviewUI
+from src.cli.database import get_database_connection
+from src.review.review_ui import ReviewUI
 
 
 def create_parser() -> argparse.ArgumentParser:

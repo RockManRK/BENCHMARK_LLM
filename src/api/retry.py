@@ -11,8 +11,8 @@ The retry handler is used by the ExecutionEngine to handle transient
 failures during API calls.
 
 Example:
-    >>> from src_v2.core.execution_plan import RetryPolicy
-    >>> from src_v2.api.retry import RetryHandler
+    >>> from src.core.execution_plan import RetryPolicy
+    >>> from src.api.retry import RetryHandler
     >>>
     >>> policy = RetryPolicy(max_attempts=3, backoff='exponential')
     >>> handler = RetryHandler(policy)
@@ -29,8 +29,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Awaitable, Callable, TypeVar
 
-from src_v2.core.execution_plan import RetryPolicy
-from src_v2.api.errors import APIError
+from src.core.execution_plan import RetryPolicy
+from src.api.errors import APIError
 
 
 T = TypeVar('T')

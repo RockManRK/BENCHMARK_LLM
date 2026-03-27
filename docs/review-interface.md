@@ -100,8 +100,8 @@ The interface uses the `rich` library for cross-platform terminal support:
 
 ### Files
 
-- `src_v2/review/review_ui.py` - Main review UI implementation
-- `src_v2/cli/bcllm_review.py` - CLI entry point
+- `src/review/review_ui.py` - Main review UI implementation
+- `src/cli/bcllm_review.py` - CLI entry point
 - `tests/unit/review/test_review_ui.py` - Unit tests
 
 ### Dependencies

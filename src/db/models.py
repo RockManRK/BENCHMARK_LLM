@@ -4,7 +4,7 @@ Dataclasses matching the TO-BE schema exactly.
 Each dataclass corresponds to one database table.
 
 Usage:
-    from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot
+    from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 
     experiment = Experiment(
         experiment_id="exp_001",

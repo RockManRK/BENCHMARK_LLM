@@ -12,7 +12,7 @@ The review interface:
 - Saves changes to the database incrementally
 
 Example:
-    >>> from src_v2.review.review_ui import ReviewUI
+    >>> from src.review.review_ui import ReviewUI
     >>> ui = ReviewUI(conn)
     >>> ui.start_review_by_experiment("exp_001")
 """
@@ -27,8 +27,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from src_v2.db.models import Response
-from src_v2.db.repository import ResponseRepository
+from src.db.models import Response
+from src.db.repository import ResponseRepository
 
 
 @dataclass
@@ -450,7 +450,7 @@ class ReviewUI:
         Example:
             >>> ui.start_review_by_experiment("exp-001")
         """
-        from src_v2.db.repository import ExperimentRepository
+        from src.db.repository import ExperimentRepository
 
         exp_repo = ExperimentRepository(self.conn)
         experiment = exp_repo.get_by_name(experiment_name)

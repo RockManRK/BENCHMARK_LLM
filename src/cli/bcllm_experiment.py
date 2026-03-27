@@ -24,14 +24,14 @@ import json
 import sys
 import uuid
 
-from src_v2.cli.database import get_database_connection
-from src_v2.core import QuestionLoader
-from src_v2.core.config_resolver import ConfigResolver
-from src_v2.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
-from src_v2.db.models import Experiment, ModelVariant, QuestionSnapshot
-from src_v2.utils.variant_signature import generate_variant_signature
-from src_v2.validators.model_id_validator import validate_model_id
-from src_v2.cli.bcllm_questions import parse_filter, filter_questions
+from src.cli.database import get_database_connection
+from src.core import QuestionLoader
+from src.core.config_resolver import ConfigResolver
+from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
+from src.db.models import Experiment, ModelVariant, QuestionSnapshot
+from src.utils.variant_signature import generate_variant_signature
+from src.validators.model_id_validator import validate_model_id
+from src.cli.bcllm_questions import parse_filter, filter_questions
 
 
 def create_parser() -> argparse.ArgumentParser:

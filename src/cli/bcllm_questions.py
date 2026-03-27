@@ -24,11 +24,11 @@ import sys
 import uuid
 from pathlib import Path
 
-from src_v2.cli.database import get_database_connection
-from src_v2.core import QuestionLoader
-from src_v2.core.config_resolver import ConfigResolver
-from src_v2.db.models import QuestionSnapshot
-from src_v2.db.repository import ExperimentRepository, SnapshotRepository
+from src.cli.database import get_database_connection
+from src.core import QuestionLoader
+from src.core.config_resolver import ConfigResolver
+from src.db.models import QuestionSnapshot
+from src.db.repository import ExperimentRepository, SnapshotRepository
 
 
 def create_parser() -> argparse.ArgumentParser:

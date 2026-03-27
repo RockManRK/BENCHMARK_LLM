@@ -197,7 +197,7 @@ pytest -m integration
 ### Run with coverage
 
 ```bash
-pytest --cov=src_v2 --cov-report=term-missing
+pytest --cov=src --cov-report=term-missing
 ```
 
 ## File Size Checking
@@ -205,7 +205,7 @@ pytest --cov=src_v2 --cov-report=term-missing
 Phase 1: Warnings only (exit code 0 always)
 
 ```bash
-python scripts/check_file_size.py src_v2
+python scripts/check_file_size.py src
 python scripts/check_file_size.py tests
 ```
 

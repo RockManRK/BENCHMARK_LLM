@@ -131,10 +131,10 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - src_v2/core/planner.py
-      - src_v2/cli/bcllm_experiment.py
-      - src_v2/cli/bcllm_questions.py
-      - src_v2/cli/bcllm_run.py
+      - src/core/planner.py
+      - src/cli/bcllm_experiment.py
+      - src/cli/bcllm_questions.py
+      - src/cli/bcllm_run.py
     files_deleted: []
     downstream_context:
       critical_findings_fixed: 4

@@ -41,14 +41,14 @@ import sys
 import re
 from typing import Any
 
-from src_v2.cli.database import get_database_connection
-from src_v2.db.repository import ExperimentRepository, RunRepository, VariantRepository, SnapshotRepository
-from src_v2.core.planner import Planner, PlannerValidationError
-from src_v2.core.execution_engine import ExecutionEngine
-from src_v2.core.result_writer import ResultWriter
-from src_v2.core.randomizer import AnswerRandomizer
-from src_v2.core.answer_parser import AnswerParser
-from src_v2.core.execution_plan import RetryPolicy
+from src.cli.database import get_database_connection
+from src.db.repository import ExperimentRepository, RunRepository, VariantRepository, SnapshotRepository
+from src.core.planner import Planner, PlannerValidationError
+from src.core.execution_engine import ExecutionEngine
+from src.core.result_writer import ResultWriter
+from src.core.randomizer import AnswerRandomizer
+from src.core.answer_parser import AnswerParser
+from src.core.execution_plan import RetryPolicy
 
 
 # Placeholder for API client (to be implemented in Phase 8)
@@ -56,7 +56,7 @@ class OpenRouterClient:
     """Placeholder for OpenRouterClient.
 
     This is a stub that will be replaced with the real implementation
-    from src_v2.api.client in Phase 8.
+    from src.api.client in Phase 8.
     """
 
     def __init__(self, api_key: str, base_url: str = "https://openrouter.ai/api/v1") -> None:

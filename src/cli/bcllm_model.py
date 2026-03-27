@@ -21,11 +21,11 @@ import json
 import sys
 import uuid
 
-from src_v2.cli.database import get_database_connection
-from src_v2.db.models import ModelVariant
-from src_v2.db.repository import ExperimentRepository, VariantRepository
-from src_v2.utils.variant_signature import generate_variant_signature
-from src_v2.validators.model_id_validator import validate_model_id
+from src.cli.database import get_database_connection
+from src.db.models import ModelVariant
+from src.db.repository import ExperimentRepository, VariantRepository
+from src.utils.variant_signature import generate_variant_signature
+from src.validators.model_id_validator import validate_model_id
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -149,7 +149,7 @@ def handle_add_model(args, conn) -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
-    from src_v2.core.config_resolver import ConfigResolver
+    from src.core.config_resolver import ConfigResolver
 
     if not validate_model_id(args.add_model):
         print(f"Error: Invalid model ID format: {args.add_model}", file=sys.stderr)

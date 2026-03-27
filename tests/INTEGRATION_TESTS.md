@@ -72,7 +72,7 @@ Tests patch the database path to use the temporary file:
 ```python
 def patch_database_path(temp_db_path: Path):
     """Patch get_database_path to use temporary file."""
-    from src_v2.cli import database as db_module
+    from src.cli import database as db_module
     return patch.object(db_module, 'get_database_path', return_value=temp_db_path)
 ```
 
@@ -105,7 +105,7 @@ pytest tests/test_cli_integration.py::TestFullWorkflowIntegration -v
 pytest tests/test_cli_integration.py::TestModelIDValidation::test_model_id_google_gemini -v
 
 # Run with coverage
-pytest tests/test_cli_integration.py --cov=src_v2/cli --cov-report=html
+pytest tests/test_cli_integration.py --cov=src/cli --cov-report=html
 ```
 
 ## Test Markers

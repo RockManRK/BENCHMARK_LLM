@@ -1,5 +1,5 @@
 -- Benchmark LLM - TO-BE Database Schema
--- Generated from: src_v2/db/schema.py
+-- Generated from: src/db/schema.py
 -- 
 -- This schema reflects the CURRENT implemented state:
 -- - 6 tables: experiments, model_variants, question_snapshots, runs, responses, errors

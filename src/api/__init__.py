@@ -19,10 +19,10 @@ Key Components:
 - RetryHandler: Policy-driven retry logic
 
 Example:
-    >>> from src_v2.api import OpenRouterClient, CompletionResponse
-    >>> from src_v2.api.errors import AuthenticationError
-    >>> from src_v2.api.retry import RetryHandler
-    >>> from src_v2.core.execution_plan import RetryPolicy
+    >>> from src.api import OpenRouterClient, CompletionResponse
+    >>> from src.api.errors import AuthenticationError
+    >>> from src.api.retry import RetryHandler
+    >>> from src.core.execution_plan import RetryPolicy
     >>>
     >>> # Create client
     >>> client = OpenRouterClient(api_key="your-api-key")
@@ -41,13 +41,13 @@ Example:
     >>> response = await handler.execute_with_retry(call_api)
 """
 
-from src_v2.api.client import (
+from src.api.client import (
     CompletionProvider,
     OpenRouterClient,
     CompletionResponse,
 )
 
-from src_v2.api.errors import (
+from src.api.errors import (
     APIError,
     AuthenticationError,
     RateLimitError,
@@ -58,7 +58,7 @@ from src_v2.api.errors import (
     ErrorClassifier,
 )
 
-from src_v2.api.retry import (
+from src.api.retry import (
     RetryHandler,
 )
 

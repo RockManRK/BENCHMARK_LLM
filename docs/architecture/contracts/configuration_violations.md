@@ -31,10 +31,10 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 - `question_snapshots`
 
 **Arquivos**
-- `src_v2/repositories/experiment_repository.py`
-- `src_v2/repositories/run_repository.py`
-- `src_v2/repositories/model_variant_repository.py`
-- `src_v2/repositories/question_snapshot_repository.py`
+- `src/repositories/experiment_repository.py`
+- `src/repositories/run_repository.py`
+- `src/repositories/model_variant_repository.py`
+- `src/repositories/question_snapshot_repository.py`
 
 **Comportamento atual**
 - A coluna `created_at` é persistida como `NULL`
@@ -55,7 +55,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🔴 V2 — Seed `AUTO` resolvido prematuramente no experimento
 
 **Arquivo**
-- `src_v2/core/config_resolver.py`
+- `src/core/config_resolver.py`
 
 **Função**
 - Resolução de seed durante criação do experimento
@@ -77,8 +77,8 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🔴 V3 — `model_variants.config` incompleto ou `{}`
 
 **Arquivos**
-- `src_v2/cli/bcllm_model.py`
-- `src_v2/core/config_resolver.py`
+- `src/cli/bcllm_model.py`
+- `src/core/config_resolver.py`
 
 **Comportamento atual**
 - Apenas flags explicitamente passadas são salvas
@@ -98,7 +98,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🔴 V4 — `.env` ignorado na criação de `model_variant`
 
 **Arquivo**
-- `src_v2/cli/bcllm_model.py`
+- `src/cli/bcllm_model.py`
 
 **Comportamento atual**
 - `.env` não é usado como fonte inicial
@@ -116,7 +116,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🔴 V5 — `question_snapshots.question_id` usa ID do dataset (`Q***`)
 
 **Arquivo**
-- `src_v2/core/question_snapshot.py`
+- `src/core/question_snapshot.py`
 
 **Comportamento atual**
 - `question_id` recebe valores como `Q001`, `Q002`
@@ -134,7 +134,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🟠 V6 — Prompt `None` enviado para API
 
 **Arquivo**
-- `src_v2/core/execution_engine.py`
+- `src/core/execution_engine.py`
 
 **Comportamento atual**
 ```json
@@ -152,7 +152,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🟠 V7 — Questões inexistentes aceitas silenciosamente
 
 **Arquivo**
-- `src_v2/core/question_loader.py`
+- `src/core/question_loader.py`
 
 **Comportamento atual**
 - Perguntas inexistentes são aceitas
@@ -170,7 +170,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🟠 V8 — `variant_signature` com default hardcoded
 
 **Arquivo**
-- `src_v2/utils/variant_signature.py`
+- `src/utils/variant_signature.py`
 
 **Comportamento atual**
 - Caminho de dataset hardcoded
@@ -201,7 +201,7 @@ qualquer correção deve alinhar o código **explicitamente** ao contrato.
 ## 🟠 V10 — Docstrings e código divergentes
 
 **Arquivos**
-- `src_v2/core/planner.py`
+- `src/core/planner.py`
 
 **Comportamento atual**
 - Docstring afirma que RUN não possui prompts

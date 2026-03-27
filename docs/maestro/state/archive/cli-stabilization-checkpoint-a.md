@@ -1,6 +1,6 @@
 ---
 session_id: cli-stabilization-checkpoint-a
-task: 'CLI Stabilization — Checkpoint A: Configuration Integrity. Eliminate hardcoded prompts, ensure real configuration freeze at experiment creation, enforce mandatory timestamps. Work exclusively in /src_v2. No backward compatibility required.'
+task: 'CLI Stabilization — Checkpoint A: Configuration Integrity. Eliminate hardcoded prompts, ensure real configuration freeze at experiment creation, enforce mandatory timestamps. Work exclusively in /src. No backward compatibility required.'
 created: '2026-03-22T19:46:25.963Z'
 updated: '2026-03-22T20:35:58.072Z'
 status: completed
@@ -28,10 +28,10 @@ phases:
     completed: '2026-03-22T19:54:55.193Z'
     blocked_by: []
     files_created:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\core\config_resolver.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\core\config_resolver.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\test_config_resolver.py
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\core\__init__.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\core\__init__.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -51,10 +51,10 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_experiment.py
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\db\models.py
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\db\schema.py
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\core\config_resolver.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_experiment.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\db\models.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\db\schema.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\core\config_resolver.py
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\tests\test_config_resolver.py
     files_deleted: []
     downstream_context:
@@ -75,7 +75,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\core\execution_plan.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\core\execution_plan.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -108,4 +108,4 @@ phases:
     retry_count: 0
 ---
 
-# CLI Stabilization — Checkpoint A: Configuration Integrity. Eliminate hardcoded prompts, ensure real configuration freeze at experiment creation, enforce mandatory timestamps. Work exclusively in /src_v2. No backward compatibility required. Orchestration Log
+# CLI Stabilization — Checkpoint A: Configuration Integrity. Eliminate hardcoded prompts, ensure real configuration freeze at experiment creation, enforce mandatory timestamps. Work exclusively in /src. No backward compatibility required. Orchestration Log

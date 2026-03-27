@@ -1,6 +1,6 @@
 ---
 session_id: cli-stabilization-checkpoint-c
-task: 'CLI Stabilization — Checkpoint C: CLI Routing & UX. Fix CLI routing to use exclusively /src_v2. NO FALLBACK TO V1 EVER. Add --help handling. Add --add-run and --remove-run to routing. Fix flag conflicts. All TO-BE commands must be reachable. Unknown commands must fail loudly.'
+task: 'CLI Stabilization — Checkpoint C: CLI Routing & UX. Fix CLI routing to use exclusively /src. NO FALLBACK TO V1 EVER. Add --help handling. Add --add-run and --remove-run to routing. Fix flag conflicts. All TO-BE commands must be reachable. Unknown commands must fail loudly.'
 created: '2026-03-22T21:43:22.752Z'
 updated: '2026-03-22T21:56:22.220Z'
 status: completed
@@ -28,7 +28,7 @@ phases:
     completed: '2026-03-22T21:44:52.166Z'
     blocked_by: []
     files_created:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_main.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_main.py
     files_modified:
       - D:\OneDrive\Pessoais\Projetos\benchmark_llm\bcllm.py
     files_deleted: []
@@ -70,7 +70,7 @@ phases:
     blocked_by: []
     files_created: []
     files_modified:
-      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src_v2\cli\bcllm_model.py
+      - D:\OneDrive\Pessoais\Projetos\benchmark_llm\src\cli\bcllm_model.py
     files_deleted: []
     downstream_context:
       key_interfaces_introduced: []
@@ -102,4 +102,4 @@ phases:
     retry_count: 0
 ---
 
-# CLI Stabilization — Checkpoint C: CLI Routing & UX. Fix CLI routing to use exclusively /src_v2. NO FALLBACK TO V1 EVER. Add --help handling. Add --add-run and --remove-run to routing. Fix flag conflicts. All TO-BE commands must be reachable. Unknown commands must fail loudly. Orchestration Log
+# CLI Stabilization — Checkpoint C: CLI Routing & UX. Fix CLI routing to use exclusively /src. NO FALLBACK TO V1 EVER. Add --help handling. Add --add-run and --remove-run to routing. Fix flag conflicts. All TO-BE commands must be reachable. Unknown commands must fail loudly. Orchestration Log

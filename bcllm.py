@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
-"""CLI entry point — dispatches exclusively to src.
-
-After Phase 1 consolidation (create-experiment), all experiment commands
-now flow through bcllm_main (src/main.py → ExperimentManager).
-
-Standalone scripts removed:
-- bcllm_experiment.py (consolidated into main.py)
-"""
+"""CLI entry point — dispatches exclusively to src."""
 import sys
 
 
-def route_to_src(module_name: str) -> int:
+def route_to_v2(module_name: str) -> int:
     """Route to src.cli module and return exit code.
 
     Args:
-        module_name: Name of the CLI module to route to.
+        module_name: Name of the v2 CLI module to route to.
 
     Returns:
-        Exit code from the module (0 for success, 1 for error).
+        Exit code from the v2 module (0 for success, 1 for error).
     """
     from src.cli import (
+        bcllm_experiment,
         bcllm_model,
         bcllm_questions,
         bcllm_run,
@@ -30,6 +24,8 @@ def route_to_src(module_name: str) -> int:
 
     if module_name == "bcllm_main":
         return bcllm_main.main()
+    elif module_name == "bcllm_experiment":
+        return bcllm_experiment.main()
     elif module_name == "bcllm_model":
         return bcllm_model.main()
     elif module_name == "bcllm_questions":
@@ -41,22 +37,18 @@ def route_to_src(module_name: str) -> int:
     elif module_name == "bcllm_review":
         return bcllm_review.main()
     else:
-        print(f"Error: Unknown module: {module_name}", file=sys.stderr)
+        print(f"Error: Unknown v2 module: {module_name}", file=sys.stderr)
         return 1
 
 
-def determine_command(argv: list[str]) -> str | None:
-    """Determine which command to route to based on argv.
+def determine_v2_command(argv: list[str]) -> str | None:
+    """Determine which v2 command to route to based on argv.
 
-    After Phase 1 consolidation:
-    - --create-experiment routes to bcllm_main (unified entry point)
-    - --experiment (show/list/remove) routes to bcllm_main
-    
     Args:
         argv: Command-line arguments (including script name).
 
     Returns:
-        Module name (e.g., "bcllm_main") or None (unknown command).
+        Module name (e.g., "bcllm_experiment") or None (unknown command).
     """
     args = argv[1:]
 
@@ -72,10 +64,10 @@ def determine_command(argv: list[str]) -> str | None:
     if "--execute" in args:
         return "bcllm_execute"
 
-    # === PHASE 1 CONSOLIDATED: All experiment commands → bcllm_main ===
-    # --create-experiment now flows through main.py → ExperimentManager
+    # Check for experiment creation with optional flags
+    # --create-experiment takes precedence when combined with --add-model or --add-questions
     if "--create-experiment" in args:
-        return "bcllm_main"
+        return "bcllm_experiment"
 
     # Check for model commands (require --experiment but take precedence)
     if "--add-model" in args or "--list-models" in args or "--remove-model" in args:
@@ -89,26 +81,26 @@ def determine_command(argv: list[str]) -> str | None:
     if "--add-run" in args or "--create-run" in args or "--list-runs" in args or "--run" in args or "--remove-run" in args:
         return "bcllm_run"
 
-    # Check for experiment commands (show/list/remove) → bcllm_main
+    # Check for experiment commands (lowest priority v2 commands)
     if "--experiment" in args or "--list-experiments" in args or "--remove-experiment" in args:
-        return "bcllm_main"
+        return "bcllm_experiment"
 
     return None
 
 
 def main() -> int:
-    """Main entry point.
+    """Main entry point — routes exclusively to v2.
 
     Returns:
         Exit code (0 for success, 1 for error).
     """
-    module = determine_command(sys.argv)
+    v2_module = determine_v2_command(sys.argv)
 
-    if module is None:
+    if v2_module is None:
         print("Error: Unknown command. Use --help for usage.", file=sys.stderr)
         return 1
 
-    return route_to_src(module)
+    return route_to_v2(v2_module)
 
 
 if __name__ == "__main__":
