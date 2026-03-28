@@ -148,13 +148,13 @@ def create_parser() -> argparse.ArgumentParser:
         "--vision",
         type=str,
         metavar="VALUE",
-        help="Enable vision. Valid values: true, false, NULL (case-insensitive). Default: false",
+        help="Enable vision. Valid values: true, false, null (case-insensitive). Default: false",
     )
     parser.add_argument(
         "--structured",
         type=str,
         metavar="VALUE",
-        help="Enable structured outputs. Valid values: true, false, NULL (case-insensitive). Default: false",
+        help="Enable structured outputs. Valid values: true, false, null (case-insensitive). Default: false",
     )
 
     return parser

@@ -28,6 +28,7 @@ from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.core import QuestionLoader
 from src.core.config_resolver import ConfigResolver
+from src.core.argv_utils import parse_args_normalized
 from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
@@ -166,13 +167,13 @@ def create_parser() -> argparse.ArgumentParser:
         "--vision",
         type=str,
         metavar="VALUE",
-        help="Enable vision support. Valid values: true, false, NULL (case-insensitive). Default: false",
+        help="Enable vision support. Valid values: true, false, null (case-insensitive). Default: false",
     )
     parser.add_argument(
         "--structured",
         type=str,
         metavar="VALUE",
-        help="Enable structured outputs. Valid values: true, false, NULL (case-insensitive). Default: false",
+        help="Enable structured outputs. Valid values: true, false, null (case-insensitive). Default: false",
     )
     parser.add_argument(
         "--add-model",
@@ -610,16 +611,16 @@ def handle_remove_experiment(args, conn) -> int:
 
 def main(mode: Mode) -> int:
     """Main entry point.
-    
+
     Args:
         mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+
     Returns:
         Exit code (0 for success, 1 for error).
     """
     _validate_expected_mode(mode)
     parser = create_parser()
-    args = parser.parse_args()
+    args = parse_args_normalized(parser)
 
     conn = get_database_connection()
 

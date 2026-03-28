@@ -47,6 +47,11 @@ from src.core.question_loader import (
     QuestionLoader,
 )
 
+from src.core.argv_utils import (
+    parse_args_normalized,
+    normalize_nulls,
+)
+
 __all__ = [
     # Execution Plan
     'ExecutionPlan',
@@ -75,4 +80,7 @@ __all__ = [
     'ConfigResolver',
     # Question Loader
     'QuestionLoader',
+    # Argv Utils
+    'parse_args_normalized',
+    'normalize_nulls',
 ]
