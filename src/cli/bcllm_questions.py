@@ -78,6 +78,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     group.add_argument(
         "--questions",
+        dest="add_questions",
         metavar="SPEC",
         help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
     )
