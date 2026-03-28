@@ -5,6 +5,7 @@ python bcllm.py --create-experiment ce01 --add-questions 1,3
 
 ## CE2
 python bcllm.py --create-experiment ce02 --questions 1,3
+O comando usando "--add-questions 1,3" funciona perfeitamente, porém ai usar o comando "--questions 1,3", ele ignora. E adiciona todas as perguntas ou basedo na config do .env. Ou seja, ele não está aceitando o comando --questions como um alias do --add-questions, mas também não aponta como erro, ele simplesmente ignora. O que é o pior dos cenários.
 
 ## CE3
 python bcllm.py --create-experiment ce03 --add-questions 1,5-20
@@ -34,10 +35,10 @@ python bcllm.py --create-experiment ce09 --reasoning-tokens 4444
 python bcllm.py --create-experiment ce10 --temperature 2
 
 ## CE11
-python bcllm.py --create-experiment ce11 --top-p 1.1 --top-k 1.2
+python bcllm.py --create-experiment ce11 --top-p 1.1 --top-k 30
 
 ## CE12
-python bcllm.py --create-experiment ce12 --repeat-penalty 2
+python bcllm.py --create-experiment ce12 --repeat-penalty 4
 
 ## CE13
 python bcllm.py --create-experiment ce13 --vision true
@@ -52,13 +53,13 @@ python bcllm.py --create-experiment ce15 --structured true
 python bcllm.py --create-experiment ce16 --url 192.198.0.1:8000
 
 ## CE17
-python bcllm.py --create-experiment ce17 --system-prompt system teste
+python bcllm.py --create-experiment ce17 --system-prompt "system teste"
 
 ## CE18
 python bcllm.py --create-experiment ce18 --user-prompt "user teste"
 
 ## CE19
-python bcllm.py --create-experiment ce19 --retry-policy 3
+python bcllm.py --create-experiment ce19 --user-prompt null
 
 ## CE20
 python bcllm.py --create-experiment ce20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal

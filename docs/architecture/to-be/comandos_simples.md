@@ -46,8 +46,9 @@ bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome
     --system-prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão)
     --user-prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão)
     --retry-policy <#> (Configuração não vai mais existir. Configuração de retry-policy agora será apenas por .env)
+    --url
 
-    Todos os campos suportam (exceto --URL) "NULL", dessa forma são tradados como o padrão de sistema.
+    Todos os campos suportam (exceto --url) "NULL", dessa forma são tradados como o padrão de sistema.
 
 bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
 
@@ -74,7 +75,7 @@ bcllm --experiment <nome> (Visualiza as especificações do experimento indicado
     --user-prompt <"Frase entre aspas"> (user prompt poderá ser alterado em experimento já criado)
     --retry-policy <#> (Retry policy poderá ser alterado e afeta questões não processadas)
 
-    Todos os campos suportam (exceto --URL) "NULL", dessa forma são tradados como o padrão de sistema.
+    Todos os campos suportam (exceto --URL e --dataset_path) "NULL", dessa forma são tradados como o padrão de sistema.
 
 ---
 
@@ -151,11 +152,96 @@ bcllm experiment <nome> --execute
 
 # Configurações padrão do sistema:
 
-- questions = Configuração padrão de **questions** é usada quando não informado na configuração de experimento. Utiliza todas as perguntas disponíveis.
-- seed = Configuração padrão de **seed** é usada quando não informado na configuração de experimento e run, e em branco no .env. Desativa randomização de respostas e usa sempre a ordem original. Também é possível acionar o comportamento padrão de sistema ao colocar o valor "NULL" em seed.
-- system_prompt = Se não configurado em nenhum lugar, não é enviado na requisição. Pode ser forçado esse comportamento ao especificar "NULL"
-- user-prompt = Se não configurado em nenhum lugar, não é enviado na requisição. Pode ser forçado esse comportamento ao especificar "NULL"
+- questions = Configuração padrão de **questions** é usada quando não informado na configuração de experimento e no campo QUESTIONS_DATASET_PATH do .env.
+    - Comportamento: Utiliza todas as perguntas disponíveis.
+- where e exclude = Configuração padrão são usadas quando não informado na configuração de experimento e nos campos QUESTIONS_STATUS_ADD e QUESTIONS_STATUS_EXCLUDE do .env.
+    - Comportamento: Não filtra nenhuma pergunta.
+- seed = Configuração padrão de **seed** é usada quando não informado na configuração de experimento, de run, e em branco no campo RUN_RESPONSES_SEED do.env.
+    - Comportamento: Desativa randomização e usa a ordem original das respostas.
+- system_prompt = Configuração padrão de **system_prompt** é usada quando não informado na configuração de experimento, RUN e no campo SYSTEM_PROMPT do .env.
+    - Comportamento: Ao não ser configurado o comportamento padrão é "não enviar esse comando na requisição.
+- user-prompt = Configuração padrão de **user_prompt** é usada quando não informado na configuração de experimento, RUN e no campo USER_PROMPT do .env.
+    - Comportamento: Ao não ser configurado o comportamento padrão é "não enviar esse comando na requisição.
 - Todas as configurações de modelos, ao não serem definidas, serão ignoradas no envio da requisição, ativando a configuração padrão do servidor/modelo. O mesmo ocorre ao serem setadas como "NULL"
+- A configuração padrão pode ser forçada pelo usuário ao preencher o comando com "NULL" Ex: --reasoning null
+
+- dataset_path e url não podem receber null, pois são comandos que precisar ser informados no .env ou na criação do experimento para o sistema funcionar.
+- --add-model recebendo "null" na criação do experimento faz com que nenhum modelo configurado em MODELS_DEFAULT_FOR_EXPERIMENTS do .env seja adicionado ao experimento.
+
+---
+
+## Lista completa de comandos:
+
+- bcllm --create-experiment <nome>
+
+bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome> é o único campo obrigatório se o .env tiver configuração)
+
+    --add-questions <valor>
+        **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
+        
+        --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5 - com espaços, requer aspas)
+        --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
+        --questions "1-50" --where status=valid (Adiciona perguntas da 1 até a 50 onde a flag "status" for "valid")
+        --questions "1-100" --exclude status=annulled (Adiciona todas exceto onde status="annulled")
+        --questions 1-10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
+        
+        Formatos suportados:
+        - Individual: "1"
+        - Vírgula: "1, 3, 5"
+        - Range: "1-10"
+        - Misto: "1, 3-5"
+        
+        **IMPORTANTE**: Argumentos com espaços DEVEM ser quoted:
+        ✓ CORRETO: --questions "1, 3, 5"
+        ✓ CORRETO: --questions 1,3,5 (sem espaços)
+        ✗ ERRADO: --questions 1, 3, 5 (sem aspas com espaços - shell divide em múltiplos args)
+        
+    --seed <opção>
+        EM BRANCO, AUTO, # (número), NULL - case-insensitive
+    --add-model <modelo>
+        --reasoning <opção>
+        --max-tokens <#>
+        --reasoning-tokens <#>
+        --temperature <#>
+        --top-p <#>
+        --top-k <#>
+        --repeat-penalty <#>
+        --vision <opção> (true/false/NULL - case-insensitive)
+        --structured <opção> (true/false/NULL - case-insensitive)
+        --url <configura o base-url padrão do experimento>
+    --system-prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão)
+    --user-prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão)
+    --retry-policy <#> (Configuração não vai mais existir. Configuração de retry-policy agora será apenas por .env)
+    --url
+
+    Todos os campos suportam (exceto --url) "NULL", dessa forma são tradados como o padrão de sistema.
+
+bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
+
+    --add-questions <valor> (Pode adicionar perguntas a um experimento já criado)
+        **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
+        
+        --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5)
+        --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
+        --questions "1-50" --where status=valid
+        --questions "1-100" --exclude status=annulled
+        
+    --seed <opção> (seed poderá ser adicionado ou alterado em experimento já criado, porém não afeta o seed dos runs já criados)
+        EM BRANCO, AUTO, #, NULL
+    --add-model <modelo> (pode ser adicionado modelos a um experimento já criado)
+        --reasoning <opção> (none, minimal, low, medium, high, xhigh)
+        --max-tokens <#>
+        --reasoning-tokens <#>
+        --temperature <#>
+        --top-p <#>
+        --top-k <#>
+        --vision <opção> (true/false/NULL - case-insensitive)
+        --base-url
+    --system-prompt <"Frase entre aspas"> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
+    --user-prompt <"Frase entre aspas"> (user prompt poderá ser alterado em experimento já criado)
+    --retry-policy <#> (Retry policy poderá ser alterado e afeta questões não processadas)
+
+---
 
 ## Hierarquia de configurações:
 
