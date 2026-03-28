@@ -19,6 +19,7 @@ from io import StringIO
 from unittest.mock import patch, MagicMock
 from unittest.mock import PropertyMock
 
+from src.core.mode import Mode
 from src.db import create_schema
 from src.db.repository import ExperimentRepository
 from src.db.models import Experiment
@@ -42,8 +43,8 @@ def test_create_experiment_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.CREATE)
+
             # Assert
             assert result == 0
             captured = capsys.readouterr()
@@ -77,8 +78,8 @@ def test_create_experiment_name_collision(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.CREATE)
+
             # Assert
             assert result == 1
             captured = capsys.readouterr()
@@ -98,8 +99,8 @@ def test_create_experiment_invalid_name(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.CREATE)
+
             # Assert
             # Empty name should fail argparse validation or business logic
             # Either way, it should not succeed
@@ -136,8 +137,8 @@ def test_show_experiment_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.MODIFY)
+
             # Assert
             assert result == 0
             captured = capsys.readouterr()
@@ -158,8 +159,8 @@ def test_show_experiment_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.MODIFY)
+
             # Assert
             assert result == 1
             captured = capsys.readouterr()
@@ -182,8 +183,8 @@ def test_list_experiments_empty(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.INVALID)
+
             # Assert
             assert result == 0
             captured = capsys.readouterr()
@@ -226,8 +227,8 @@ def test_list_experiments_with_data(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.INVALID)
+
             # Assert
             assert result == 0
             captured = capsys.readouterr()
@@ -268,14 +269,14 @@ def test_remove_experiment_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.CREATE)
+
             # Assert
             assert result == 0
             captured = capsys.readouterr()
             assert "removed" in captured.out.lower()
             assert "test-exp-to-remove" in captured.out
-            
+
             # Verify soft delete (experiment still exists but is inactive)
             retrieved = repo.get_by_name("test-exp-to-remove")
             assert retrieved is not None
@@ -295,8 +296,8 @@ def test_remove_experiment_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
             
             # Act
-            result = experiment_main()
-            
+            result = experiment_main(Mode.CREATE)
+
             # Assert
             assert result == 1
             captured = capsys.readouterr()
@@ -313,42 +314,42 @@ class TestCreateExperimentIntegration:
     def test_create_and_retrieve(self, in_memory_db, capsys):
         """Create experiment and verify it can be retrieved."""
         from src.cli.bcllm_experiment import main as experiment_main
-        
+
         # Create
         create_args = ["bcllm_experiment.py", "--create-experiment", "integration-test"]
         with patch.object(sys, "argv", create_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = experiment_main()
+                result = experiment_main(Mode.CREATE)
                 assert result == 0
-        
+
         # Retrieve
         show_args = ["bcllm_experiment.py", "--experiment", "integration-test"]
         with patch.object(sys, "argv", show_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = experiment_main()
+                result = experiment_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "integration-test" in captured.out
-    
+
     def test_create_duplicate_fails(self, in_memory_db, capsys):
         """Creating duplicate experiment fails."""
         from src.cli.bcllm_experiment import main as experiment_main
-        
+
         # Create first
         create_args = ["bcllm_experiment.py", "--create-experiment", "duplicate-test"]
         with patch.object(sys, "argv", create_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = experiment_main()
+                result = experiment_main(Mode.CREATE)
                 assert result == 0
-        
+
         # Try to create duplicate
         with patch.object(sys, "argv", create_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = experiment_main()
+                result = experiment_main(Mode.CREATE)
                 assert result == 1
                 captured = capsys.readouterr()
                 assert "already exists" in captured.err.lower()
@@ -360,30 +361,30 @@ class TestRemoveExperimentIntegration:
     def test_remove_then_list_excludes(self, in_memory_db, capsys):
         """Removed experiment should not appear in list."""
         from src.cli.bcllm_experiment import main as experiment_main
-        
+
         # Create
         create_args = ["bcllm_experiment.py", "--create-experiment", "to-be-removed"]
         with patch.object(sys, "argv", create_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                experiment_main()
-        
+                experiment_main(Mode.CREATE)
+
         # Remove
         remove_args = ["bcllm_experiment.py", "--remove-experiment", "to-be-removed"]
         with patch.object(sys, "argv", remove_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                experiment_main()
-        
+                experiment_main(Mode.CREATE)
+
         # Clear captured output before list
         capsys.readouterr()
-        
+
         # List - should not show removed experiment
         list_args = ["bcllm_experiment.py", "--list-experiments"]
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = experiment_main()
+                result = experiment_main(Mode.INVALID)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "to-be-removed" not in captured.out

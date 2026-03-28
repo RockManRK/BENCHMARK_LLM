@@ -16,6 +16,7 @@ import pytest
 import sys
 from unittest.mock import patch
 
+from src.core.mode import Mode
 from src.db import create_schema
 from src.db.repository import ExperimentRepository, SnapshotRepository
 from src.db.models import Experiment, QuestionSnapshot
@@ -47,7 +48,7 @@ def test_add_questions_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -73,7 +74,7 @@ def test_add_questions_experiment_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -110,7 +111,7 @@ def test_add_questions_idempotent(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -141,7 +142,7 @@ def test_add_questions_invalid_spec(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -173,7 +174,7 @@ def test_list_questions_empty(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.INVALID)
 
             # Assert
             assert result == 0
@@ -216,7 +217,7 @@ def test_list_questions_with_data(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.INVALID)
 
             # Assert
             assert result == 0
@@ -260,7 +261,7 @@ def test_list_questions_for_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.INVALID)
 
             # Assert
             assert result == 0
@@ -301,7 +302,7 @@ def test_remove_question_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -337,7 +338,7 @@ def test_remove_question_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -376,7 +377,7 @@ def test_remove_question_from_wrong_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main()
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -408,7 +409,7 @@ class TestAddQuestionsIntegration:
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = questions_main()
+                result = questions_main(Mode.MODIFY)
                 assert result == 0
 
         # List questions
@@ -421,7 +422,7 @@ class TestAddQuestionsIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = questions_main()
+                result = questions_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "Q01" in captured.out
@@ -444,7 +445,7 @@ class TestAddQuestionsIntegration:
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = questions_main()
+                result = questions_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "3" in captured.out  # 3 questions added
@@ -475,7 +476,7 @@ class TestRemoveQuestionIntegration:
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                questions_main()
+                questions_main(Mode.MODIFY)
 
         # Get snapshot ID
         snap_repo = SnapshotRepository(in_memory_db)
@@ -491,7 +492,7 @@ class TestRemoveQuestionIntegration:
         with patch.object(sys, "argv", remove_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                questions_main()
+                questions_main(Mode.MODIFY)
 
         # Clear captured output before list
         capsys.readouterr()
@@ -505,7 +506,7 @@ class TestRemoveQuestionIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = questions_main()
+                result = questions_main(Mode.INVALID)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "no questions" in captured.out.lower()

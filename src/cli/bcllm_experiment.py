@@ -24,6 +24,7 @@ import json
 import sys
 import uuid
 
+from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.core import QuestionLoader
 from src.core.config_resolver import ConfigResolver
@@ -32,6 +33,26 @@ from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
 from src.validators.model_id_validator import validate_model_id
 from src.cli.bcllm_questions import parse_filter, filter_questions
+
+
+def _validate_expected_mode(mode: Mode) -> None:
+    """Validate that received mode matches expected mode for this module.
+
+    Args:
+        mode: The CLI mode passed from dispatcher.
+
+    Raises:
+        SystemExit: If mode is invalid for this module.
+    """
+    VALID_MODES = [Mode.CREATE, Mode.MODIFY, Mode.INVALID]
+
+    if mode not in VALID_MODES:
+        print(
+            f"Error: {__name__} expected one of {[m.value for m in VALID_MODES]} mode, got '{mode.value}'.\n"
+            f"This indicates a dispatcher bug. Please report this issue.",
+            file=sys.stderr
+        )
+        sys.exit(1)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -586,12 +607,16 @@ def handle_remove_experiment(args, conn) -> int:
     return 0
 
 
-def main() -> int:
+def main(mode: Mode) -> int:
     """Main entry point.
-
+    
+    Args:
+        mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
+        
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    _validate_expected_mode(mode)
     parser = create_parser()
     args = parser.parse_args()
 

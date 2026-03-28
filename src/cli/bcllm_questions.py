@@ -24,11 +24,32 @@ import sys
 import uuid
 from pathlib import Path
 
+from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.core import QuestionLoader
 from src.core.config_resolver import ConfigResolver
 from src.db.models import QuestionSnapshot
 from src.db.repository import ExperimentRepository, SnapshotRepository
+
+
+def _validate_expected_mode(mode: Mode) -> None:
+    """Validate that received mode matches expected mode for this module.
+
+    Args:
+        mode: The CLI mode passed from dispatcher.
+
+    Raises:
+        SystemExit: If mode is invalid for this module.
+    """
+    VALID_MODES = [Mode.MODIFY, Mode.INVALID]
+
+    if mode not in VALID_MODES:
+        print(
+            f"Error: {__name__} expected one of {[m.value for m in VALID_MODES]} mode, got '{mode.value}'.\n"
+            f"This indicates a dispatcher bug. Please report this issue.",
+            file=sys.stderr
+        )
+        sys.exit(1)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -471,12 +492,16 @@ def handle_remove_question(args, conn) -> int:
     return 0
 
 
-def main() -> int:
+def main(mode: Mode) -> int:
     """Main entry point.
-
+    
+    Args:
+        mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
+        
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    _validate_expected_mode(mode)
     parser = create_parser()
     args = parser.parse_args()
 

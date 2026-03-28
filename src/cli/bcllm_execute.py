@@ -41,6 +41,7 @@ import sys
 import re
 from typing import Any
 
+from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.db.repository import ExperimentRepository, RunRepository, VariantRepository, SnapshotRepository
 from src.core.planner import Planner, PlannerValidationError
@@ -49,6 +50,26 @@ from src.core.result_writer import ResultWriter
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser
 from src.core.execution_plan import RetryPolicy
+
+
+def _validate_expected_mode(mode: Mode) -> None:
+    """Validate that received mode matches expected mode for this module.
+
+    Args:
+        mode: The CLI mode passed from dispatcher.
+
+    Raises:
+        SystemExit: If mode is invalid for this module.
+    """
+    VALID_MODES = [Mode.EXECUTE]
+
+    if mode not in VALID_MODES:
+        print(
+            f"Error: {__name__} expected one of {[m.value for m in VALID_MODES]} mode, got '{mode.value}'.\n"
+            f"This indicates a dispatcher bug. Please report this issue.",
+            file=sys.stderr
+        )
+        sys.exit(1)
 
 
 # Placeholder for API client (to be implemented in Phase 8)
@@ -371,12 +392,16 @@ def handle_execute(args, conn) -> int:
         return 1
 
 
-def main() -> int:
+def main(mode: Mode) -> int:
     """Main entry point.
-
+    
+    Args:
+        mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
+        
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    _validate_expected_mode(mode)
     parser = create_parser()
     args = parser.parse_args()
 

@@ -16,6 +16,7 @@ import pytest
 import sys
 from unittest.mock import patch
 
+from src.core.mode import Mode
 from src.db import create_schema
 from src.db.repository import ExperimentRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant
@@ -47,7 +48,7 @@ def test_add_model_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -73,7 +74,7 @@ def test_add_model_experiment_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -103,7 +104,7 @@ def test_add_model_invalid_model_id_format(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -133,7 +134,7 @@ def test_add_model_with_dots_in_model_name(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -163,7 +164,7 @@ def test_add_model_with_colon_suffix(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -193,7 +194,7 @@ def test_add_model_with_multiple_special_chars(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -232,7 +233,7 @@ def test_add_model_variant_signature_collision(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -264,7 +265,7 @@ def test_list_models_empty(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.INVALID)
 
             # Assert
             assert result == 0
@@ -313,7 +314,7 @@ def test_list_models_with_data(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.INVALID)
 
             # Assert
             assert result == 0
@@ -359,7 +360,7 @@ def test_list_models_for_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.INVALID)
 
             # Assert
             assert result == 0
@@ -401,7 +402,7 @@ def test_remove_model_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -437,7 +438,7 @@ def test_remove_model_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -477,7 +478,7 @@ def test_remove_model_from_wrong_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = model_main()
+            result = model_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -509,7 +510,7 @@ class TestAddModelIntegration:
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = model_main()
+                result = model_main(Mode.MODIFY)
                 assert result == 0
 
         # List models
@@ -522,7 +523,7 @@ class TestAddModelIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = model_main()
+                result = model_main(Mode.INVALID)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "openai/gpt-4" in captured.out
@@ -544,14 +545,14 @@ class TestAddModelIntegration:
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = model_main()
+                result = model_main(Mode.MODIFY)
                 assert result == 0
 
         # Try to add same model again
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = model_main()
+                result = model_main(Mode.MODIFY)
                 assert result == 1
                 captured = capsys.readouterr()
                 assert "already exists" in captured.err.lower()
@@ -577,7 +578,7 @@ class TestRemoveModelIntegration:
         with patch.object(sys, "argv", add_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                model_main()
+                model_main(Mode.MODIFY)
 
         # Get variant ID
         var_repo = VariantRepository(in_memory_db)
@@ -593,7 +594,7 @@ class TestRemoveModelIntegration:
         with patch.object(sys, "argv", remove_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                model_main()
+                model_main(Mode.MODIFY)
 
         # Clear captured output before list
         capsys.readouterr()
@@ -607,7 +608,7 @@ class TestRemoveModelIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = model_main()
+                result = model_main(Mode.INVALID)
                 assert result == 0
                 captured = capsys.readouterr()
                 # Should show "no models" since the only model was removed

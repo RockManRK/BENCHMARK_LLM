@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """CLI entry point — dispatches exclusively to src."""
 import sys
+from src.core.mode import Mode
+from src.core.mode_resolver import resolve_mode
+from src.core.module_resolver import resolve_module
+from src.core.mode_matrix import validate_mode_matrix, ModeMatrixError
 
 
-def route_to_v2(module_name: str) -> int:
+def route_to_v2(module_name: str, mode: Mode) -> int:
     """Route to src.cli module and return exit code.
 
     Args:
         module_name: Name of the v2 CLI module to route to.
+        mode: The resolved CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
+              Passed to module main() for validation and execution.
 
     Returns:
         Exit code from the v2 module (0 for success, 1 for error).
@@ -23,84 +29,47 @@ def route_to_v2(module_name: str) -> int:
     )
 
     if module_name == "bcllm_main":
-        return bcllm_main.main()
+        return bcllm_main.main(mode)
     elif module_name == "bcllm_experiment":
-        return bcllm_experiment.main()
+        return bcllm_experiment.main(mode)
     elif module_name == "bcllm_model":
-        return bcllm_model.main()
+        return bcllm_model.main(mode)
     elif module_name == "bcllm_questions":
-        return bcllm_questions.main()
+        return bcllm_questions.main(mode)
     elif module_name == "bcllm_run":
-        return bcllm_run.main()
+        return bcllm_run.main(mode)
     elif module_name == "bcllm_execute":
-        return bcllm_execute.main()
+        return bcllm_execute.main(mode)
     elif module_name == "bcllm_review":
-        return bcllm_review.main()
+        return bcllm_review.main(mode)
     else:
         print(f"Error: Unknown v2 module: {module_name}", file=sys.stderr)
         return 1
 
 
-def determine_v2_command(argv: list[str]) -> str | None:
-    """Determine which v2 command to route to based on argv.
-
-    Args:
-        argv: Command-line arguments (including script name).
-
-    Returns:
-        Module name (e.g., "bcllm_experiment") or None (unknown command).
-    """
-    args = argv[1:]
-
-    # Handle --help explicitly (highest priority)
-    if "--help" in args or "-h" in args:
-        return "bcllm_main"
-
-    # Check for review commands (highest priority)
-    if "--review-experiment" in args or "--review-all" in args:
-        return "bcllm_review"
-
-    # Check for execute command first (highest priority)
-    if "--execute" in args:
-        return "bcllm_execute"
-
-    # Check for experiment creation with optional flags
-    # --create-experiment takes precedence when combined with --add-model or --add-questions
-    if "--create-experiment" in args:
-        return "bcllm_experiment"
-
-    # Check for model commands (require --experiment but take precedence)
-    if "--add-model" in args or "--list-models" in args or "--remove-model" in args:
-        return "bcllm_model"
-
-    # Check for question commands (for existing experiments)
-    if "--add-questions" in args or "--questions" in args or "--list-questions" in args or "--remove-question" in args:
-        return "bcllm_questions"
-
-    # Check for run commands (before experiment commands to avoid --experiment collision)
-    if "--add-run" in args or "--create-run" in args or "--list-runs" in args or "--run" in args or "--remove-run" in args:
-        return "bcllm_run"
-
-    # Check for experiment commands (lowest priority v2 commands)
-    if "--experiment" in args or "--list-experiments" in args or "--remove-experiment" in args:
-        return "bcllm_experiment"
-
-    return None
-
-
 def main() -> int:
-    """Main entry point — routes exclusively to v2.
+    """Main entry point — routes with explicit MODE × MODULE validation.
 
     Returns:
         Exit code (0 for success, 1 for error).
     """
-    v2_module = determine_v2_command(sys.argv)
+    mode = resolve_mode(sys.argv)
+    module = resolve_module(sys.argv)
 
-    if v2_module is None:
-        print("Error: Unknown command. Use --help for usage.", file=sys.stderr)
+    if module is None:
+        if "--help" in sys.argv or "-h" in sys.argv:
+            module = "bcllm_main"
+        else:
+            print("Error: No valid command found. Use --help for usage.", file=sys.stderr)
+            return 1
+
+    try:
+        validate_mode_matrix(mode, module)
+    except ModeMatrixError as e:
+        print(str(e), file=sys.stderr)
         return 1
 
-    return route_to_v2(v2_module)
+    return route_to_v2(module, mode)
 
 
 if __name__ == "__main__":
