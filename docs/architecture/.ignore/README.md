@@ -1,0 +1,1 @@
+# ATENÇÃO: Nenhum arquivo dessa pasta deve ser lido sem orientação do usuário.
