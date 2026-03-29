@@ -29,6 +29,7 @@ from src.cli.database import get_database_connection
 from src.core import QuestionLoader
 from src.core.config_resolver import ConfigResolver
 from src.core.argv_utils import parse_args_normalized
+from src.core.null_semantics import nullable_int, nullable_float
 from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
@@ -119,47 +120,48 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-reasoning",
         metavar="TOKENS",
-        type=int,
+        type=nullable_int,
         help="Max tokens for reasoning (model default)",
     )
     parser.add_argument(
         "--max-tokens",
         metavar="TOKENS",
-        type=int,
+        type=nullable_int,
         help="Max total tokens (model default)",
     )
     parser.add_argument(
         "--reasoning",
         metavar="EFFORT",
+        type=str,
         help="Reasoning effort level (model default)",
     )
     parser.add_argument(
         "--repeat-penalty",
         metavar="VALUE",
-        type=float,
+        type=nullable_float,
         help="Repeat penalty (model default)",
     )
     parser.add_argument(
         "--temperature",
         metavar="VALUE",
-        type=float,
+        type=nullable_float,
         help="Temperature (model default)",
     )
     parser.add_argument(
         "--top-k",
         metavar="VALUE",
-        type=int,
+        type=nullable_int,
         help="Top-K sampling (model default)",
     )
     parser.add_argument(
         "--top-p",
         metavar="VALUE",
-        type=float,
+        type=nullable_float,
         help="Top-P sampling (model default)",
     )
     parser.add_argument(
         "--reasoning-tokens",
-        type=int,
+        type=nullable_int,
         metavar="TOKENS",
         help="Max tokens for reasoning (model default)",
     )
@@ -384,13 +386,16 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         Exit code (0 for success, 1 for error).
 
     Behavior:
-        - If --add-questions provided: use specified questions
-        - If --add-questions NOT provided: check DEFAULT_QUESTIONS from .env
+        - If --add-questions null (EXPLICIT_NULL): use ALL questions from dataset (no .env fallback)
+        - If --add-questions provided with value: use specified questions
+        - If --add-questions NOT provided (None): check DEFAULT_QUESTIONS from .env
         - If neither provided: select ALL questions from dataset
         - Apply QUESTIONS_STATUS_ADD from .env for filtering (if --where not provided)
         - Apply QUESTIONS_STATUS_EXCLUDE from .env for filtering (if --exclude not provided)
         - Fails loudly if dataset invalid (no placeholders)
     """
+    from src.core.null_semantics import EXPLICIT_NULL
+
     resolver = ConfigResolver()
     env_dict = resolver.load_env()
 
@@ -411,9 +416,16 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         print(f"Error loading question dataset: {e}", file=sys.stderr)
         return 1
 
-    if args.add_questions:
+    # Check if add_questions was explicitly set (even if EXPLICIT_NULL)
+    add_questions_value = getattr(args, 'add_questions', None)
+
+    if add_questions_value is EXPLICIT_NULL:
+        # User explicitly passed --add-questions null → use ALL questions (no filter)
+        selected_questions = questions
+    elif add_questions_value is not None:
+        # User provided a value → use it
         try:
-            selected_questions = loader.parse_question_spec(args.add_questions, questions)
+            selected_questions = loader.parse_question_spec(add_questions_value, questions)
         except ValueError as e:
             print(f"Error: Invalid question specification: {e}", file=sys.stderr)
             print("Valid formats:", file=sys.stderr)
@@ -422,6 +434,7 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             print("  --questions \"1, 3-5, Q10\" (mixed)", file=sys.stderr)
             return 1
     else:
+        # Not specified → fallback to DEFAULT_QUESTIONS from .env
         default_questions = env_dict.get('DEFAULT_QUESTIONS')
         if default_questions:
             print(f"  Using DEFAULT_QUESTIONS from .env: {default_questions}")

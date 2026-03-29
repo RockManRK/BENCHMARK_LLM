@@ -10,6 +10,7 @@ All configuration values flow through this resolver to ensure:
 - Null-by-default for prompts (no fallback strings)
 
 CRITICAL: Seed AUTO resolution happens at RUN_CREATION only, never at experiment level.
+CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback to .env.
 """
 
 import hashlib
@@ -18,6 +19,8 @@ from typing import Optional
 
 from dotenv import load_dotenv
 import os
+
+from .null_semantics import EXPLICIT_NULL
 
 
 class ConfigResolver:
@@ -90,6 +93,8 @@ class ConfigResolver:
         3. Default (if provided)
         4. None (null-by-default)
 
+        CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback.
+
         Args:
             cli_value: Value from CLI flag (already parsed), or None.
             env_key: Key to look up in .env (e.g., "SYSTEM_PROMPT_TEMPLATE").
@@ -111,10 +116,19 @@ class ConfigResolver:
             >>> # All missing, no default: returns None
             >>> resolver.resolve_prompt(None, "NONEXISTENT_KEY", None)
             None
+            >>> # CLI EXPLICIT_NULL: no fallback to .env
+            >>> resolver.resolve_prompt(EXPLICIT_NULL, "SYSTEM_PROMPT", None)
+            None
         """
+        # CLI was EXPLICIT_NULL → return None (no fallback)
+        if cli_value is EXPLICIT_NULL:
+            return None
+        
+        # CLI provided (not None, not EXPLICIT_NULL)
         if cli_value is not None and cli_value.strip():
             return cli_value.strip()
 
+        # CLI was None (not specified) → check .env
         env_value = self.env_dict.get(env_key)
         if env_value is not None and env_value.strip():
             return env_value.strip()
@@ -137,6 +151,7 @@ class ConfigResolver:
 
         CRITICAL: This method does NOT resolve AUTO to a number.
         AUTO resolution happens only in resolve_seed_for_run().
+        CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback.
 
         Args:
             cli_value: Value from CLI --seed flag (already parsed), or None.
@@ -158,6 +173,9 @@ class ConfigResolver:
             'AUTO'
             >>> # None: returns None
             >>> resolver.resolve_seed(None, "RANDOM_SEED", "exp1")
+            None
+            >>> # EXPLICIT_NULL: no fallback to .env
+            >>> resolver.resolve_seed(EXPLICIT_NULL, "RANDOM_SEED", "exp1")
             None
         """
         def parse_seed_value(value: str) -> int | str | None:
@@ -181,13 +199,19 @@ class ConfigResolver:
             except ValueError:
                 return None
 
-        if cli_value is not None:
+        # Check CLI value first
+        if cli_value is not None and cli_value is not EXPLICIT_NULL:
             parsed = parse_seed_value(cli_value)
             if parsed == "AUTO":
                 return "AUTO"
             if isinstance(parsed, int):
                 return parsed
-
+        
+        # CLI was EXPLICIT_NULL → return None (no fallback)
+        if cli_value is EXPLICIT_NULL:
+            return None
+        
+        # CLI was None (not specified) → check .env
         env_value = self.env_dict.get(env_key)
         if env_value is not None:
             parsed = parse_seed_value(env_value)
@@ -345,14 +369,44 @@ class ConfigResolver:
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
 
             # MODEL keys (10) - Resolved from CLI/.env as defaults for model variants
-            "BASE_URL": getattr(cli_args, 'url', None) or self.env_dict.get("BASE_URL"),
-            "MODEL_MAX_TOKENS_REASONING": getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None) or self._parse_int_env("MODEL_MAX_TOKENS_REASONING"),
-            "MODEL_MAX_TOKENS_TOTAL": getattr(cli_args, 'max_tokens', None) or self._parse_int_env("MODEL_MAX_TOKENS_TOTAL"),
-            "MODEL_REASONING_EFFORT": getattr(cli_args, 'reasoning', None) or self.env_dict.get("MODEL_REASONING_EFFORT"),
-            "MODEL_REPEAT_PENALTY": getattr(cli_args, 'repeat_penalty', None) or self._parse_float_env("MODEL_REPEAT_PENALTY"),
-            "MODEL_TEMPERATURE": getattr(cli_args, 'temperature', None) or self._parse_float_env("MODEL_TEMPERATURE"),
-            "MODEL_TOP_K": getattr(cli_args, 'top_k', None) or self._parse_int_env("MODEL_TOP_K"),
-            "MODEL_TOP_P": getattr(cli_args, 'top_p', None) or self._parse_float_env("MODEL_TOP_P"),
+            "BASE_URL": self._resolve_with_explicit_null(
+                getattr(cli_args, 'url', None),
+                "BASE_URL"
+            ),
+            "MODEL_MAX_TOKENS_REASONING": self._resolve_with_explicit_null(
+                getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None),
+                "MODEL_MAX_TOKENS_REASONING",
+                self._parse_int_env
+            ),
+            "MODEL_MAX_TOKENS_TOTAL": self._resolve_with_explicit_null(
+                getattr(cli_args, 'max_tokens', None),
+                "MODEL_MAX_TOKENS_TOTAL",
+                self._parse_int_env
+            ),
+            "MODEL_REASONING_EFFORT": self._resolve_with_explicit_null(
+                getattr(cli_args, 'reasoning', None),
+                "MODEL_REASONING_EFFORT"
+            ),
+            "MODEL_REPEAT_PENALTY": self._resolve_with_explicit_null(
+                getattr(cli_args, 'repeat_penalty', None),
+                "MODEL_REPEAT_PENALTY",
+                self._parse_float_env
+            ),
+            "MODEL_TEMPERATURE": self._resolve_with_explicit_null(
+                getattr(cli_args, 'temperature', None),
+                "MODEL_TEMPERATURE",
+                self._parse_float_env
+            ),
+            "MODEL_TOP_K": self._resolve_with_explicit_null(
+                getattr(cli_args, 'top_k', None),
+                "MODEL_TOP_K",
+                self._parse_int_env
+            ),
+            "MODEL_TOP_P": self._resolve_with_explicit_null(
+                getattr(cli_args, 'top_p', None),
+                "MODEL_TOP_P",
+                self._parse_float_env
+            ),
             "MODEL_VISION": self._resolve_bool_cli_or_env(getattr(cli_args, 'vision', None), "MODEL_VISION"),
             "STRUCTURED_OUTPUTS": self._resolve_bool_cli_or_env(getattr(cli_args, 'structured', None), "STRUCTURED_OUTPUTS"),
 
@@ -615,3 +669,31 @@ class ConfigResolver:
             return float(value)
         except ValueError:
             return None
+
+    def _resolve_with_explicit_null(self, cli_value, env_key, parser_func=None):
+        """Resolve value with EXPLICIT_NULL support.
+
+        Args:
+            cli_value: Value from CLI (may be EXPLICIT_NULL)
+            env_key: Key to look up in .env
+            parser_func: Optional parser function (e.g., _parse_int_env)
+
+        Returns:
+            CLI value if provided (and not EXPLICIT_NULL), else .env value, else None
+        """
+        # CLI was EXPLICIT_NULL → return None (no fallback)
+        if cli_value is EXPLICIT_NULL:
+            return None
+        
+        # CLI provided
+        if cli_value is not None:
+            return cli_value
+        
+        # CLI was None (not specified) → check .env
+        env_value = self.env_dict.get(env_key)
+        if env_value is not None:
+            if parser_func:
+                return parser_func(env_key)
+            return env_value
+        
+        return None
