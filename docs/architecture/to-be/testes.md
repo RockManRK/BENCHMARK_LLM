@@ -239,3 +239,51 @@ python bcllm.py --create-experiment cenull19 --user-prompt null
 python bcllm.py --create-experiment cenull20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal
 
 ---
+
+
+
+
+
+
+
+
+# Organizar para gerar experimentos:
+
+python bcllm.py --experiment teste1 --add-model openai/gpt-5-mini --reasoning-effort minimal --enable-vision
+
+python bcllm.py --experiment teste1 --run
+
+python bcllm.py --experiment teste1 --create-run --iterations 1
+
+python bcllm.py --experiment teste1 --remove-model ?
+
+python bcllm.py --experiment teste1 --add-model openai/gpt-5-mini --reasoning-effort low --enable-vision 
+
+python bcllm.py --experiment teste1 --add-model google/gemini-2.5-flash-lite --reasoning-effort none --enable-vision
+
+python bcllm.py --experiment teste1 --add-model google/gemini-3.1-flash-lite-preview --reasoning-effort none --enable-vision
+
+python bcllm.py --create-experiment teste1 --questions Q001-Q004 
+
+python bcllm.py --experiment teste1 --run
+
+python bcllm.py --experiment teste1 --create-run --iterations 1 
+
+---
+
+python bcllm.py --experiment teste1 --questions Q001-Q004
+
+python bcllm.py --create-experiment teste1 --questions Q001-Q004
+
+python bcllm.py --experiment teste1 --add-model google/gemini-3.1-flash-lite-preview --reasoning-effort none --enable-vision
+
+python bcllm.py --experiment teste1 --add-model google/gemini-2.5-flash-lite --reasoning-effort low --enable-vision
+
+python bcllm.py --experiment teste1 --add-model openai/gpt-5-mini --reasoning-effort low --enable-vision
+
+python bcllm.py --experiment teste1 --remove-model ?
+
+
+Reasoning desligado = gemini-3.1-flash-lite-preview
+Reasoning low = gemini-3.1-flash-lite-preview (low)
+Reasoning xhigh = gemini-3.1-flash-lite-preview (xhigh)
