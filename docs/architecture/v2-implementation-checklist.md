@@ -1,188 +1,226 @@
-# ✅ V2 — Global Implementation Checklist
+# V2 Implementation Plan
 
-Este checklist define **o que deve ser implementado**, **em que ordem**, e **como validar cada fase**, respeitando integralmente os contratos do sistema.
-
-Cada fase só pode avançar após:
-- Implementação concluída
-- Review técnico
-- Aprovação do **Essence Guardian**
-
----
-
-## 🔴 Phase 0 — Safety & Observability (BLOCKERS)
-
-### 🎯 Objetivo
-Tornar o sistema **seguro, observável e utilizável**, sem alterar comportamento funcional.
+**Document Type:** Implementation Checklist
+**Project:** Benchmark LLM V2
+**Version:** 1.0
+**Date:** 2026-03-29
+**Status:** Actionable
+**Complete Plan:** @docs\architecture\v2-implementation-plan.md
 
 ---
 
-### ✅ Checklist
+# ✅ V2 — Implementation Checklist (Single Source of Execution Truth)
 
-#### Logging
-- [ ] Sistema de logging configurável via `.env`
-- [ ] Logs escritos em arquivo e console
-- [ ] Log rotation configurado
-- [ ] Logs incluem:
-  - experimento
-  - run
-  - modelo
-  - questão
-- [ ] Logs não expõem dados sensíveis
-- [ ] Logs são persistidos imediatamente (crash‑safe)
-
-#### Retry Safety
-- [ ] Retry possui **delay obrigatório**
-- [ ] Backoff exponencial implementado
-- [ ] Limite máximo de delay configurável
-- [ ] Retry não gera loops agressivos
-- [ ] Retry é visível nos logs
+> **Referenced by:** `@docs\architecture\v2-implementation-plan.md`  
+> **Purpose:** This document is the **only operational checklist** for implementation.  
+> All agents must follow this checklist **and** the Fundamental System Contracts.
 
 ---
 
-### 🧪 Smoke Tests
-- Executar comando simples e verificar log em arquivo
-- Simular erro de API e confirmar delay entre retries
-- Confirmar que logs sobrevivem a interrupção abrupta
+# Steps for each implementation block:
+
+A block corresponds to one or more related capabilities defined in:
+@docs/architecture/v2-implementation-checklist.md
+
+1. Create a commit to save the current project state;
+
+2. Implement the capabilities defined for this block, respecting:
+   - the implementation checklist
+   - the fundamental system contracts
+
+3. Run applicable smoke tests (structural or runtime, depending on activation);
+
+4. Perform a technical review focusing on:
+   - correctness
+   - code quality
+   - edge cases
+   - test coverage
+
+5. Invoke the Essence Guardian sub-agent ('essence-guardian') to evaluate:
+   - adherence to system contracts
+   - architectural consistency
+   - risk of conceptual drift
+
+6. Apply corrections if required by reviews;
+
+7. Present a concise report to the user summarizing:
+   - what was implemented
+   - what was validated
+   - any deferred activations or risks
+
+8. Do not proceed to the next block without explicit user approval.
 
 ---
 
-### 🧾 Definition of Done
-- Sistema não pode executar sem logging ativo
-- Toda futura chamada de API será estruturalmente forçada a usar retry seguro
-   - (Validated by architecture, not runtime)
-- Nenhuma mudança funcional introduzida
+## 🧠 How to Use This Checklist
 
----
+- This checklist defines **what must exist**, **when it becomes active**, and **how it is validated**
+- Items are **not phases** — they are **capabilities**
+- Capabilities move through three states:
+  - **CAPABILITY (STRUCTURAL)** — must exist in code
+  - **ACTIVATION (RUNTIME)** — becomes usable
+  - **VALIDATION** — behavior confirmed
 
-## 🟠 Phase 1 — Core Workflow Restoration
-
-### 🎯 Objetivo
-Restaurar **fluxos essenciais do V1**, mantendo contratos do V2.
-
----
-
-### ✅ Checklist
-
-#### CLI Core
-- [ ] Export de resultados funcional
-- [ ] Add‑to‑run funcional
-- [ ] Complete‑run funcional
-- [ ] Execução incremental preservada
-- [ ] Nenhuma duplicação de dados possível
-
-#### Execution Feedback
-- [ ] Progress bar visível durante execução
-- [ ] Progresso refletido corretamente
-- [ ] Logs acompanham progresso
-
-#### Review UI
-- [ ] UI suporta PT e EN
-- [ ] Multi‑level undo funcional
-- [ ] Batch classification funcional
-- [ ] Undo reverte estado no banco
-
----
-
-### 🧪 Smoke Tests
-- Executar experimento parcial
-- Reexecutar e confirmar idempotência
-- Classificar múltiplos itens e desfazer
-- Exportar resultados e validar consistência
-
----
-
-### 🧾 Definition of Done
-- Todos os fluxos do V1 restaurados
-- Nenhuma violação de imutabilidade
-- Nenhuma regressão de determinismo
-
----
-
-## 🟡 Phase 2 — Reliability & UX Enhancements
-
-### 🎯 Objetivo
-Melhorar confiabilidade e experiência sem alterar contratos.
-
----
-
-### ✅ Checklist
-
-#### Execution Control
-- [ ] Dry‑run funcional
-- [ ] Timeout configurável via `.env`
-- [ ] Timeout adequado para modelos de reasoning
-
-#### Output & Review
-- [ ] Export suporta múltiplos formatos
-- [ ] Review pode ser pausado e retomado
-- [ ] Filtros funcionais na revisão
-
----
-
-### 🧪 Smoke Tests
-- Executar dry‑run e validar plano
-- Simular timeout longo
-- Retomar sessão de review interrompida
-
----
-
-### 🧾 Definition of Done
-- Nenhuma mudança quebra execução existente
-- UX melhora sem alterar semântica
-- Sistema permanece determinístico
-
----
-
-## 🔵 Phase 3 — Polish & Documentation (OPTIONAL)
-
-### 🎯 Objetivo
-Finalizar documentação e pequenos refinamentos.
-
----
-
-### ✅ Checklist
-- [ ] Documentação de arquitetura atualizada
-- [ ] Contratos documentados
-- [ ] Gaps aceitos ou removidos
-- [ ] Sistema pronto para uso contínuo
+> **Rule:**  
+> You may implement CAPABILITY at any time.  
+> You may only VALIDATE after ACTIVATION is possible.
 
 ---
 
 ## 🛑 Global Rules (Always Enforced)
 
-- Nenhuma fase pode avançar sem aprovação do **Essence Guardian**
-- Nenhuma mudança pode violar:
-  - determinismo
-  - idempotência
-  - imutabilidade
-  - hierarquia de configuração
-- CLI nunca é nível de configuração
-- `null` sempre ignora herança
-- Logs são dados científicos
+- All changes must respect the Fundamental System Contracts
+- No capability may violate:
+  - determinism
+  - idempotency
+  - logical immutability
+  - configuration hierarchy
+- CLI is never a configuration level
+- `null` always bypasses inheritance
+- Logs are scientific data
+- No capability is considered complete until validated
 
 ---
 
-## 🧠 Como usar este checklist
+## 🔴 Capability: Logging & Observability
 
-1. Iniciar fase → commit
-2. Implementar itens da fase
-3. Rodar smoke tests
-4. Review técnico
-5. **Essence Guardian**
-6. Corrigir se necessário
-7. Avançar
+### CAPABILITY (STRUCTURAL)
+- Logging system configurable via `.env`
+- Logs written to file and console
+- Log rotation enabled
+- Logs include identifiers:
+  - experiment
+  - run
+  - model
+  - question
+- Logs are crash‑safe
+- Logs do not expose sensitive data
+
+### ACTIVATION (RUNTIME)
+- Activated immediately (no dependency)
+
+### VALIDATION
+- Logs appear on startup
+- Logs persist after abrupt interruption
+- Logs correctly tag experiment/run/model/question
 
 ---
 
-### ✔️ Resultado
-Esse checklist:
-- guia a IA
-- protege a essência
-- evita escopo oculto
-- permite terminar rápido sem perder controle
+## 🔴 Capability: Retry Safety
 
-Se quiser, no próximo passo posso:
-- adaptar esse checklist para **formato de instrução direta para IA**
-- ou gerar **checklists individuais por fase** para execução imediata
+### CAPABILITY (STRUCTURAL)
+- Single centralized retry mechanism exists
+- No API call path exists outside retry
+- Retry uses exponential backoff
+- Retry has max delay cap
+- Retry attempts are logged
 
-Agora você tem **processo + guardião + mapa**.
+### ACTIVATION (RUNTIME)
+- Activated when real API execution exists
+
+### VALIDATION
+- Retry delay observed in real failures
+- No aggressive retry loops
+- Retry behavior visible in logs
+
+---
+
+## 🟠 Capability: Execution Core
+
+### CAPABILITY (STRUCTURAL)
+- ExecutionEngine is the only execution entry point
+- Planner is read‑only
+- ResultWriter is idempotent
+- Execution plan supports partial execution
+
+### ACTIVATION (RUNTIME)
+- Activated when execution is wired to real models
+
+### VALIDATION
+- Partial execution works
+- Reexecution skips completed items
+- No duplicate data generated
+
+---
+
+## 🟠 Capability: Export Results
+
+### CAPABILITY (STRUCTURAL)
+- Export operates only on persisted data
+- Export does not modify data
+- Export respects immutability
+- Export structure exists even with no data
+
+### ACTIVATION (RUNTIME)
+- Activated after first real execution
+
+### VALIDATION
+- Export reflects partial executions
+- Export consistent after reexecution
+- No duplicated or missing entries
+
+---
+
+## 🟠 Capability: Review UI
+
+### CAPABILITY (STRUCTURAL)
+- UI supports PT and EN
+- Undo history exists
+- Undo does not violate immutability
+- Batch classification exists structurally
+
+### ACTIVATION (RUNTIME)
+- Activated when real data exists
+
+### VALIDATION
+- Undo reverts DB state
+- Batch classification persists correctly
+- Review can be paused and resumed
+
+---
+
+## 🟡 Capability: Execution Control
+
+### CAPABILITY (STRUCTURAL)
+- Dry‑run mode exists
+- Timeout configurable via `.env`
+
+### ACTIVATION (RUNTIME)
+- Activated during real execution
+
+### VALIDATION
+- Dry‑run validates plan without execution
+- Timeout supports long reasoning models
+
+---
+
+## 🔵 Capability: Documentation & Closure
+
+### CAPABILITY (STRUCTURAL)
+- Architecture documented
+- Contracts documented
+- Accepted gaps recorded
+
+### ACTIVATION (RUNTIME)
+- Not applicable
+
+### VALIDATION
+- Documentation matches implementation
+
+---
+
+## 🧾 Completion Rules
+
+- A capability is **implemented** when CAPABILITY is complete
+- A capability is **usable** when ACTIVATION is possible
+- A capability is **done** only after VALIDATION
+- The Essence Guardian must review before marking VALIDATION complete
+
+---
+
+## ✔️ Final Notes
+
+- This checklist is **the only execution guide**
+- The implementation plan references this checklist
+- No additional documents are required
+- No agent should invent steps outside this checklist

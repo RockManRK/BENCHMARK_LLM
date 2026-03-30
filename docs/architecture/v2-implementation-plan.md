@@ -5,6 +5,7 @@
 **Version:** 1.0
 **Date:** 2026-03-29
 **Status:** Actionable
+**Plan Checklist:** @docs\architecture\v2-implementation-checklist.md
 
 ---
 
