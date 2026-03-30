@@ -16,7 +16,7 @@ def _validate_expected_mode(mode: Mode) -> None:
     Raises:
         SystemExit: If mode is invalid for this module.
     """
-    VALID_MODES = [Mode.INVALID]
+    VALID_MODES = [Mode.INVALID, Mode.EXPORT]
 
     if mode not in VALID_MODES:
         print(
@@ -40,6 +40,7 @@ Examples:
   bcllm --experiment my_exp --add-questions 1-10
   bcllm --experiment my_exp --add-run
   bcllm --experiment my_exp --execute
+  bcllm --experiment my_exp --run <run_id> --export
 
 Commands:
   Experiments: --create-experiment, --experiment, --list-experiments, --remove-experiment
@@ -47,6 +48,7 @@ Commands:
   Questions:   --add-questions, --list-questions, --remove-question
   Runs:        --create-run, --list-runs, --run, --remove-run
   Execution:   --execute
+  Export:      --export
   Review:      --review-experiment, --review-all
         """,
     )
@@ -71,6 +73,7 @@ Commands:
     parser.add_argument("--remove-run", metavar="RUN_ID", help="Remove run")
     
     parser.add_argument("--execute", action="store_true", help="Execute experiment")
+    parser.add_argument("--export", action="store_true", help="Export benchmark results")
     parser.add_argument("--review-experiment", metavar="NAME", help="Review experiment results")
     parser.add_argument("--review-all", action="store_true", help="Review all pending items")
     
@@ -79,10 +82,10 @@ Commands:
 
 def main(mode: Mode) -> int:
     """Main entry point.
-    
+
     Args:
-        mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+        mode: The CLI mode (CREATE, MODIFY, EXECUTE, EXPORT, INVALID).
+
     Returns:
         Exit code (0 for success, 1 for error).
     """

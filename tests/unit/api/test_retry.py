@@ -13,7 +13,7 @@ Domain Rules:
 
 import pytest
 from src.core.execution_plan import RetryPolicy
-from src.api.retry import RetryHandler
+from src.core.retry import RetryHandler
 from src.api.errors import (
     APIError,
     RateLimitError,

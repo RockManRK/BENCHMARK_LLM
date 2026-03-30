@@ -10,11 +10,14 @@ _VALID_COMBINATIONS = {
     (Mode.MODIFY, "bcllm_run"): True,
     (Mode.EXECUTE, "bcllm_run"): True,
     (Mode.EXECUTE, "bcllm_execute"): True,
+    (Mode.EXPORT, "bcllm_export"): True,
+    (Mode.EXPORT, "bcllm_main"): True,
     (Mode.INVALID, "bcllm_experiment"): True,
     (Mode.INVALID, "bcllm_model"): True,
     (Mode.INVALID, "bcllm_questions"): True,
     (Mode.INVALID, "bcllm_run"): True,
     (Mode.INVALID, "bcllm_review"): True,
+    (Mode.INVALID, "bcllm_export"): True,
     (Mode.INVALID, "bcllm_main"): True,
 }
 
@@ -69,10 +72,40 @@ _ERROR_MESSAGES = {
             "Cannot modify questions in EXECUTE mode. EXECUTE is for running benchmarks only."
         ),
     },
+    Mode.EXPORT: {
+        "bcllm_experiment": (
+            "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_experiment).\n"
+            "Cannot modify experiment in EXPORT mode. EXPORT is for exporting results only."
+        ),
+        "bcllm_model": (
+            "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_model).\n"
+            "Cannot modify models in EXPORT mode. EXPORT is for exporting results only."
+        ),
+        "bcllm_questions": (
+            "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_questions).\n"
+            "Cannot modify questions in EXPORT mode. EXPORT is for exporting results only."
+        ),
+        "bcllm_run": (
+            "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_run).\n"
+            "Cannot modify runs in EXPORT mode. EXPORT is for exporting results only."
+        ),
+        "bcllm_execute": (
+            "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_execute).\n"
+            "Cannot execute in EXPORT mode. EXPORT is for exporting results only."
+        ),
+        "bcllm_review": (
+            "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_review).\n"
+            "Cannot review in EXPORT mode. EXPORT is for exporting results only."
+        ),
+    },
     Mode.INVALID: {
         "bcllm_execute": (
             "Error: Invalid MODE × MODULE combination (INVALID, bcllm_execute).\n"
             "Cannot execute without a valid mode. Execution requires explicit --execute flag."
+        ),
+        "bcllm_export": (
+            "Error: Invalid MODE × MODULE combination (INVALID, bcllm_export).\n"
+            "Cannot export without a valid mode. Export requires explicit --export flag."
         ),
     },
 }

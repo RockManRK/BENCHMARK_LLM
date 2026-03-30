@@ -31,7 +31,11 @@ _MODULE_MAP = {
     
     # Execute module
     "--execute": "bcllm_execute",
-    
+
+    # Export module
+    "--export": "bcllm_export",
+    "--export-results": "bcllm_export",
+
     # Review module
     "--review-experiment": "bcllm_review",
     "--review-all": "bcllm_review",
@@ -44,33 +48,37 @@ _MODULE_MAP = {
 
 def resolve_module(argv: List[str]) -> Optional[str]:
     """Resolve module name from raw sys.argv.
-    
+
     Args:
         argv: Raw command-line arguments (including script name at [0])
-        
+
     Returns:
         Module name string (e.g., 'bcllm_experiment') or None if no valid module flag found
-        
+
     Priority Rules:
         1. --help / -h always takes highest priority → 'bcllm_main'
-        2. For other flags, first-match-wins (left-to-right scanning)
-        
+        2. --export takes priority when present → 'bcllm_export'
+        3. For other flags, first-match-wins (left-to-right scanning)
+
     Important:
         - Operates on raw argv strings, not parsed argparse objects
         - Case-sensitive matching (only lowercase flags match)
         - Exact flag name matching required
         - Supports both space-separated (--flag value) and equals (--flag=value) notation
-        
+
     Examples:
         >>> resolve_module(["bcllm", "--create-experiment", "my_exp"])
         'bcllm_experiment'
-        
+
         >>> resolve_module(["bcllm", "--help", "--execute"])
         'bcllm_main'  # help takes priority
-        
+
+        >>> resolve_module(["bcllm", "--experiment", "my_exp", "--export"])
+        'bcllm_export'  # export takes priority
+
         >>> resolve_module(["bcllm", "--add-model", "google/gemini"])
         'bcllm_model'
-        
+
         >>> resolve_module(["bcllm"])
         None  # no valid module flag
     """
@@ -80,15 +88,19 @@ def resolve_module(argv: List[str]) -> Optional[str]:
     # Check for help first (highest priority)
     if has_flag(args, "--help") or has_flag(args, "-h"):
         return "bcllm_main"
-    
+
+    # Check for export second (high priority for compound commands)
+    if has_flag(args, "--export"):
+        return "bcllm_export"
+
     # Left-to-right scanning for first-match-wins
     for arg in args:
         # Extract flag name (handle both --flag and --flag=value formats)
         flag = _extract_flag(arg)
-        
+
         if flag in _MODULE_MAP:
             return _MODULE_MAP[flag]
-    
+
     return None
 
 

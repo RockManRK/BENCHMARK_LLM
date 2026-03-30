@@ -5,6 +5,7 @@
 
 > @docs\architecture\to-be\llmbc_system.md
 > @docs\architecture\v2-implementation-checklist.md
+> @docs\architecture\to-be\comandos_simples.md
 
 > Code behavior validated by grounding
 

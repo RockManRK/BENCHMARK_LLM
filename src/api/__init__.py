@@ -16,13 +16,12 @@ Key Components:
 - CompletionResponse: Standardized response dataclass
 - Error hierarchy: APIError and subclasses
 - ErrorClassifier: HTTP error → domain error translation
-- RetryHandler: Policy-driven retry logic
 
 Example:
     >>> from src.api import OpenRouterClient, CompletionResponse
     >>> from src.api.errors import AuthenticationError
-    >>> from src.api.retry import RetryHandler
     >>> from src.core.execution_plan import RetryPolicy
+    >>> from src.core.retry import RetryHandler
     >>>
     >>> # Create client
     >>> client = OpenRouterClient(api_key="your-api-key")
@@ -58,10 +57,6 @@ from src.api.errors import (
     ErrorClassifier,
 )
 
-from src.api.retry import (
-    RetryHandler,
-)
-
 
 __all__ = [
     # Client
@@ -77,6 +72,4 @@ __all__ = [
     'TimeoutError',
     'NetworkError',
     'ErrorClassifier',
-    # Retry
-    'RetryHandler',
 ]

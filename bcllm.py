@@ -16,7 +16,7 @@ def route_to_v2(module_name: str, mode: Mode) -> int:
 
     Args:
         module_name: Name of the v2 CLI module to route to.
-        mode: The resolved CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
+        mode: The resolved CLI mode (CREATE, MODIFY, EXECUTE, EXPORT, INVALID).
               Passed to module main() for validation and execution.
 
     Returns:
@@ -29,6 +29,7 @@ def route_to_v2(module_name: str, mode: Mode) -> int:
         bcllm_run,
         bcllm_execute,
         bcllm_review,
+        bcllm_export,
         bcllm_main,
     )
 
@@ -46,6 +47,8 @@ def route_to_v2(module_name: str, mode: Mode) -> int:
         return bcllm_execute.main(mode)
     elif module_name == "bcllm_review":
         return bcllm_review.main(mode)
+    elif module_name == "bcllm_export":
+        return bcllm_export.main(mode)
     else:
         print(f"Error: Unknown v2 module: {module_name}", file=sys.stderr)
         return 1

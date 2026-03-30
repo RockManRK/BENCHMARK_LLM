@@ -32,10 +32,13 @@ from src.core.execution_plan import (
     PlanItem,
     PlanVariant,
     ModelConfig,
+    RetryPolicy,
 )
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser, ParsedAnswer
+from src.core.retry import RetryHandler
 from src.utils.logging_config import get_logger
+from src.api.errors import APIError
 
 
 @dataclass
@@ -146,6 +149,7 @@ class ExecutionEngine:
         randomizer: AnswerRandomizer,
         parser: AnswerParser,
         logger: Optional[Logger] = None,
+        retry_handler: Optional[RetryHandler] = None,
     ) -> None:
         """Initialize engine with dependencies.
 
@@ -154,6 +158,7 @@ class ExecutionEngine:
             randomizer: Answer option randomizer (seeded)
             parser: Response parser with confidence levels
             logger: Optional logger instance. If not provided, uses get_logger('core.execution_engine').
+            retry_handler: Optional retry handler. If not provided, creates default with RetryPolicy().
 
         Example:
             >>> engine = ExecutionEngine(api_client, randomizer, parser)
@@ -162,6 +167,10 @@ class ExecutionEngine:
         self.randomizer = randomizer
         self.parser = parser
         self._logger = logger or get_logger('core.execution_engine')
+        self._retry_handler = retry_handler or RetryHandler(
+            policy=RetryPolicy(),
+            logger=self._logger
+        )
 
     def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
         """Execute all items in the plan.
@@ -251,12 +260,12 @@ class ExecutionEngine:
 
         return results
 
-    def _execute_item(
+    async def _execute_item_async(
         self,
         item: PlanItem,
         run: PlanRun,
     ) -> ExecutionResult:
-        """Execute a single item.
+        """Execute a single item asynchronously with retry policy.
 
         Args:
             item: Plan item to execute
@@ -299,115 +308,178 @@ class ExecutionEngine:
                 attempt_count=0,
             )
 
-        # Retry loop
-        max_attempts = run.retry_policy.max_attempts
+        # Retry wrapper for API call
+        async def api_call_with_retry() -> dict:
+            """Inner function for RetryHandler to execute."""
+            nonlocal attempt_count
 
-        for attempt in range(1, max_attempts + 1):
-            attempt_count = attempt
-
-            try:
-                # Apply randomization if seed is set
-                options = list(item.question_payload.options)
-                if run.seed_effective is not None:
-                    randomized = self.randomizer.randomize_options(
-                        options,
-                        seed=run.seed_effective,
-                    )
-                    options = randomized["options"]
-
-                # Build the prompt
-                user_prompt = self._build_user_prompt(
-                    item.question_payload.stem,
+            # Apply randomization if seed is set
+            options = list(item.question_payload.options)
+            if run.seed_effective is not None:
+                randomized = self.randomizer.randomize_options(
                     options,
-                    run.prompts_effective.user,
+                    seed=run.seed_effective,
                 )
+                options = randomized["options"]
 
-                # Build messages - filter out null content (null means "do not send")
-                messages = []
-                if run.prompts_effective.system is not None:
-                    messages.append({"role": "system", "content": run.prompts_effective.system})
-                if user_prompt is not None:
-                    messages.append({"role": "user", "content": user_prompt})
+            # Build the prompt
+            user_prompt = self._build_user_prompt(
+                item.question_payload.stem,
+                options,
+                run.prompts_effective.user,
+            )
 
-                # Get model config
-                model_config = variant.model_config_effective
+            # Build messages - filter out null content (null means "do not send")
+            messages = []
+            if run.prompts_effective.system is not None:
+                messages.append({"role": "system", "content": run.prompts_effective.system})
+            if user_prompt is not None:
+                messages.append({"role": "user", "content": user_prompt})
 
-                # Call API
-                # CRITICAL: Use variant.model_id for API calls (external identifier)
-                # variant.variant_id is for internal identity tracking only
-                response = self._call_api_sync(
-                    variant.model_id,  # External API identifier
-                    messages,
-                    model_config,
-                )
+            # Get model config
+            model_config = variant.model_config_effective
 
-                # Extract response data
-                response_text = self._extract_response_content(response)
-                latency_ms = self._extract_latency(response)
-                input_tokens = self._extract_input_tokens(response)
-                output_tokens = self._extract_output_tokens(response)
+            # Build response_format if structured_output is enabled
+            response_format: dict[str, Any] | None = None
+            if model_config.structured_output:
+                response_format = {"type": "json_object"}
 
-                # Parse the answer
-                parsed = self.parser.parse(response_text)
+            # Call API (this is what RetryHandler will retry)
+            # CRITICAL: Use variant.model_id for API calls (external identifier)
+            # variant.variant_id is for internal identity tracking only
+            response = await self.api_client.chat_completion(
+                model_id=variant.model_id,  # External API identifier
+                messages=messages,
+                temperature=model_config.temperature,
+                top_p=model_config.top_p,
+                max_tokens=model_config.max_output_tokens,
+                response_format=response_format,
+            )
 
-                # Calculate total tokens
-                total_tokens = (input_tokens or 0) + (output_tokens or 0)
+            # Extract response data
+            response_text = self._extract_response_content(response)
+            latency_ms = self._extract_latency(response)
+            input_tokens = self._extract_input_tokens(response)
+            output_tokens = self._extract_output_tokens(response)
 
-                # Log success
-                self._logger.info(
-                    f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens}"
-                )
+            # Parse the answer
+            parsed = self.parser.parse(response_text)
 
-                # Success!
-                return ExecutionResult(
-                    item_id=item.item_id,
-                    run_id=item.run_id,
-                    variant_id=item.variant_id,  # Internal identity
-                    snapshot_id=item.snapshot_id,
-                    question_id=item.question_id,
-                    status="success",
-                    response_text=response_text,
-                    selected_answer=parsed.answer,
-                    parse_confidence=parsed.confidence,
-                    latency_ms=latency_ms,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    error_type=None,
-                    error_message=None,
-                    attempt_count=attempt_count,
-                )
+            # Update attempt count (RetryHandler tracks this, but we set it here for success case)
+            attempt_count = 1
 
-            except Exception as e:
-                # Record error
-                last_error_type = self._classify_error(e)
-                last_error_message = str(e)
+            return {
+                "response": response,
+                "response_text": response_text,
+                "parsed": parsed,
+                "latency_ms": latency_ms,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            }
 
-                # Continue to next attempt
-                if attempt < max_attempts:
-                    continue
+        try:
+            # Execute with retry policy
+            result_data = await self._retry_handler.execute_with_retry(
+                api_call_with_retry,
+                context=f"run={item.run_id}|variant={item.variant_id}|snapshot={item.snapshot_id}",
+            )
 
-        # All attempts failed
-        self._logger.error(
-            f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type={last_error_type} | error={last_error_message}"
-        )
+            # Extract data
+            response = result_data["response"]
+            response_text = result_data["response_text"]
+            parsed = result_data["parsed"]
+            latency_ms = result_data["latency_ms"]
+            input_tokens = result_data["input_tokens"]
+            output_tokens = result_data["output_tokens"]
 
-        return ExecutionResult(
-            item_id=item.item_id,
-            run_id=item.run_id,
-            variant_id=item.variant_id,  # Internal identity
-            snapshot_id=item.snapshot_id,
-            question_id=item.question_id,
-            status="failure",
-            response_text=None,
-            selected_answer=None,
-            parse_confidence=None,
-            latency_ms=None,
-            input_tokens=None,
-            output_tokens=None,
-            error_type=last_error_type,
-            error_message=last_error_message,
-            attempt_count=attempt_count,
-        )
+            # Calculate total tokens
+            total_tokens = (input_tokens or 0) + (output_tokens or 0)
+
+            # Log success
+            self._logger.info(
+                f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens}"
+            )
+
+            return ExecutionResult(
+                item_id=item.item_id,
+                run_id=item.run_id,
+                variant_id=item.variant_id,
+                snapshot_id=item.snapshot_id,
+                question_id=item.question_id,
+                status="success",
+                response_text=response_text,
+                selected_answer=parsed.answer,
+                parse_confidence=parsed.confidence,
+                latency_ms=latency_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                error_type=None,
+                error_message=None,
+                attempt_count=attempt_count,
+            )
+
+        except Exception as e:
+            # Retry exhausted or non-retryable error
+            last_error_type = self._classify_error(e)
+            last_error_message = str(e)
+            attempt_count = getattr(e, '_retry_attempts', 1)
+
+            # Log failure
+            self._logger.error(
+                f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type={last_error_type} | error={last_error_message}"
+            )
+
+            return ExecutionResult(
+                item_id=item.item_id,
+                run_id=item.run_id,
+                variant_id=item.variant_id,
+                snapshot_id=item.snapshot_id,
+                question_id=item.question_id,
+                status="failure",
+                response_text=None,
+                selected_answer=None,
+                parse_confidence=None,
+                latency_ms=None,
+                input_tokens=None,
+                output_tokens=None,
+                error_type=last_error_type,
+                error_message=last_error_message,
+                attempt_count=attempt_count,
+            )
+
+    def _execute_item(
+        self,
+        item: PlanItem,
+        run: PlanRun,
+    ) -> ExecutionResult:
+        """Execute a single item (synchronous wrapper for async execution).
+
+        Args:
+            item: Plan item to execute
+            run: Parent run containing retry policy
+
+        Returns:
+            ExecutionResult for this item
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context - run in a new thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        self._execute_item_async(item, run),
+                    )
+                    return future.result()
+            else:
+                # No running loop - use asyncio.run directly
+                return asyncio.run(self._execute_item_async(item, run))
+        except RuntimeError:
+            # No event loop exists - create new one
+            return asyncio.run(self._execute_item_async(item, run))
 
     def _call_api_sync(
         self,

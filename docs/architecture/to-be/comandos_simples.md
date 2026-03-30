@@ -10,14 +10,14 @@ bcllm --create-experiment <nome>
 
 bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome> é o único campo obrigatório se o .env tiver configuração)
 
-    --add-questions <valor>
+    --add-questions <valor / NULL> (NULL = Gerar snapshots de todas as questões disponíveis)
         **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
-        
         --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5 - com espaços, requer aspas)
         --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
         --questions "1-50" --where status=valid (Adiciona perguntas da 1 até a 50 onde a flag "status" for "valid")
         --questions "1-100" --exclude status=annulled (Adiciona todas exceto onde status="annulled")
         --questions 1-10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
+        --where e --exclude <NULL> = Desativa filtragem configurada no .env.
         
         Formatos suportados:
         - Individual: "1"
@@ -30,29 +30,39 @@ bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome
         ✓ CORRETO: --questions 1,3,5 (sem espaços)
         ✗ ERRADO: --questions 1, 3, 5 (sem aspas com espaços - shell divide em múltiplos args)
         
-    --seed <opção>
-        EM BRANCO, AUTO, # (número), NULL - case-insensitive
-    --add-model <modelo>
-        --reasoning <opção>
-        --max-tokens <#>
-        --reasoning-tokens <#>
-        --temperature <#>
-        --top-p <#>
-        --top-k <#>
-        --repeat-penalty <#>
-        --vision <opção> (true/false/NULL - case-insensitive)
-        --structured <opção> (true/false/NULL - case-insensitive)
-        --url <configura o base-url padrão do experimento>
-    --system-prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão)
-    --user-prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão)
+    --seed <AUTO / # / NULL> - (o seed de um experimento já criado poderá ser alterado, porém não afeta o seed de runs já criados) - ('NULL' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
+    --add-model <modelo> (´--add-questions´ e ´--questions´ são alias, e funcionam da mesma forma.)
+        --reasoning <none, minimal, low, medium, high, xhigh / NULL> - (null = não enviar na requisição)
+        --max-tokens <# / NULL>
+        --reasoning-tokens <# / NULL>
+        --temperature <# / NULL>
+        --top-p <# / NULL>
+        --top-k <# / NULL>
+        --repeat-penalty <# / NULL>
+        --vision <opção> (true / false / NULL)
+        --structured <opção> (true / false / NULL)
+        --url <base-url padrão do experimento>
+    --system-prompt <"Frase entre aspas para ser usada como system prompt" / NULL> (Se não especificado, usa o do .env como padrão / null = não enviar na requisição)
+    --user-prompt <"Frase entre aspas para ser usada como user prompt" / NULL> (Se não especificado, usa o do .env como padrão / null = não enviar na requisição)
     --retry-policy <#> (Configuração não vai mais existir. Configuração de retry-policy agora será apenas por .env)
-    --url
+    --url <base-url padrão do experimento>
 
-    Todos os campos suportam (exceto --url) "NULL", dessa forma são tradados como o padrão de sistema.
+    QUASE todos os comandos suportam "NULL", dessa forma são tradados como o padrão de sistema.
+    **comandos estruturais não suportam:**
+    --create-experiment (Não suporta NULL)
+    --url (Não suporta NULL)
+    --data-set (Não suporta NULL)
+    --add-model (Não suporta NULL)
+    --remove-model (Não suporta NULL)
+    --add-run (Não suporta NULL)
+    --remove-run (Não suporta NULL)
+    --execute (Não suporta NULL)
+
+    Todos as flags de modelos (exceto --url), ao receberem "NULL", são tradados como o padrão de sistema. Que nesse caso significa que a configuração não será enviada na requisição a API.
 
 bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
 
-    --add-questions <valor> (Pode adicionar perguntas a um experimento já criado)
+    --add-questions <valor / NULL> (Pode adicionar perguntas a um experimento já criado - 'NULL' = Gerar snapshots de todas as questões disponíveis)
         **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
         
         --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5)
@@ -60,33 +70,33 @@ bcllm --experiment <nome> (Visualiza as especificações do experimento indicado
         --questions "1-50" --where status=valid
         --questions "1-100" --exclude status=annulled
         
-    --seed <opção> (seed poderá ser adicionado ou alterado em experimento já criado, porém não afeta o seed dos runs já criados)
-        EM BRANCO, AUTO, #, NULL
+    --seed <AUTO / # / NULL> - (o seed de um experimento já criado poderá ser alterado, porém não afeta o seed de runs já criados) - ('NULL' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
     --add-model <modelo> (pode ser adicionado modelos a um experimento já criado)
-        --reasoning <opção> (none, minimal, low, medium, high, xhigh)
-        --max-tokens <#>
-        --reasoning-tokens <#>
-        --temperature <#>
-        --top-p <#>
-        --top-k <#>
-        --vision <opção> (true/false/NULL - case-insensitive)
-        --base-url
-    --system-prompt <"Frase entre aspas"> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
-    --user-prompt <"Frase entre aspas"> (user prompt poderá ser alterado em experimento já criado)
-    --retry-policy <#> (Retry policy poderá ser alterado e afeta questões não processadas)
+        --reasoning <none, minimal, low, medium, high, xhigh / NULL> - (null = não enviar na requisição)
+        --max-tokens <# / NULL>
+        --reasoning-tokens <# / NULL>
+        --temperature <# / NULL>
+        --top-p <# / NULL>
+        --top-k <# / NULL>
+        --repeat-penalty <# / NULL>
+        --vision <opção> (true / false / NULL)
+        --structured <opção> (true / false / NULL)
+        --url <base-url padrão do experimento>
+    --system-prompt <"Frase entre aspas" / NULL> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
+    --user-prompt <"Frase entre aspas" / NULL> (user prompt poderá ser alterado em experimento já criado)
 
-    Todos os campos suportam (exceto --URL e --dataset_path) "NULL", dessa forma são tradados como o padrão de sistema.
+    Todos os campos suportam "NULL" (exceto --url e --dataset-path), dessa forma o seu comportamento será o padrão de sistema.
 
 ---
 
 # Modelos:
 
-bcllm experiment <nome> --add-model <modelo> (Adiciona modelo indicado em um experimento já criado)
-bcllm experiment <nome> --add-model <modelo> <modelo> (Adiciona todos os modelos indicados em um experimento já criado)
-bcllm experiment <nome> --add-model <modelo> --reasoning none <modelo> --reasoning high (Adiciona em um experimento já criado, dois modelos, o primeiro com pensamento desligado e o segundo com pensamento em effort high)
+bcllm --experiment <nome> --add-model <modelo> # (adiciona modelo indicado em um experimento já criado)
+bcllm --experiment <nome> --add-model <modelo> --reasoning none # (adiciona em um experimento já criado um modelo com pensamento desligado)
+bcllm --experiment <nome> --add-model <modelo> --reasoning high # (adiciona em um experimento já criado um modelo com pensamento em effort high)
 
-bcllm experiment <nome> --remove-model <modelo> <modelo> (remove todos os modelos indicados do experimento especificado, podendo usar nome ou ID)
-bcllm experiment <nome> --remove-model ? (Apresenta uma lista dos modelos do experimento, com um número ao lado, para o usuário escolher quais dos modelos quer remover. Podendo escolher 1 ou mais)
+bcllm --experiment <nome> --remove-model <ID> (remove o modelo indicado do experimento especificado, usando o ID)
+bcllm --experiment <nome> --remove-model ? (Apresenta uma lista dos modelos do experimento, com um número ao lado, para o usuário escolher quais dos modelos quer remover. Podendo escolher 1 ou mais)
 
 ## Configurações obrigatórias para adicionar modelo em um experimento:
 
@@ -108,26 +118,28 @@ bcllm experiment <nome> --remove-model ? (Apresenta uma lista dos modelos do exp
 
 # RUN:
 
-bcllm experiment <nome> --add-run
+bcllm --experiment <nome> --add-run
 
-    --seed <EM BRANCO/AUTO/#/NULL> (SEED não poderá ser alterado em RUN já criado)
-    --system_prompt <"Frase entre aspas para ser usada como system prompt"> (system prompt não poderá ser alterado em RUN já criado)
-    --user_prompt <"Frase entre aspas para ser usada como user prompt"> (user prompt não poderá ser alterado em RUN já criado)
+    --seed <AUTO / # / NULL> (SEED não poderá ser alterado em RUN já criado) ('NULL' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
+    --system-prompt <"Frase entre aspas para ser usada como system prompt" / NULL> (Se não especificado, usa a configuração registrada no 'experiment.config_json' como padrão / NULL = não enviar na requisição) (system prompt não poderá ser alterado em RUN já criado)
+    --user-prompt <"Frase entre aspas para ser usada como user prompt" / NULL> (Se não especificado, usa a configuração registrada no 'experiment.config_json' como padrão / NULL = não enviar na requisição) (user prompt não poderá ser alterado em RUN já criado)
 
-bcllm experiment <nome> --remove-run <run> (remove RUNs indicados do experimento)
-bcllm experiment <nome> --remove-run ? (Apresenta uma lista dos RUNs do experimento, com um número ao lado, para o usuário escolher quais dos RUNs quer remover. Podendo escolher 1 ou mais. Dados já gerados não serão apagados do banco de dados)
+bcllm --experiment <nome> --remove-run <run> (remove RUNs indicados do experimento)
+bcllm --experiment <nome> --remove-run ? (Apresenta uma lista dos RUNs do experimento, com um número ao lado, para o usuário escolher quais dos RUNs quer remover. Podendo escolher 1 ou mais. Dados já gerados não serão apagados do banco de dados)
 
 ---
 
 # Execute:
 
-bcllm experiment <nome> --execute
+bcllm --experiment <nome> --execute
     --run (selecionar um run especifico do experimento para rodar, se não especificado, roda todos)
     --questions (seleciona quais perguntas serão processadas, se não especificado, seleciona todas do experimento, se especificado, roda rodas as perguntas selecionadas de todos os runs selecionados)
-    --models (seleciona quais modelos serão utilizados, só podendo escolher entre os modelos que já estejam no experimento)
-    --retry_policy (definir configuração de retry para essa execução, independente do valor configurado no projeto)
+    --model (seleciona quais modelos serão utilizados, só podendo escolher entre os modelos que já estejam no experimento)
 
-- Se um experimento for executado parcialmente, selecionado Run, questions ou models parciais, na próxima execução, o sistema deve ter inteligência para saber, entre a seleção, se existe algo que falta ser processado. Se não houver, um aviso será apresentado com a informação, se houver, apenas os itens não processados serão requisitados.
+**Atenção:** Filtros de execução não alteram o estado do experimento ou do run. Eles apenas limitam o escopo da execução atual.
+Se nenhum filtro de execução for adicionado, serão processadas todas as requisições que ainda não tiverem sido executadas.
+
+- Se um experimento for executado parcialmente, pelo usuário ter selecionado Run, questions ou model parciais, na próxima execução, o sistema deve ter inteligência para saber, entre a seleção, se existe algo que falta ser processado. Se não houver, um aviso será apresentado com a informação, se houver, apenas os itens não processados serão requisitados.
 
 ## Configurações obrigatórias para execução de experimento:
 
@@ -139,7 +151,7 @@ bcllm experiment <nome> --execute
 
 ## Informações extras:
 - Reasoning enabled não deve ser enviado, pois "effort: none" provêm o mesmo efeito.
-- Segundo a openrouter, Effort e max_tokens não deve ser usado simultaneamente. Não aplicar nenhum código em relação a isso, apenas um aviso no .env.
+- Segundo a openrouter, Effort e max-tokens não deve ser usado simultaneamente. Não aplicar nenhum código em relação a isso, apenas um aviso no .env.
 - Será necessário ter a opção de --url por modelo, já que em um mesmo experimento eu vou precisar rodar, tanto modelos do openrouter, quanto local.
 
 ---
@@ -158,88 +170,71 @@ bcllm experiment <nome> --execute
     - Comportamento: Não filtra nenhuma pergunta.
 - seed = Configuração padrão de **seed** é usada quando não informado na configuração de experimento, de run, e em branco no campo RUN_RESPONSES_SEED do.env.
     - Comportamento: Desativa randomização e usa a ordem original das respostas.
-- system_prompt = Configuração padrão de **system_prompt** é usada quando não informado na configuração de experimento, RUN e no campo SYSTEM_PROMPT do .env.
+- system-prompt = Configuração padrão de **system-prompt** é usada quando não informado na configuração de experimento, RUN e no campo SYSTEM_PROMPT do .env.
     - Comportamento: Ao não ser configurado o comportamento padrão é "não enviar esse comando na requisição.
-- user-prompt = Configuração padrão de **user_prompt** é usada quando não informado na configuração de experimento, RUN e no campo USER_PROMPT do .env.
+- user-prompt = Configuração padrão de **user-prompt** é usada quando não informado na configuração de experimento, RUN e no campo USER_PROMPT do .env.
     - Comportamento: Ao não ser configurado o comportamento padrão é "não enviar esse comando na requisição.
 - Todas as configurações de modelos, ao não serem definidas, serão ignoradas no envio da requisição, ativando a configuração padrão do servidor/modelo. O mesmo ocorre ao serem setadas como "NULL"
 - A configuração padrão pode ser forçada pelo usuário ao preencher o comando com "NULL" Ex: --reasoning null
 
-- dataset_path e url não podem receber null, pois são comandos que precisar ser informados no .env ou na criação do experimento para o sistema funcionar.
+- dataset-path e url não podem receber null, pois são comandos que precisar ser informados no .env ou na criação do experimento para o sistema funcionar.
 - --add-model recebendo "null" na criação do experimento faz com que nenhum modelo configurado em MODELS_DEFAULT_FOR_EXPERIMENTS do .env seja adicionado ao experimento.
 
 ---
 
 ## Lista completa de comandos:
 
-- bcllm --create-experiment <nome>
+bcllm --create-experiment
+        ├──> --seed
+        ├──> --system-prompt
+        ├──> --user-prompt
+        ├──> --url
+        ├──> --data-set
+        ├──> --add-questions
+        │      ├──> --where
+        │      └──> --exclude
+        └──> --add-model
+               ├──> --reasoning
+               ├──> --max-tokens
+               ├──> --reasoning-tokens
+               ├──> --temperature
+               ├──> --top-p
+               ├──> --top-k
+               ├──> --repeat-penalty
+               ├──> --vision
+               ├──> --structured
+               └──> --url
 
-bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome> é o único campo obrigatório se o .env tiver configuração)
-
-    --add-questions <valor>
-        **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
-        
-        --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5 - com espaços, requer aspas)
-        --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
-        --questions "1-50" --where status=valid (Adiciona perguntas da 1 até a 50 onde a flag "status" for "valid")
-        --questions "1-100" --exclude status=annulled (Adiciona todas exceto onde status="annulled")
-        --questions 1-10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
-        
-        Formatos suportados:
-        - Individual: "1"
-        - Vírgula: "1, 3, 5"
-        - Range: "1-10"
-        - Misto: "1, 3-5"
-        
-        **IMPORTANTE**: Argumentos com espaços DEVEM ser quoted:
-        ✓ CORRETO: --questions "1, 3, 5"
-        ✓ CORRETO: --questions 1,3,5 (sem espaços)
-        ✗ ERRADO: --questions 1, 3, 5 (sem aspas com espaços - shell divide em múltiplos args)
-        
-    --seed <opção>
-        EM BRANCO, AUTO, # (número), NULL - case-insensitive
-    --add-model <modelo>
-        --reasoning <opção>
-        --max-tokens <#>
-        --reasoning-tokens <#>
-        --temperature <#>
-        --top-p <#>
-        --top-k <#>
-        --repeat-penalty <#>
-        --vision <opção> (true/false/NULL - case-insensitive)
-        --structured <opção> (true/false/NULL - case-insensitive)
-        --url <configura o base-url padrão do experimento>
-    --system-prompt <"Frase entre aspas para ser usada como system prompt"> (Se não especificado, usa o do .env como padrão)
-    --user-prompt <"Frase entre aspas para ser usada como user prompt"> (Se não especificado, usa o do .env como padrão)
-    --retry-policy <#> (Configuração não vai mais existir. Configuração de retry-policy agora será apenas por .env)
-    --url
-
-    Todos os campos suportam (exceto --url) "NULL", dessa forma são tradados como o padrão de sistema.
-
-bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
-
-    --add-questions <valor> (Pode adicionar perguntas a um experimento já criado)
-        **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
-        
-        --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5)
-        --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
-        --questions "1-50" --where status=valid
-        --questions "1-100" --exclude status=annulled
-        
-    --seed <opção> (seed poderá ser adicionado ou alterado em experimento já criado, porém não afeta o seed dos runs já criados)
-        EM BRANCO, AUTO, #, NULL
-    --add-model <modelo> (pode ser adicionado modelos a um experimento já criado)
-        --reasoning <opção> (none, minimal, low, medium, high, xhigh)
-        --max-tokens <#>
-        --reasoning-tokens <#>
-        --temperature <#>
-        --top-p <#>
-        --top-k <#>
-        --vision <opção> (true/false/NULL - case-insensitive)
-        --base-url
-    --system-prompt <"Frase entre aspas"> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
-    --user-prompt <"Frase entre aspas"> (user prompt poderá ser alterado em experimento já criado)
-    --retry-policy <#> (Retry policy poderá ser alterado e afeta questões não processadas)
+bcllm --experiment
+        ├──> --seed
+        ├──> --system-prompt
+        ├──> --user-prompt
+        ├──> --url
+        ├──> --data-set
+        ├──> --add-questions
+        │      ├──> --where
+        │      └──> --exclude
+        ├──> --add-model
+        │      ├──> --reasoning
+        │      ├──> --max-tokens
+        │      ├──> --reasoning-tokens
+        │      ├──> --temperature
+        │      ├──> --top-p
+        │      ├──> --top-k
+        │      ├──> --repeat-penalty
+        │      ├──> --vision
+        │      ├──> --structured
+        │      └──> --url
+        ├──> --remove-model
+        ├──> --add-run
+        │      ├──> --seed
+        │      ├──> --system-prompt
+        │      └──> --user-prompt
+        ├──> --remove-run
+        └──> --execute
+               ├──> --run
+               ├──> --questions
+               └──> --model
 
 ---
 
@@ -340,6 +335,12 @@ Ao final:
 ```
 Revisão concluída! 10 itens processados.
 ```
+
+### Atenção
+
+- Revisão não altera o resultado original.
+- Revisão anota correções.
+- O dado bruto permanece auditável.
 
 ### Dicas de Revisão
 
