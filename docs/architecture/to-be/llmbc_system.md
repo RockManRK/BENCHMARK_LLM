@@ -1,4 +1,9 @@
-Requisitos:
+**Document Type:** Regras do Projeto - Autoridade Máxima
+**Project:** Benchmark LLM V2
+**Version:** 1.1
+**Date:** 2026-03-30
+
+Requisitos e Essência:
 - O sistema tem como objetivo se tornar uma ferramenta para pesquisa.
 - O sistema deve proteger os dados com rigor.
 - O sistema prioriza determinismo e reprodutibilidade: a mesma configuração deve sempre produzir o mesmo conjunto de solicitações.

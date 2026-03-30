@@ -35,6 +35,7 @@ from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
 from src.validators.model_id_validator import validate_model_id
 from src.cli.bcllm_questions import parse_filter, filter_questions
+from src.utils.logging_config import get_logger
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -259,6 +260,7 @@ def handle_create_experiment(args, conn) -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    logger = get_logger('cli.experiment')
     repo = ExperimentRepository(conn)
     name = args.create_experiment
 
@@ -268,8 +270,11 @@ def handle_create_experiment(args, conn) -> int:
 
     existing = repo.get_by_name(name)
     if existing:
+        logger.error(f"EXPERIMENT_CREATE | name={name} | error=Already exists")
         print(f"Error: Experiment already exists: {name}", file=sys.stderr)
         return 1
+
+    logger.info(f"EXPERIMENT_CREATE | name={name}")
 
     if args.vision is not None and not _validate_bool_value(args.vision):
         print(f"Error: Invalid value for --vision: {args.vision}", file=sys.stderr)
@@ -300,6 +305,7 @@ def handle_create_experiment(args, conn) -> int:
     )
 
     repo.save(experiment)
+    logger.info(f"EXPERIMENT_CREATED | name={name} | experiment_id={experiment.experiment_id}")
     print(f"✓ Experiment '{experiment.name}' created (ID: {experiment.experiment_id})")
 
     if args.add_model:
@@ -552,17 +558,20 @@ def handle_show_experiment(args, conn) -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    logger = get_logger('cli.experiment')
     repo = ExperimentRepository(conn)
     name = args.experiment
     experiment = repo.get_by_name(name)
 
     if not experiment:
+        logger.error(f"EXPERIMENT_SHOW | name={name} | error=Not found")
         print(f"Error: Experiment not found: {name}", file=sys.stderr)
         return 1
 
     import json
     config = json.loads(experiment.config_json) if experiment.config_json else {}
 
+    logger.debug(f"EXPERIMENT_SHOW | name={name} | experiment_id={experiment.experiment_id}")
     print(f"Experiment: {experiment.name}")
     print(f"  ID: {experiment.experiment_id}")
     print(f"  Description: {experiment.description or '(none)'}")
@@ -584,13 +593,16 @@ def handle_list_experiments(args, conn) -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    logger = get_logger('cli.experiment')
     repo = ExperimentRepository(conn)
     experiments = repo.list_all()
 
     if not experiments:
+        logger.debug("EXPERIMENT_LIST | count=0")
         print("No experiments found.")
         return 0
 
+    logger.debug(f"EXPERIMENT_LIST | count={len(experiments)}")
     print(f"{'Name':<30} {'ID':<20}")
     print("-" * 50)
     for exp in experiments:
@@ -609,14 +621,17 @@ def handle_remove_experiment(args, conn) -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    logger = get_logger('cli.experiment')
     repo = ExperimentRepository(conn)
     name = args.remove_experiment
     experiment = repo.get_by_name(name)
 
     if not experiment:
+        logger.error(f"EXPERIMENT_REMOVE | name={name} | error=Not found")
         print(f"Error: Experiment not found: {name}", file=sys.stderr)
         return 1
 
+    logger.info(f"EXPERIMENT_REMOVE | name={name} | experiment_id={experiment.experiment_id}")
     repo.delete(experiment.experiment_id)
     print(f"✓ Experiment '{experiment.name}' removed")
     return 0

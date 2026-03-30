@@ -2008,7 +2008,7 @@ bcllm --experiment --help
 - **Status**: success
 - **Objective Achieved**: Created comprehensive V2 Implementation Plan with all 10 sections, including executive summary, implementation principles, 4-phase roadmap (Phase 0-3), dependency graph, risk mitigation, validation criteria, and next steps.
 - **Files Created**:
-  - `D:\OneDrive\Pessoais\Projetos\benchmark_llm\docs\architecture\v2-implementation-plan.md` — Complete V2 implementation roadmap (~1800 lines)
+  - `@docs\architecture\v2-implementation-plan.md` — Complete V2 implementation roadmap (~1800 lines)
 - **Files Modified**: none
 - **Files Deleted**: none
 - **Decisions Made**:

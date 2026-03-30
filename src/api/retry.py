@@ -27,10 +27,12 @@ Example:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable, TypeVar
+from logging import Logger
+from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 from src.core.execution_plan import RetryPolicy
 from src.api.errors import APIError
+from src.utils.logging_config import get_logger
 
 
 T = TypeVar('T')
@@ -52,13 +54,15 @@ class RetryHandler:
         >>> result = await handler.execute_with_retry(some_async_func)
     """
 
-    def __init__(self, policy: RetryPolicy | None = None) -> None:
+    def __init__(self, policy: RetryPolicy | None = None, logger: Optional[Logger] = None) -> None:
         """Initialize retry handler.
 
         Args:
             policy: Retry policy configuration. Uses default if None.
+            logger: Optional logger instance. If not provided, uses get_logger('api.retry').
         """
         self.policy = policy if policy is not None else RetryPolicy()
+        self._logger = logger or get_logger('api.retry')
 
     def is_retryable(self, error: APIError) -> bool:
         """Check if error is retryable based on policy.
@@ -121,41 +125,76 @@ class RetryHandler:
             >>>
             >>> result = await handler.execute_with_retry(fetch_data)
         """
+        # Extract operation name for logging
+        operation_name = getattr(func, '__name__', 'unknown')
+        max_attempts = self.policy.max_attempts
+
+        # Log retry start
+        self._logger.info(
+            f"RETRY_START | operation={operation_name} | max_attempts={max_attempts}"
+        )
+
         last_exception: Exception | None = None
 
-        for attempt in range(1, self.policy.max_attempts + 1):
+        for attempt in range(1, max_attempts + 1):
             try:
-                return await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
+
+                # Log success after retry (if attempt > 1)
+                if attempt > 1:
+                    self._logger.info(
+                        f"RETRY_SUCCESS | operation={operation_name} | attempts={attempt}"
+                    )
+
+                return result
 
             except APIError as e:
                 last_exception = e
+                error_message = str(e)
 
                 # Check if retryable
                 if not self.is_retryable(e):
                     raise
 
                 # Check if more attempts available
-                if attempt >= self.policy.max_attempts:
+                if attempt >= max_attempts:
                     break
 
                 # Wait before retry
                 delay = self.calculate_delay(attempt)
+
+                # Log retry attempt
+                self._logger.warning(
+                    f"RETRY_ATTEMPT | attempt={attempt}/{max_attempts} | delay={delay}s | error={error_message}"
+                )
+
                 await asyncio.sleep(delay)
 
             except Exception as e:
                 # Non-APIError exceptions
                 last_exception = e
+                error_message = str(e)
 
                 # Check if more attempts available
-                if attempt >= self.policy.max_attempts:
+                if attempt >= max_attempts:
                     break
 
                 # Wait before retry (use default delay for unknown errors)
                 delay = self.calculate_delay(attempt)
+
+                # Log retry attempt
+                self._logger.warning(
+                    f"RETRY_ATTEMPT | attempt={attempt}/{max_attempts} | delay={delay}s | error={error_message}"
+                )
+
                 await asyncio.sleep(delay)
 
         # All attempts exhausted
         if last_exception is not None:
+            error_message = str(last_exception)
+            self._logger.error(
+                f"RETRY_EXHAUSTED | operation={operation_name} | attempts={max_attempts} | last_error={error_message}"
+            )
             raise last_exception
 
         # Should not reach here, but satisfy type checker

@@ -1,7 +1,12 @@
-> **IMPORTANT:**  
-> This document defines the **architectural mental model** of the project.  
-> It is the primary context reference for AI-assisted development.  
-> If this document and the code disagree, **the document is correct**.
+> **IMPORTANT:**
+
+> QWEN.md is a conceptual reference, not an operational authority.
+> In case of conflict, the following documents take precedence:
+
+> @docs\architecture\to-be\llmbc_system.md
+> @docs\architecture\v2-implementation-checklist.md
+
+> Code behavior validated by grounding
 
 ---
 
@@ -201,7 +206,6 @@ Removing a model:
 ```bash
 EXE --experiment <name> --add-questions
 EXE --experiment <name> --add-questions 1-10
-EXE --experiment <name> --add-questions q11,q12,q13
 EXE --experiment <name> --list-questions
 ```
 

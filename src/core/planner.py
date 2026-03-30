@@ -42,7 +42,8 @@ import sqlite3
 import json
 import uuid
 from datetime import datetime
-from typing import Any
+from logging import Logger
+from typing import Any, Optional
 
 from src.core.execution_plan import (
     ExecutionPlan,
@@ -54,6 +55,7 @@ from src.core.execution_plan import (
     ModelConfig,
     QuestionPayload,
 )
+from src.utils.logging_config import get_logger
 
 
 class PlannerValidationError(Exception):
@@ -97,13 +99,15 @@ class Planner:
         # plan is an immutable ExecutionPlan
     """
 
-    def __init__(self, db_connection: sqlite3.Connection) -> None:
+    def __init__(self, db_connection: sqlite3.Connection, logger: Optional[Logger] = None) -> None:
         """Initialize with database connection.
 
         Args:
             db_connection: SQLite database connection (used read-only)
+            logger: Optional logger instance. If not provided, uses get_logger('core.planner').
         """
         self.conn = db_connection
+        self._logger = logger or get_logger('core.planner')
 
     def build_plan(
         self,
@@ -133,6 +137,9 @@ class Planner:
             - Seed resolved from: run.config > experiment.config
             - Model config from: variant.config (MODEL_* keys)
         """
+        # Log plan build start
+        self._logger.info(f"PLAN_BUILD_START | experiment={experiment_name}")
+
         # Validate experiment exists and get its data
         experiment_row = self._validate_experiment_exists(experiment_name)
 
@@ -164,6 +171,14 @@ class Planner:
             )
             plan_runs.append(plan_run)
 
+        # Calculate total items
+        total_items = sum(len(plan_run.items) for plan_run in plan_runs)
+
+        # Log loaded plan summary
+        self._logger.info(
+            f"PLAN_LOADED | experiment={experiment_name} | models={len(variants)} | questions={len(snapshots)} | runs={len(plan_runs)}"
+        )
+
         # Create execution plan
         plan = ExecutionPlan(
             plan_id=f"plan-{uuid.uuid4().hex[:8]}",
@@ -171,6 +186,9 @@ class Planner:
             experiment_id=experiment_row["experiment_id"],
             runs=plan_runs,
         )
+
+        # Log plan build complete
+        self._logger.info(f"PLAN_BUILD_COMPLETE | experiment={experiment_name} | total_items={total_items}")
 
         return plan
 
@@ -196,10 +214,9 @@ class Planner:
         row = cursor.fetchone()
 
         if row is None:
-            raise PlannerValidationError(
-                f"Experiment not found: {name}. "
-                "Create the experiment first with --create-experiment."
-            )
+            error_msg = f"Experiment not found: {name}. Create the experiment first with --create-experiment."
+            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={name} | error={error_msg}")
+            raise PlannerValidationError(error_msg)
 
         return row
 
@@ -225,10 +242,9 @@ class Planner:
         variants = cursor.fetchall()
 
         if not variants:
-            raise PlannerValidationError(
-                f"Experiment has no models. Add models before creating runs. "
-                f"Use: --experiment {experiment_id} --add-model <model_id>"
-            )
+            error_msg = f"Experiment has no models. Add models before creating runs. Use: --experiment {experiment_id} --add-model <model_id>"
+            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={experiment_id} | error={error_msg}")
+            raise PlannerValidationError(error_msg)
 
         return variants
 
@@ -254,10 +270,9 @@ class Planner:
         snapshots = cursor.fetchall()
 
         if not snapshots:
-            raise PlannerValidationError(
-                f"Experiment has no questions. Add questions before creating runs. "
-                f"Use: --experiment {experiment_id} --add-questions <spec>"
-            )
+            error_msg = f"Experiment has no questions. Add questions before creating runs. Use: --experiment {experiment_id} --add-questions <spec>"
+            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={experiment_id} | error={error_msg}")
+            raise PlannerValidationError(error_msg)
 
         return snapshots
 

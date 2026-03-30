@@ -21,9 +21,11 @@ Example:
 
 import sqlite3
 from dataclasses import dataclass
-from typing import Literal
+from logging import Logger
+from typing import Literal, Optional
 
 from src.core.execution_engine import ExecutionResult
+from src.utils.logging_config import get_logger
 
 
 @dataclass
@@ -78,11 +80,12 @@ class ResultWriter:
         >>> report = writer.write_results(results)
     """
 
-    def __init__(self, db_connection: sqlite3.Connection) -> None:
+    def __init__(self, db_connection: sqlite3.Connection, logger: Optional[Logger] = None) -> None:
         """Initialize with database connection.
 
         Args:
             db_connection: SQLite database connection with row_factory enabled
+            logger: Optional logger instance. If not provided, uses get_logger('core.result_writer').
 
         Example:
             >>> conn = sqlite3.connect(':memory:')
@@ -90,6 +93,7 @@ class ResultWriter:
             >>> writer = ResultWriter(conn)
         """
         self.db_connection = db_connection
+        self._logger = logger or get_logger('core.result_writer')
 
     def write_results(self, results: list[ExecutionResult]) -> WriteReport:
         """Persist execution results to database.
@@ -112,6 +116,12 @@ class ResultWriter:
             >>> print(f"Written: {report.responses_written}")
         """
         report = WriteReport()
+
+        # Extract run_id for logging (use first result if available)
+        run_id = results[0].run_id if results else "unknown"
+
+        # Log write start
+        self._logger.info(f"WRITE_START | run={run_id} | items={len(results)}")
 
         # Group results by run_id for status updates
         results_by_run: dict[str, list[ExecutionResult]] = {}
@@ -137,6 +147,11 @@ class ResultWriter:
             status = self._determine_run_status(run_results)
             self._update_run_status(run_id, status)
             report.runs_updated.append((run_id, status))
+
+        # Log write complete
+        self._logger.info(
+            f"WRITE_COMPLETE | run={run_id} | written={report.responses_written} | skipped={report.responses_skipped}"
+        )
 
         return report
 
@@ -286,7 +301,12 @@ class ResultWriter:
         self.db_connection.commit()
 
         # rowcount > 0 means INSERT succeeded (not ignored)
-        return cursor.rowcount > 0
+        if cursor.rowcount > 0:
+            self._logger.debug(f"WRITE_COMPLETE | run={result.run_id} | response_id={response_id}")
+            return True
+        else:
+            self._logger.debug(f"WRITE_SKIP_IDEMPOTENT | run={result.run_id} | response_id={response_id}")
+            return False
 
     def _write_error(self, result: ExecutionResult) -> None:
         """Write error result to errors table.
@@ -327,6 +347,8 @@ class ResultWriter:
         ))
 
         self.db_connection.commit()
+
+        self._logger.debug(f"WRITE_COMPLETE | run={result.run_id} | error_id={error_id}")
 
     def _determine_run_status(self, results: list[ExecutionResult]) -> Literal['completed', 'failed', 'partial_failed']:
         """Determine run status based on results.
@@ -410,6 +432,7 @@ class ResultWriter:
 
         row = cursor.fetchone()
         if row is None:
+            self._logger.error(f"WRITE_ERROR | variant={variant_id} | error=Variant not found")
             raise ValueError(f"Variant not found: {variant_id}")
 
         return row['model_id']

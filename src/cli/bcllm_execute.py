@@ -50,6 +50,7 @@ from src.core.result_writer import ResultWriter
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser
 from src.core.execution_plan import RetryPolicy
+from src.utils.logging_config import get_logger
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -292,19 +293,24 @@ def handle_execute(args, conn) -> int:
         - No inference (explicit validation only)
         - No mutable state (delegates to ResultWriter)
     """
+    logger = get_logger('cli.execute')
+
     # Initialize repositories
     exp_repo = ExperimentRepository(conn)
 
     # Validate experiment exists
     experiment = exp_repo.get_by_name(args.experiment)
     if not experiment:
+        logger.error(f"EXECUTE_ERROR | experiment={args.experiment} | error=Experiment not found")
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
     experiment_id = experiment.experiment_id
+    run_id = args.run
+
+    logger.info(f"EXECUTE_START | experiment={args.experiment} | run={run_id if run_id else 'all'} | experiment_id={experiment_id}")
 
     # Parse filters
-    run_id = args.run
     question_ids = None
     model_variant_ids = None
 
@@ -312,6 +318,7 @@ def handle_execute(args, conn) -> int:
         try:
             question_ids = parse_question_ids(args.questions)
         except ValueError as e:
+            logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Invalid question specification: {e}")
             print(f"Error: Invalid question specification: {e}", file=sys.stderr)
             return 1
 
@@ -322,6 +329,7 @@ def handle_execute(args, conn) -> int:
     validation_errors = validate_filters(conn, experiment_id, run_id, question_ids, model_variant_ids)
     if validation_errors:
         for error in validation_errors:
+            logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error={error}")
             print(f"Error: {error}", file=sys.stderr)
         return 1
 
@@ -331,6 +339,7 @@ def handle_execute(args, conn) -> int:
         try:
             retry_policy = parse_retry_policy(args.retry_policy)
         except (ValueError, TypeError) as e:
+            logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Invalid retry policy: {e}")
             print(f"Error: Invalid retry policy: {e}", file=sys.stderr)
             return 1
 
@@ -350,9 +359,11 @@ def handle_execute(args, conn) -> int:
         # Validate plan has work to do
         total_items = sum(len(run.items) for run in plan.runs)
         if not plan.runs or total_items == 0:
-            # Check if it's because everything is already executed
+            logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items=0 | status=no_pending_work")
             print("No pending items to execute. All items completed.", file=sys.stderr)
             return 0
+
+        logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items={total_items}")
 
         # Step 2: Execute plan (pure execution, no DB)
         # Note: API key would come from environment in production
@@ -367,26 +378,36 @@ def handle_execute(args, conn) -> int:
         writer = ResultWriter(conn)
         report = writer.write_results(results)
 
-        # Print summary
+        # Calculate totals
+        succeeded = report.responses_written
+        failed = report.errors_written
+        total = succeeded + failed
+
+        logger.info(f"EXECUTE_COMPLETE | run={run_id if run_id else 'all'} | experiment={experiment_id} | total={total} | succeeded={succeeded} | failed={failed}")
+
+        # Print summary (user-facing output stays as print)
         print(f"✓ Execution completed")
         print(f"  Runs executed: {len(report.runs_updated)}")
         print(f"  Success: {report.responses_written}")
         print(f"  Failed: {report.errors_written}")
         print(f"  Skipped (already existed): {report.responses_skipped}")
         if report.runs_updated:
-            for run_id, status in report.runs_updated:
-                print(f"  Run {run_id} status: {status}")
+            for run_id_item, status in report.runs_updated:
+                print(f"  Run {run_id_item} status: {status}")
 
         return 0
 
     except PlannerValidationError as e:
+        logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=PlannerValidationError: {e}")
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except KeyError as e:
+        logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Missing configuration: {e}")
         print(f"Error: Missing required configuration: {e}", file=sys.stderr)
         print("Hint: Check that OPENROUTER_API_KEY is set in your system environment variables.", file=sys.stderr)
         return 1
     except Exception as e:
+        logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Unexpected error: {e}")
         print(f"Error: Execution failed: {e}", file=sys.stderr)
         print("Hint: Ensure OPENROUTER_API_KEY is set and all required configuration is present.", file=sys.stderr)
         return 1

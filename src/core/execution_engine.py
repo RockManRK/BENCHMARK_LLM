@@ -23,7 +23,8 @@ Example:
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from logging import Logger
+from typing import Any, Literal, Optional
 
 from src.core.execution_plan import (
     ExecutionPlan,
@@ -34,6 +35,7 @@ from src.core.execution_plan import (
 )
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser, ParsedAnswer
+from src.utils.logging_config import get_logger
 
 
 @dataclass
@@ -143,6 +145,7 @@ class ExecutionEngine:
         api_client: OpenRouterClient,
         randomizer: AnswerRandomizer,
         parser: AnswerParser,
+        logger: Optional[Logger] = None,
     ) -> None:
         """Initialize engine with dependencies.
 
@@ -150,6 +153,7 @@ class ExecutionEngine:
             api_client: OpenRouter API client
             randomizer: Answer option randomizer (seeded)
             parser: Response parser with confidence levels
+            logger: Optional logger instance. If not provided, uses get_logger('core.execution_engine').
 
         Example:
             >>> engine = ExecutionEngine(api_client, randomizer, parser)
@@ -157,6 +161,7 @@ class ExecutionEngine:
         self.api_client = api_client
         self.randomizer = randomizer
         self.parser = parser
+        self._logger = logger or get_logger('core.execution_engine')
 
     def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
         """Execute all items in the plan.
@@ -189,9 +194,26 @@ class ExecutionEngine:
         """
         all_results: list[ExecutionResult] = []
 
+        # Extract context from plan for logging
+        experiment_id = plan.experiment_id
+        run_count = len(plan.runs)
+        total_items = sum(len(run.items) for run in plan.runs)
+
+        self._logger.info(
+            f"EXECUTION_START | experiment={experiment_id} | runs={run_count} | total_items={total_items}"
+        )
+
         for run in plan.runs:
             run_results = self._execute_run(run)
             all_results.extend(run_results)
+
+        # Calculate summary statistics
+        succeeded = sum(1 for r in all_results if r.status == 'success')
+        failed = sum(1 for r in all_results if r.status == 'failure')
+
+        self._logger.info(
+            f"EXECUTION_COMPLETE | experiment={experiment_id} | total={total_items} | succeeded={succeeded} | failed={failed}"
+        )
 
         return all_results
 
@@ -205,14 +227,27 @@ class ExecutionEngine:
             List of ExecutionResult for this run
         """
         results: list[ExecutionResult] = []
+        total_items = len(run.items)
+        completed = 0
 
         # Apply randomization seed if set
         if run.seed_effective is not None:
             self.randomizer.set_seed(run.seed_effective)
 
-        for item in run.items:
+        # Calculate milestone interval (25%, 50%, 75%, 100%)
+        milestone_interval = max(1, total_items // 4)
+
+        for i, item in enumerate(run.items):
             result = self._execute_item(item, run)
             results.append(result)
+            completed = i + 1
+
+            # Log progress milestones
+            if completed % milestone_interval == 0 or completed == total_items:
+                percent = int((completed / total_items) * 100)
+                self._logger.info(
+                    f"PROGRESS_MILESTONE | run={run.run_id} | completed={completed}/{total_items} | percent={percent}%"
+                )
 
         return results
 
@@ -234,9 +269,18 @@ class ExecutionEngine:
         last_error_type: str | None = None
         last_error_message: str | None = None
 
+        # Log item start
+        self._logger.info(
+            f"ITEM_START | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id}"
+        )
+
         # Get the variant for this item
         variant = self._get_variant_for_item(run, item.variant_id)
         if variant is None:
+            error_msg = f"Variant {item.variant_id} not found in run"
+            self._logger.error(
+                f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type=config_error | error={error_msg}"
+            )
             return ExecutionResult(
                 item_id=item.item_id,
                 run_id=item.run_id,
@@ -251,7 +295,7 @@ class ExecutionEngine:
                 input_tokens=None,
                 output_tokens=None,
                 error_type="config_error",
-                error_message=f"Variant {item.variant_id} not found in run",
+                error_message=error_msg,
                 attempt_count=0,
             )
 
@@ -306,6 +350,14 @@ class ExecutionEngine:
                 # Parse the answer
                 parsed = self.parser.parse(response_text)
 
+                # Calculate total tokens
+                total_tokens = (input_tokens or 0) + (output_tokens or 0)
+
+                # Log success
+                self._logger.info(
+                    f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens}"
+                )
+
                 # Success!
                 return ExecutionResult(
                     item_id=item.item_id,
@@ -335,6 +387,10 @@ class ExecutionEngine:
                     continue
 
         # All attempts failed
+        self._logger.error(
+            f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type={last_error_type} | error={last_error_message}"
+        )
+
         return ExecutionResult(
             item_id=item.item_id,
             run_id=item.run_id,

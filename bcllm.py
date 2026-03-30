@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """CLI entry point — dispatches exclusively to src."""
+import os
 import sys
+from pathlib import Path
+
 from src.core.mode import Mode
 from src.core.mode_resolver import resolve_mode
 from src.core.module_resolver import resolve_module
 from src.core.mode_matrix import validate_mode_matrix, ModeMatrixError
+from src.utils.logging_config import setup_logging, LoggingConfig
 
 
 def route_to_v2(module_name: str, mode: Mode) -> int:
@@ -63,11 +67,21 @@ def main() -> int:
             print("Error: No valid command found. Use --help for usage.", file=sys.stderr)
             return 1
 
+    log_config = LoggingConfig(
+        log_file_path=Path(os.getenv("LOG_FILE_PATH", "./logs/benchmark.log")),
+        log_level=os.getenv("LOG_LEVEL", "INFO")
+    )
+    logger = setup_logging(log_config)
+
+    logger.info(f"APPLICATION_START | version=2.0 | mode={mode.value}")
+
     try:
         validate_mode_matrix(mode, module)
     except ModeMatrixError as e:
         print(str(e), file=sys.stderr)
         return 1
+
+    logger.info(f"MODE_ROUTING | mode={mode.value} | matrix={module}")
 
     return route_to_v2(module, mode)
 

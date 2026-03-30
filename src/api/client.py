@@ -29,7 +29,8 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from logging import Logger
+from typing import Any, Optional
 
 import httpx
 
@@ -43,6 +44,7 @@ from src.api.errors import (
     TimeoutError,
     ErrorClassifier,
 )
+from src.utils.logging_config import get_logger
 
 
 @dataclass
@@ -151,6 +153,7 @@ class OpenRouterClient(CompletionProvider):
         api_key: str,
         base_url: str = "https://openrouter.ai/api/v1",
         timeout: int = 120,
+        logger: Optional[Logger] = None,
     ) -> None:
         """Initialize OpenRouter client.
 
@@ -158,10 +161,12 @@ class OpenRouterClient(CompletionProvider):
             api_key: API key for authentication
             base_url: Base URL for API endpoints
             timeout: Request timeout in seconds
+            logger: Optional logger instance. If not provided, uses get_logger('api.client').
         """
         self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
+        self._logger = logger or get_logger('api.client')
         self._client = httpx.AsyncClient(timeout=timeout)
 
     async def close(self) -> None:
@@ -206,6 +211,14 @@ class OpenRouterClient(CompletionProvider):
             NetworkError: Network connectivity failure
         """
         start_time = time.time()
+
+        # Calculate prompt length for logging
+        prompt_length = sum(len(msg.get("content", "")) for msg in messages)
+
+        # Log API request
+        self._logger.info(
+            f"API_REQUEST | endpoint=/v1 | model={model_id} | prompt_length={prompt_length}"
+        )
 
         try:
             # Build request payload
@@ -255,6 +268,12 @@ class OpenRouterClient(CompletionProvider):
             usage = data.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0)
             output_tokens = usage.get("completion_tokens", 0)
+            total_tokens = input_tokens + output_tokens
+
+            # Log API response
+            self._logger.info(
+                f"API_RESPONSE | model={model_id} | latency={latency_ms}ms | tokens={total_tokens}"
+            )
 
             return CompletionResponse(
                 content=content,
@@ -266,10 +285,25 @@ class OpenRouterClient(CompletionProvider):
             )
 
         except httpx.TimeoutException as e:
+            error_type = "timeout"
+            error_message = str(e)
+            self._logger.error(
+                f"API_ERROR | model={model_id} | error_type={error_type} | error={error_message}"
+            )
             raise ErrorClassifier.classify_timeout(str(e))
         except httpx.ConnectError as e:
+            error_type = "network_error"
+            error_message = str(e)
+            self._logger.error(
+                f"API_ERROR | model={model_id} | error_type={error_type} | error={error_message}"
+            )
             raise ErrorClassifier.classify_network(str(e))
         except httpx.RequestError as e:
+            error_type = "network_error"
+            error_message = str(e)
+            self._logger.error(
+                f"API_ERROR | model={model_id} | error_type={error_type} | error={error_message}"
+            )
             raise NetworkError(str(e))
 
     def _handle_http_error(self, response: httpx.Response) -> None:
@@ -290,6 +324,22 @@ class OpenRouterClient(CompletionProvider):
         except Exception:
             error_message = response.text or f"HTTP {response.status_code}"
 
+        # Classify error type based on status code
+        status_code = response.status_code
+        if status_code in (401, 403):
+            error_type = "authentication_error"
+        elif status_code == 429:
+            error_type = "rate_limit"
+        elif status_code >= 500:
+            error_type = "server_error"
+        else:
+            error_type = "client_error"
+
+        # Log HTTP error
+        self._logger.error(
+            f"API_ERROR | status={status_code} | error_type={error_type} | error={error_message}"
+        )
+
         # Classify and raise appropriate error
-        error = ErrorClassifier.classify_http(response.status_code, error_message)
+        error = ErrorClassifier.classify_http(status_code, error_message)
         raise error
