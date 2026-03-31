@@ -64,6 +64,10 @@ class ExecutionResult:
         error_type: Type of error if failed (None on success)
         error_message: Error message if failed (None on success)
         attempt_count: Number of API call attempts made
+        raw_response: Raw API response dict (None on failure)
+        started_at: Execution start timestamp (None on failure)
+        finished_at: Execution end timestamp (None on failure)
+        finish_reason: API finish reason (None on failure)
 
     Example:
         >>> result = ExecutionResult(
@@ -100,6 +104,10 @@ class ExecutionResult:
     error_type: str | None
     error_message: str | None
     attempt_count: int
+    raw_response: dict | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    finish_reason: str | None = None
 
 
 class OpenRouterClient:
@@ -150,6 +158,7 @@ class ExecutionEngine:
         parser: AnswerParser,
         logger: Optional[Logger] = None,
         retry_handler: Optional[RetryHandler] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ) -> None:
         """Initialize engine with dependencies.
 
@@ -159,6 +168,8 @@ class ExecutionEngine:
             parser: Response parser with confidence levels
             logger: Optional logger instance. If not provided, uses get_logger('core.execution_engine').
             retry_handler: Optional retry handler. If not provided, creates default with RetryPolicy().
+            retry_policy: Optional default retry policy. Used only if retry_handler is not provided.
+                         If neither is provided, uses RetryPolicy() with default values.
 
         Example:
             >>> engine = ExecutionEngine(api_client, randomizer, parser)
@@ -168,7 +179,7 @@ class ExecutionEngine:
         self.parser = parser
         self._logger = logger or get_logger('core.execution_engine')
         self._retry_handler = retry_handler or RetryHandler(
-            policy=RetryPolicy(),
+            policy=retry_policy if retry_policy is not None else RetryPolicy(),
             logger=self._logger
         )
 
@@ -239,6 +250,12 @@ class ExecutionEngine:
         total_items = len(run.items)
         completed = 0
 
+        # Create retry handler for this run using its retry policy
+        run_retry_handler = RetryHandler(
+            policy=run.retry_policy,
+            logger=self._logger
+        )
+
         # Apply randomization seed if set
         if run.seed_effective is not None:
             self.randomizer.set_seed(run.seed_effective)
@@ -247,7 +264,7 @@ class ExecutionEngine:
         milestone_interval = max(1, total_items // 4)
 
         for i, item in enumerate(run.items):
-            result = self._execute_item(item, run)
+            result = self._execute_item(item, run, run_retry_handler)
             results.append(result)
             completed = i + 1
 
@@ -264,12 +281,14 @@ class ExecutionEngine:
         self,
         item: PlanItem,
         run: PlanRun,
+        retry_handler: Optional[RetryHandler] = None,
     ) -> ExecutionResult:
         """Execute a single item asynchronously with retry policy.
 
         Args:
             item: Plan item to execute
             run: Parent run containing retry policy
+            retry_handler: Optional retry handler. If not provided, uses self._retry_handler.
 
         Returns:
             ExecutionResult for this item
@@ -277,6 +296,12 @@ class ExecutionEngine:
         attempt_count = 0
         last_error_type: str | None = None
         last_error_message: str | None = None
+
+        # Use provided retry handler or fall back to instance default
+        effective_retry_handler = retry_handler if retry_handler is not None else self._retry_handler
+
+        # Capture start timestamp
+        started_at = datetime.now()
 
         # Log item start
         self._logger.info(
@@ -287,6 +312,8 @@ class ExecutionEngine:
         variant = self._get_variant_for_item(run, item.variant_id)
         if variant is None:
             error_msg = f"Variant {item.variant_id} not found in run"
+            # Capture finish timestamp for config error
+            finished_at = datetime.now()
             self._logger.error(
                 f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type=config_error | error={error_msg}"
             )
@@ -306,6 +333,10 @@ class ExecutionEngine:
                 error_type="config_error",
                 error_message=error_msg,
                 attempt_count=0,
+                raw_response=None,
+                started_at=started_at,
+                finished_at=finished_at,
+                finish_reason=None,
             )
 
         # Retry wrapper for API call
@@ -361,6 +392,8 @@ class ExecutionEngine:
             latency_ms = self._extract_latency(response)
             input_tokens = self._extract_input_tokens(response)
             output_tokens = self._extract_output_tokens(response)
+            finish_reason = self._extract_finish_reason(response)
+            raw_response = response.raw_response if hasattr(response, 'raw_response') else None
 
             # Parse the answer
             parsed = self.parser.parse(response_text)
@@ -375,11 +408,13 @@ class ExecutionEngine:
                 "latency_ms": latency_ms,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "finish_reason": finish_reason,
+                "raw_response": raw_response,
             }
 
         try:
             # Execute with retry policy
-            result_data = await self._retry_handler.execute_with_retry(
+            result_data = await effective_retry_handler.execute_with_retry(
                 api_call_with_retry,
                 context=f"run={item.run_id}|variant={item.variant_id}|snapshot={item.snapshot_id}",
             )
@@ -391,6 +426,11 @@ class ExecutionEngine:
             latency_ms = result_data["latency_ms"]
             input_tokens = result_data["input_tokens"]
             output_tokens = result_data["output_tokens"]
+            finish_reason = result_data["finish_reason"]
+            raw_response = result_data["raw_response"]
+
+            # Capture finish timestamp
+            finished_at = datetime.now()
 
             # Calculate total tokens
             total_tokens = (input_tokens or 0) + (output_tokens or 0)
@@ -416,6 +456,10 @@ class ExecutionEngine:
                 error_type=None,
                 error_message=None,
                 attempt_count=attempt_count,
+                raw_response=raw_response,
+                started_at=started_at,
+                finished_at=finished_at,
+                finish_reason=finish_reason,
             )
 
         except Exception as e:
@@ -423,6 +467,9 @@ class ExecutionEngine:
             last_error_type = self._classify_error(e)
             last_error_message = str(e)
             attempt_count = getattr(e, '_retry_attempts', 1)
+
+            # Capture finish timestamp
+            finished_at = datetime.now()
 
             # Log failure
             self._logger.error(
@@ -445,18 +492,24 @@ class ExecutionEngine:
                 error_type=last_error_type,
                 error_message=last_error_message,
                 attempt_count=attempt_count,
+                raw_response=None,
+                started_at=started_at,
+                finished_at=finished_at,
+                finish_reason=None,
             )
 
     def _execute_item(
         self,
         item: PlanItem,
         run: PlanRun,
+        retry_handler: Optional[RetryHandler] = None,
     ) -> ExecutionResult:
         """Execute a single item (synchronous wrapper for async execution).
 
         Args:
             item: Plan item to execute
             run: Parent run containing retry policy
+            retry_handler: Optional retry handler. If not provided, uses self._retry_handler.
 
         Returns:
             ExecutionResult for this item
@@ -471,15 +524,15 @@ class ExecutionEngine:
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
                         asyncio.run,
-                        self._execute_item_async(item, run),
+                        self._execute_item_async(item, run, retry_handler),
                     )
                     return future.result()
             else:
                 # No running loop - use asyncio.run directly
-                return asyncio.run(self._execute_item_async(item, run))
+                return asyncio.run(self._execute_item_async(item, run, retry_handler))
         except RuntimeError:
             # No event loop exists - create new one
-            return asyncio.run(self._execute_item_async(item, run))
+            return asyncio.run(self._execute_item_async(item, run, retry_handler))
 
     def _call_api_sync(
         self,
@@ -666,6 +719,38 @@ class ExecutionEngine:
             return usage.get("completion_tokens") or usage.get("output_tokens")
         if hasattr(response, "output_tokens"):
             return response.output_tokens
+        return None
+
+    def _extract_finish_reason(self, response: Any) -> str | None:
+        """Extract finish reason from API response.
+
+        Args:
+            response: API response (CompletionResponse or dict)
+
+        Returns:
+            Finish reason string or None
+        """
+        # If response is a CompletionResponse object, extract from raw_response
+        if hasattr(response, 'raw_response') and isinstance(response.raw_response, dict):
+            data = response.raw_response
+            if "choices" in data:
+                choices = data["choices"]
+                if choices and len(choices) > 0:
+                    return choices[0].get("finish_reason")
+            return data.get("finish_reason")
+        
+        # If response is a dict, extract directly
+        if isinstance(response, dict):
+            if "choices" in response:
+                choices = response["choices"]
+                if choices and len(choices) > 0:
+                    return choices[0].get("finish_reason")
+            return response.get("finish_reason")
+        
+        # If response object has finish_reason attribute
+        if hasattr(response, "finish_reason"):
+            return response.finish_reason
+        
         return None
 
     def _classify_error(self, error: Exception) -> str:

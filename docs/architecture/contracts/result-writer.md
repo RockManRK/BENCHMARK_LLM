@@ -75,7 +75,7 @@ Para cada `ExecutionResult` com `status = success`:
 
 #### DB WRITE — `responses`
 
-Campos mínimos recomendados (Ainda a definir):
+Campos persistidos pelo ResultWriter (contrato atual)
 
 ```text
 responses
@@ -139,6 +139,11 @@ errors
 ```
 
 📌 Falhas **não impedem** persistência de outros resultados.
+For successful executions, responses.status MUST be set to "success".
+Failed executions MUST NOT create rows in responses
+
+raw_response MUST always be persisted for successful executions.
+Absence of raw_response is considered a persistence error.
 
 ---
 

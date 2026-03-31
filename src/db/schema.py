@@ -104,6 +104,7 @@ def get_schema_sql() -> str:
         is_correct        BOOLEAN,
         parse_confidence  TEXT DEFAULT 'unknown',
         review_status     TEXT,
+        needs_review      BOOLEAN DEFAULT FALSE,
         manual_answer     TEXT,
         raw_response      TEXT,
         cost              REAL,

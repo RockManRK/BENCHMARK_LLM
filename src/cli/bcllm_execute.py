@@ -39,6 +39,7 @@ CRITICAL: This module is ORCHESTRATION ONLY.
 import argparse
 import sys
 import re
+import os
 from typing import Any
 
 from src.core.mode import Mode
@@ -50,6 +51,7 @@ from src.core.result_writer import ResultWriter
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser
 from src.core.execution_plan import RetryPolicy
+from src.api.client import OpenRouterClient
 from src.utils.logging_config import get_logger
 
 
@@ -71,25 +73,6 @@ def _validate_expected_mode(mode: Mode) -> None:
             file=sys.stderr
         )
         sys.exit(1)
-
-
-# Placeholder for API client (to be implemented in Phase 8)
-class OpenRouterClient:
-    """Placeholder for OpenRouterClient.
-
-    This is a stub that will be replaced with the real implementation
-    from src.api.client in Phase 8.
-    """
-
-    def __init__(self, api_key: str, base_url: str = "https://openrouter.ai/api/v1") -> None:
-        """Initialize with API credentials."""
-        self.api_key = api_key
-        self.base_url = base_url
-
-    async def chat_completion(self, model_id: str, messages: list[dict], **kwargs):
-        """Call OpenRouter chat completion API."""
-        # Placeholder - will be implemented in Phase 8
-        raise NotImplementedError("OpenRouterClient is not yet implemented")
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -366,8 +349,7 @@ def handle_execute(args, conn) -> int:
         logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items={total_items}")
 
         # Step 2: Execute plan (pure execution, no DB)
-        # Note: API key would come from environment in production
-        api_client = OpenRouterClient(api_key="test-key")
+        api_client = OpenRouterClient(api_key=os.environ.get("OPENROUTER_API_KEY", ""))
         randomizer = AnswerRandomizer(seed=plan.runs[0].seed_effective if plan.runs[0].seed_effective else 42)
         parser = AnswerParser()
 

@@ -33,6 +33,9 @@ def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
     """
     conn = sqlite3.connect(':memory:')
     conn.row_factory = sqlite3.Row
+    
+    # Enable foreign keys
+    conn.execute("PRAGMA foreign_keys = ON")
 
     # Create minimal schema needed for ResultWriter tests
     conn.executescript("""
@@ -76,13 +79,20 @@ def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
             snapshot_id TEXT NOT NULL,
             model_id TEXT NOT NULL,
             question_id TEXT NOT NULL,
+            status TEXT,
+            finish_reason TEXT,
             response_text TEXT,
             selected_answer TEXT,
+            is_correct BOOLEAN,
             parse_confidence TEXT DEFAULT 'unknown',
-            needs_review BOOLEAN NOT NULL DEFAULT FALSE,
+            review_status TEXT,
+            needs_review BOOLEAN DEFAULT FALSE,
             latency_ms INTEGER,
             input_tokens INTEGER,
-            output_tokens INTEGER,
+            response_tokens INTEGER,
+            raw_response TEXT,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(run_id, variant_id, snapshot_id)
         );
@@ -92,7 +102,6 @@ def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
             run_id TEXT NOT NULL,
             variant_id TEXT NOT NULL,
             snapshot_id TEXT NOT NULL,
-            model_id TEXT NOT NULL,
             question_id TEXT NOT NULL,
             error_type TEXT NOT NULL,
             error_message TEXT NOT NULL,
@@ -421,7 +430,7 @@ def test_writer_persists_success_results(in_memory_db: sqlite3.Connection, setup
     cursor.execute("""
         SELECT response_id, run_id, variant_id, snapshot_id, model_id, question_id,
                response_text, selected_answer, parse_confidence, latency_ms,
-               input_tokens, output_tokens
+               input_tokens, response_tokens
         FROM responses
         WHERE run_id = 'run-test-001'
     """)
@@ -436,7 +445,7 @@ def test_writer_persists_success_results(in_memory_db: sqlite3.Connection, setup
     assert row['parse_confidence'] == 'clear'
     assert row['latency_ms'] == 500
     assert row['input_tokens'] == 50
-    assert row['output_tokens'] == 10
+    assert row['response_tokens'] == 10
 
 
 def test_writer_persists_failure_results(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
@@ -472,7 +481,7 @@ def test_writer_persists_failure_results(in_memory_db: sqlite3.Connection, setup
     # Verify error in database
     cursor = in_memory_db.cursor()
     cursor.execute("""
-        SELECT error_id, run_id, variant_id, snapshot_id, model_id, question_id,
+        SELECT error_id, run_id, variant_id, snapshot_id, question_id,
                error_type, error_message, attempt_count
         FROM errors
         WHERE run_id = 'run-test-001'

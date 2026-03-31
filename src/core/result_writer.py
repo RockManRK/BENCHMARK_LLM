@@ -19,6 +19,7 @@ Example:
     >>> print(f"Written: {report.responses_written}, Skipped: {report.responses_skipped}")
 """
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from logging import Logger
@@ -264,6 +265,9 @@ class ResultWriter:
             result.selected_answer,
         )
 
+        # Calculate review_status from needs_review
+        review_status = 'needs_review' if needs_review else 'auto'
+
         # Get model_id from variant (we need to look it up)
         model_id = self._get_model_id_from_variant(result.variant_id)
 
@@ -274,14 +278,29 @@ class ResultWriter:
             result.snapshot_id,
         )
 
+        # Get answer_key from snapshot to calculate is_correct
+        answer_key = self._get_answer_key_from_snapshot(result.snapshot_id)
+        is_correct = None
+        if result.selected_answer and answer_key:
+            is_correct = (result.selected_answer.upper() == answer_key.upper())
+
+        # Serialize raw_response to JSON
+        raw_response_json = json.dumps(result.raw_response) if result.raw_response else None
+
+        # Serialize timestamps to ISO format
+        started_at_str = result.started_at.isoformat() if result.started_at else None
+        finished_at_str = result.finished_at.isoformat() if result.finished_at else None
+
         # INSERT OR IGNORE (idempotency via UNIQUE constraint)
         cursor.execute("""
             INSERT OR IGNORE INTO responses (
                 response_id, run_id, variant_id, snapshot_id,
-                model_id, question_id, response_text, selected_answer,
-                parse_confidence, needs_review, latency_ms,
-                input_tokens, output_tokens
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                model_id, question_id, status, finish_reason,
+                response_text, selected_answer, is_correct,
+                parse_confidence, review_status, needs_review, latency_ms,
+                input_tokens, response_tokens,
+                raw_response, started_at, finished_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             response_id,
             result.run_id,
@@ -289,13 +308,20 @@ class ResultWriter:
             result.snapshot_id,
             model_id,
             result.question_id,
+            result.status,
+            result.finish_reason,
             result.response_text,
             result.selected_answer,
+            is_correct,
             result.parse_confidence,
+            review_status,
             1 if needs_review else 0,
             result.latency_ms,
             result.input_tokens,
             result.output_tokens,
+            raw_response_json,
+            started_at_str,
+            finished_at_str,
         ))
 
         self.db_connection.commit()
@@ -432,3 +458,27 @@ class ResultWriter:
             raise ValueError(f"Variant not found: {variant_id}")
 
         return row['model_id']
+
+    def _get_answer_key_from_snapshot(self, snapshot_id: str) -> str | None:
+        """Get answer_key from question snapshot.
+
+        Args:
+            snapshot_id: Question snapshot identifier
+
+        Returns:
+            Answer key (A/B/C/D) or None if not found
+        """
+        cursor = self.db_connection.cursor()
+        cursor.execute("""
+            SELECT question_payload FROM question_snapshots WHERE snapshot_id = ?
+        """, (snapshot_id,))
+
+        row = cursor.fetchone()
+        if row is None or row[0] is None:
+            return None
+
+        try:
+            question_payload = json.loads(row[0])
+            return question_payload.get('answer_key')
+        except (json.JSONDecodeError, KeyError):
+            return None
