@@ -284,7 +284,7 @@ class ResultWriter:
         if result.selected_answer and answer_key:
             is_correct = (result.selected_answer.upper() == answer_key.upper())
 
-        # Serialize raw_response to JSON
+        # Serialize raw_response to JSON (supports dict and list)
         raw_response_json = json.dumps(result.raw_response) if result.raw_response else None
 
         # Serialize timestamps to ISO format
@@ -295,9 +295,9 @@ class ResultWriter:
         cursor.execute("""
             INSERT OR IGNORE INTO responses (
                 response_id, run_id, variant_id, snapshot_id,
-                model_id, question_id, status, finish_reason,
+                model_id, question_id, status, finish_reason, error_details,
                 response_text, selected_answer, is_correct,
-                parse_confidence, review_status, needs_review, latency_ms,
+                parse_confidence, review_status, latency_ms,
                 input_tokens, response_tokens,
                 raw_response, started_at, finished_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -310,15 +310,15 @@ class ResultWriter:
             result.question_id,
             result.status,
             result.finish_reason,
+            result.error_details,
             result.response_text,
             result.selected_answer,
             is_correct,
             result.parse_confidence,
             review_status,
-            1 if needs_review else 0,
             result.latency_ms,
             result.input_tokens,
-            result.output_tokens,
+            result.response_tokens,
             raw_response_json,
             started_at_str,
             finished_at_str,

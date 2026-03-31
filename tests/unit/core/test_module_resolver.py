@@ -409,15 +409,23 @@ class TestModuleResolverPriority:
         assert result == "bcllm_model"
     
     def test_first_match_wins_cross_module_reverse(self):
-        """--list-experiments --add-model resolves to bcllm_experiment (first module flag)."""
+        """Specific action flags take priority over generic listing flags.
+        
+        Contract: When multiple module flags are present, specific action flags
+        (--add-model, --add-run, etc.) take priority over generic listing flags
+        (--list-experiments, --experiment, etc.), regardless of argument order.
+        
+        This ensures commands like '--experiment NAME --add-run' route correctly
+        to the action module, not the generic module.
+        """
         # Arrange
         argv = ["bcllm", "--list-experiments", "--add-model", "openai/gpt-4"]
-        
+
         # Act
         result = resolve_module(argv)
-        
-        # Assert
-        assert result == "bcllm_experiment"
+
+        # Assert: Action flag (--add-model) takes priority over listing flag (--list-experiments)
+        assert result == "bcllm_model"
 
 
 class TestModuleResolverInvalid:
@@ -533,15 +541,21 @@ class TestModuleResolverEdgeCases:
         assert result == "bcllm_experiment"
     
     def test_multiple_flags_different_modules_first_wins(self):
-        """Multiple module flags: first matching flag determines module."""
+        """Multiple module flags: first matching flag determines module.
+        
+        Contract: When multiple flags from different modules are present,
+        the first matching flag (left-to-right) determines the target module,
+        except for high-priority flags (--help, --export, --execute) which
+        always take precedence.
+        """
         # Arrange
         argv = ["bcllm", "--list-questions", "--add-model", "openai/gpt-4", "--execute"]
         
         # Act
         result = resolve_module(argv)
         
-        # Assert
-        assert result == "bcllm_questions"
+        # Assert: --execute takes priority over other flags
+        assert result == "bcllm_execute"
     
     def test_script_name_not_treated_as_flag(self):
         """Script name 'bcllm' is not treated as a flag."""
@@ -577,7 +591,11 @@ class TestModuleResolverEdgeCases:
         assert result == "bcllm_main"
     
     def test_long_argv_with_multiple_flags_and_values(self):
-        """Complex argv with multiple flags and values: first module flag wins."""
+        """Complex argv with multiple flags and values: high-priority flags win.
+        
+        Contract: High-priority flags (--execute, --export, --help) always take
+        precedence over module-specific flags, regardless of position.
+        """
         # Arrange
         argv = [
             "bcllm",
@@ -590,5 +608,5 @@ class TestModuleResolverEdgeCases:
         # Act
         result = resolve_module(argv)
         
-        # Assert
-        assert result == "bcllm_experiment"
+        # Assert: --execute takes priority over other module flags
+        assert result == "bcllm_execute"

@@ -60,14 +60,15 @@ class ExecutionResult:
         parse_confidence: Confidence level of parsed answer (None on failure)
         latency_ms: API call latency in milliseconds (None on failure)
         input_tokens: Number of input tokens (None on failure)
-        output_tokens: Number of output tokens (None on failure)
+        response_tokens: Number of output tokens (None on failure)
         error_type: Type of error if failed (None on success)
         error_message: Error message if failed (None on success)
         attempt_count: Number of API call attempts made
-        raw_response: Raw API response dict (None on failure)
+        raw_response: Raw API response (dict for non-streaming, list for streaming) (None on failure)
         started_at: Execution start timestamp (None on failure)
         finished_at: Execution end timestamp (None on failure)
         finish_reason: API finish reason (None on failure)
+        error_details: Model-level error details (None on success or execution failure)
 
     Example:
         >>> result = ExecutionResult(
@@ -82,7 +83,7 @@ class ExecutionResult:
         ...     parse_confidence="clear",
         ...     latency_ms=500,
         ...     input_tokens=50,
-        ...     output_tokens=10,
+        ...     response_tokens=10,
         ...     error_type=None,
         ...     error_message=None,
         ...     attempt_count=1,
@@ -100,14 +101,15 @@ class ExecutionResult:
     parse_confidence: str | None
     latency_ms: int | None
     input_tokens: int | None
-    output_tokens: int | None
+    response_tokens: int | None
     error_type: str | None
     error_message: str | None
     attempt_count: int
-    raw_response: dict | None = None
+    raw_response: list[dict] | dict | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     finish_reason: str | None = None
+    error_details: str | None = None
 
 
 class OpenRouterClient:
@@ -329,7 +331,7 @@ class ExecutionEngine:
                 parse_confidence=None,
                 latency_ms=None,
                 input_tokens=None,
-                output_tokens=None,
+                response_tokens=None,
                 error_type="config_error",
                 error_message=error_msg,
                 attempt_count=0,
@@ -391,9 +393,30 @@ class ExecutionEngine:
             response_text = self._extract_response_content(response)
             latency_ms = self._extract_latency(response)
             input_tokens = self._extract_input_tokens(response)
-            output_tokens = self._extract_output_tokens(response)
+            response_tokens = self._extract_output_tokens(response)
             finish_reason = self._extract_finish_reason(response)
             raw_response = response.raw_response if hasattr(response, 'raw_response') else None
+
+            # Check for model-level error (HTTP 200 with finish_reason: 'error')
+            error_details: str | None = None
+            if finish_reason == 'error':
+                # Model encountered an error during generation
+                # This is a successful execution with model error, not an execution failure
+                error_details = self._extract_error_details(response)
+
+                self._logger.warning(
+                    f"MODEL_ERROR | run={item.run_id} | variant={item.variant_id} | "
+                    f"snapshot={item.snapshot_id} | error={error_details}"
+                )
+
+            # Check for no-content scenario (OpenRouter warm-up/scaling)
+            if not response_text or response_text.strip() == '':
+                self._logger.warning(
+                    f"NO_CONTENT | run={item.run_id} | variant={item.variant_id} | "
+                    f"snapshot={item.snapshot_id} | Model returned empty content "
+                    f"(possible warm-up or scaling scenario)"
+                )
+                # Still return success with empty content - not an error
 
             # Parse the answer
             parsed = self.parser.parse(response_text)
@@ -407,9 +430,10 @@ class ExecutionEngine:
                 "parsed": parsed,
                 "latency_ms": latency_ms,
                 "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
+                "response_tokens": response_tokens,
                 "finish_reason": finish_reason,
                 "raw_response": raw_response,
+                "error_details": error_details,
             }
 
         try:
@@ -425,15 +449,16 @@ class ExecutionEngine:
             parsed = result_data["parsed"]
             latency_ms = result_data["latency_ms"]
             input_tokens = result_data["input_tokens"]
-            output_tokens = result_data["output_tokens"]
+            response_tokens = result_data["response_tokens"]
             finish_reason = result_data["finish_reason"]
             raw_response = result_data["raw_response"]
+            error_details = result_data.get("error_details")
 
             # Capture finish timestamp
             finished_at = datetime.now()
 
             # Calculate total tokens
-            total_tokens = (input_tokens or 0) + (output_tokens or 0)
+            total_tokens = (input_tokens or 0) + (response_tokens or 0)
 
             # Log success
             self._logger.info(
@@ -452,7 +477,7 @@ class ExecutionEngine:
                 parse_confidence=parsed.confidence,
                 latency_ms=latency_ms,
                 input_tokens=input_tokens,
-                output_tokens=output_tokens,
+                response_tokens=response_tokens,
                 error_type=None,
                 error_message=None,
                 attempt_count=attempt_count,
@@ -460,6 +485,7 @@ class ExecutionEngine:
                 started_at=started_at,
                 finished_at=finished_at,
                 finish_reason=finish_reason,
+                error_details=error_details,
             )
 
         except Exception as e:
@@ -488,7 +514,7 @@ class ExecutionEngine:
                 parse_confidence=None,
                 latency_ms=None,
                 input_tokens=None,
-                output_tokens=None,
+                response_tokens=None,
                 error_type=last_error_type,
                 error_message=last_error_message,
                 attempt_count=attempt_count,
@@ -655,22 +681,22 @@ class ExecutionEngine:
         """Extract content from API response.
 
         Args:
-            response: API response (dict or object)
+            response: API response (CompletionResponse object)
 
         Returns:
             Response content as string
         """
+        # If response is a CompletionResponse object, use its content directly
+        if hasattr(response, "content"):
+            return response.content or ""
+
+        # Fallback for dict response (non-streaming legacy)
         if isinstance(response, dict):
-            # Handle dict response
             if "choices" in response:
                 return response["choices"][0].get("message", {}).get("content", "")
             if "content" in response:
                 return str(response["content"])
             return str(response)
-
-        # Handle object response
-        if hasattr(response, "content"):
-            return str(response.content)
 
         return str(response)
 
@@ -731,14 +757,25 @@ class ExecutionEngine:
             Finish reason string or None
         """
         # If response is a CompletionResponse object, extract from raw_response
-        if hasattr(response, 'raw_response') and isinstance(response.raw_response, dict):
-            data = response.raw_response
-            if "choices" in data:
-                choices = data["choices"]
-                if choices and len(choices) > 0:
-                    return choices[0].get("finish_reason")
-            return data.get("finish_reason")
-        
+        if hasattr(response, 'raw_response'):
+            raw = response.raw_response
+            
+            # Handle list-based raw_response (streaming mode)
+            if isinstance(raw, list):
+                # Get from final non-debug chunk
+                for chunk in reversed(raw):
+                    if chunk.get("choices") and len(chunk["choices"]) > 0:
+                        return chunk["choices"][0].get("finish_reason")
+                return None
+            
+            # Handle dict-based raw_response (non-streaming legacy)
+            if isinstance(raw, dict):
+                if "choices" in raw:
+                    choices = raw["choices"]
+                    if choices and len(choices) > 0:
+                        return choices[0].get("finish_reason")
+                return raw.get("finish_reason")
+
         # If response is a dict, extract directly
         if isinstance(response, dict):
             if "choices" in response:
@@ -746,12 +783,61 @@ class ExecutionEngine:
                 if choices and len(choices) > 0:
                     return choices[0].get("finish_reason")
             return response.get("finish_reason")
-        
+
         # If response object has finish_reason attribute
         if hasattr(response, "finish_reason"):
             return response.finish_reason
-        
+
         return None
+
+    def _extract_error_details(self, response: Any) -> str:
+        """Extract error details from model-level error response.
+
+        Args:
+            response: API response (CompletionResponse or dict)
+
+        Returns:
+            Error details string
+        """
+        raw = response.raw_response if hasattr(response, 'raw_response') else response
+        if not raw:
+            return "Unknown model error"
+
+        # Handle list-based raw_response (streaming mode)
+        if isinstance(raw, list):
+            # Look for error in any chunk
+            for chunk in raw:
+                error = chunk.get('error', {})
+                if error:
+                    code = error.get('code', 'unknown')
+                    message = error.get('message', 'No message')
+                    return f"[{code}] {message}"
+                
+                # Check choices for error
+                choices = chunk.get('choices', [])
+                if choices and len(choices) > 0:
+                    choice = choices[0]
+                    if choice.get('finish_reason') == 'error':
+                        return "Model error during generation"
+            return "Unknown model error"
+
+        # Handle dict-based raw_response (non-streaming legacy)
+        if isinstance(raw, dict):
+            # Per OpenRouter docs, error can be at top level or in choices
+            error = raw.get('error', {})
+            if error:
+                code = error.get('code', 'unknown')
+                message = error.get('message', 'No message')
+                return f"[{code}] {message}"
+
+            # Check choices for error
+            choices = raw.get('choices', [])
+            if choices and len(choices) > 0:
+                choice = choices[0]
+                if choice.get('finish_reason') == 'error':
+                    return "Model error during generation"
+
+        return "Unknown model error"
 
     def _classify_error(self, error: Exception) -> str:
         """Classify an error type.

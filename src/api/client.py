@@ -26,6 +26,7 @@ Example:
 
 from __future__ import annotations
 
+import json
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -58,16 +59,16 @@ class CompletionResponse:
         content: The generated text content
         model_id: Model identifier that generated the response
         input_tokens: Number of input tokens used
-        output_tokens: Number of output tokens generated
+        response_tokens: Number of output tokens generated
         latency_ms: API call latency in milliseconds
-        raw_response: Optional provider-specific raw response data
+        raw_response: Optional provider-specific raw response data (dict for non-streaming, list for streaming)
 
     Example:
         >>> response = CompletionResponse(
         ...     content="Answer is (B).",
         ...     model_id="openai/gpt-4",
         ...     input_tokens=50,
-        ...     output_tokens=10,
+        ...     response_tokens=10,
         ...     latency_ms=500,
         ... )
     """
@@ -75,9 +76,9 @@ class CompletionResponse:
     content: str
     model_id: str
     input_tokens: int
-    output_tokens: int
+    response_tokens: int
     latency_ms: int
-    raw_response: dict | None = None
+    raw_response: list[dict] | dict | None = None
 
 
 class CompletionProvider(ABC):
@@ -154,6 +155,7 @@ class OpenRouterClient(CompletionProvider):
         base_url: str = "https://openrouter.ai/api/v1",
         timeout: int = 120,
         logger: Optional[Logger] = None,
+        debug_enabled: bool = False,
     ) -> None:
         """Initialize OpenRouter client.
 
@@ -162,12 +164,14 @@ class OpenRouterClient(CompletionProvider):
             base_url: Base URL for API endpoints
             timeout: Request timeout in seconds
             logger: Optional logger instance. If not provided, uses get_logger('api.client').
+            debug_enabled: Enable debug payload in API requests (default: False)
         """
         self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
         self._logger = logger or get_logger('api.client')
         self._client = httpx.AsyncClient(timeout=timeout)
+        self._debug_enabled = debug_enabled
 
     async def close(self) -> None:
         """Close the HTTP client.
@@ -241,9 +245,19 @@ class OpenRouterClient(CompletionProvider):
             if response_format is not None:
                 payload["response_format"] = response_format
 
+            # Enable streaming mode
+            payload["stream"] = True
+
+            # Add debug payload if enabled (per OpenRouter docs)
+            if self._debug_enabled:
+                payload["debug"] = {"echo_upstream_body": True}
+
             # Make the request
+            # Note: base_url may or may not include /v1 suffix, so ensure correct path
+            base = self.base_url.rstrip('/')
+            endpoint = 'v1/chat/completions' if not base.endswith('/v1') else 'chat/completions'
             response = await self._client.post(
-                url=f"{self.base_url}/chat/completions",
+                url=f"{base}/{endpoint}",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -258,30 +272,66 @@ class OpenRouterClient(CompletionProvider):
             if response.status_code >= 400:
                 self._handle_http_error(response)
 
-            # Parse successful response
-            data = response.json()
+            # Parse SSE stream
+            response.raise_for_status()
+            chunks: list[dict] = []
+            
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                
+                data = line[6:]  # Remove "data: " prefix
+                if data == "[DONE]":
+                    break
+                
+                try:
+                    chunk = json.loads(data)
+                    chunks.append(chunk)
+                except json.JSONDecodeError as e:
+                    self._logger.warning(f"Failed to parse SSE chunk: {e}")
+                    continue
 
-            # Extract content
-            content = data["choices"][0]["message"]["content"]
+            # Aggregate content from all chunks (streaming deltas)
+            aggregated_content: str = ""
+            for chunk in chunks:
+                if chunk.get("choices") and len(chunk["choices"]) > 0:
+                    # OpenRouter streaming uses delta, not message
+                    choice = chunk["choices"][0]
+                    delta = choice.get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        aggregated_content += content
 
-            # Extract token usage
-            usage = data.get("usage", {})
+            # Extract other fields from final chunk
+            final_chunk = chunks[-1] if chunks else {}
+            usage = final_chunk.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0)
             output_tokens = usage.get("completion_tokens", 0)
+
+            # Extract finish_reason from final chunk
+            finish_reason = None
+            if final_chunk.get("choices") and len(final_chunk["choices"]) > 0:
+                finish_reason = final_chunk["choices"][0].get("finish_reason")
+
+            # Calculate total tokens
             total_tokens = input_tokens + output_tokens
 
             # Log API response
             self._logger.info(
-                f"API_RESPONSE | model={model_id} | latency={latency_ms}ms | tokens={total_tokens}"
+                f"API_RESPONSE | model={model_id} | latency={latency_ms}ms | tokens={total_tokens} | finish_reason={finish_reason}"
             )
 
+            # raw_response contains ALL chunks (including debug)
+            raw_response = chunks
+
             return CompletionResponse(
-                content=content,
+                content=aggregated_content,
                 model_id=model_id,
                 input_tokens=input_tokens,
-                output_tokens=output_tokens,
+                response_tokens=output_tokens,
                 latency_ms=latency_ms,
-                raw_response=data,
+                raw_response=raw_response,
             )
 
         except httpx.TimeoutException as e:

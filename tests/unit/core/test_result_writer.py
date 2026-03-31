@@ -81,6 +81,7 @@ def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
             question_id TEXT NOT NULL,
             status TEXT,
             finish_reason TEXT,
+            error_details TEXT,
             response_text TEXT,
             selected_answer TEXT,
             is_correct BOOLEAN,

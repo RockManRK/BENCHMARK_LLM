@@ -4,11 +4,17 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from src.core.mode import Mode
 from src.core.mode_resolver import resolve_mode
 from src.core.module_resolver import resolve_module
 from src.core.mode_matrix import validate_mode_matrix, ModeMatrixError
 from src.utils.logging_config import setup_logging, LoggingConfig
+
+# Load .env file at application startup
+# This ensures all environment variables are available for CLI modules
+load_dotenv(".env", override=True)
 
 
 def route_to_v2(module_name: str, mode: Mode) -> int:

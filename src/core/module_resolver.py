@@ -59,7 +59,8 @@ def resolve_module(argv: List[str]) -> Optional[str]:
         1. --help / -h always takes highest priority → 'bcllm_main'
         2. --export takes priority when present → 'bcllm_export'
         3. --execute takes priority when present → 'bcllm_execute'
-        4. For other flags, first-match-wins (left-to-right scanning)
+        4. For other flags, specific action flags take priority over --experiment
+        5. If no specific action flag, --experiment defaults to bcllm_experiment
 
     Important:
         - Operates on raw argv strings, not parsed argparse objects
@@ -76,6 +77,9 @@ def resolve_module(argv: List[str]) -> Optional[str]:
 
         >>> resolve_module(["bcllm", "--experiment", "my_exp", "--export"])
         'bcllm_export'  # export takes priority
+
+        >>> resolve_module(["bcllm", "--experiment", "my_exp", "--add-run"])
+        'bcllm_run'  # specific action flag takes priority over --experiment
 
         >>> resolve_module(["bcllm", "--add-model", "google/gemini"])
         'bcllm_model'
@@ -98,11 +102,38 @@ def resolve_module(argv: List[str]) -> Optional[str]:
     if has_flag(args, "--execute"):
         return "bcllm_execute"
 
-    # Left-to-right scanning for first-match-wins
+    # Priority-based scanning for action flags
+    # Specific action flags (--add-run, --add-model, etc.) take priority over --experiment
+    # This allows commands like: bcllm --experiment my_exp --add-run
+    
+    # Define priority order for action flags (higher priority = checked first)
+    # Flags that modify an experiment should take priority over --experiment itself
+    PRIORITY_FLAGS = [
+        # Run actions (highest priority after execute/export)
+        "--add-run", "--create-run", "--list-runs", "--run", "--remove-run",
+        # Model actions
+        "--add-model", "--list-models", "--remove-model",
+        # Question actions
+        "--add-questions", "--questions", "--list-questions", "--remove-question",
+        # Experiment structure actions
+        "--create-experiment", "--remove-experiment",
+        # Review actions
+        "--review-experiment", "--review-all",
+        # Export actions (already handled above, but included for completeness)
+        "--export-results",
+        # Finally, --experiment and --list-experiments (lowest priority)
+        "--experiment", "--list-experiments",
+    ]
+    
+    # Check flags in priority order
+    for priority_flag in PRIORITY_FLAGS:
+        if has_flag(args, priority_flag):
+            if priority_flag in _MODULE_MAP:
+                return _MODULE_MAP[priority_flag]
+    
+    # Fallback: left-to-right scanning for any other flags not in priority list
     for arg in args:
-        # Extract flag name (handle both --flag and --flag=value formats)
         flag = _extract_flag(arg)
-
         if flag in _MODULE_MAP:
             return _MODULE_MAP[flag]
 

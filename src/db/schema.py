@@ -104,7 +104,6 @@ def get_schema_sql() -> str:
         is_correct        BOOLEAN,
         parse_confidence  TEXT DEFAULT 'unknown',
         review_status     TEXT,
-        needs_review      BOOLEAN DEFAULT FALSE,
         manual_answer     TEXT,
         raw_response      TEXT,
         cost              REAL,
@@ -120,9 +119,6 @@ def get_schema_sql() -> str:
 
     -- Index for listing responses by run
     CREATE INDEX IF NOT EXISTS idx_responses_by_run ON responses(run_id);
-
-    -- Partial index for responses needing review
-    CREATE INDEX IF NOT EXISTS idx_responses_needs_review ON responses(review_status) WHERE review_status = 'needs_review';
 
     -- ============================================================================
     -- errors table

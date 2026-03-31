@@ -146,14 +146,23 @@ class TestOpenRouterClientChatCompletion:
         """Successful API call returns CompletionResponse."""
         client = OpenRouterClient(api_key="test-key")
 
-        # Mock the actual HTTP call
+        # Mock the actual HTTP call with SSE streaming
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": "Answer is (B)."}}],
-                "usage": {"prompt_tokens": 50, "completion_tokens": 10},
-            }
+            
+            # Mock SSE stream with chunks (cumulative content in streaming)
+            sse_chunks = [
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": null}], "debug": {"test": true}}',
+                'data: {"choices": [{"message": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
             response = await client.chat_completion(
@@ -162,9 +171,11 @@ class TestOpenRouterClientChatCompletion:
             )
 
             assert isinstance(response, CompletionResponse)
-            assert response.content == "Answer is (B)."
+            assert response.content == "Answer is (B)."  # Aggregated from all chunks
             assert response.input_tokens == 50
             assert response.output_tokens == 10
+            assert isinstance(response.raw_response, list)
+            assert len(response.raw_response) == 2  # 2 data chunks (excluding [DONE])
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -175,10 +186,18 @@ class TestOpenRouterClientChatCompletion:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": "Answer"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            }
+            
+            # Mock SSE stream
+            sse_chunks = [
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
             await client.chat_completion(
@@ -198,6 +217,8 @@ class TestOpenRouterClientChatCompletion:
             assert request_payload["top_p"] == 0.9
             assert request_payload["max_tokens"] == 100
             assert request_payload["stop"] == ["\n"]
+            # Verify streaming is enabled
+            assert request_payload["stream"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -208,10 +229,18 @@ class TestOpenRouterClientChatCompletion:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": "Answer"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            }
+            
+            # Mock SSE stream
+            sse_chunks = [
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
             await client.chat_completion(
@@ -235,10 +264,18 @@ class TestOpenRouterClientChatCompletion:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": "Answer"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            }
+            
+            # Mock SSE stream
+            sse_chunks = [
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
             await client.chat_completion(
@@ -260,10 +297,18 @@ class TestOpenRouterClientChatCompletion:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": "Answer"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            }
+            
+            # Mock SSE stream
+            sse_chunks = [
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
             response = await client.chat_completion(
@@ -415,3 +460,86 @@ class TestOpenRouterClientErrorHandling:
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+
+
+class TestOpenRouterClientStreaming:
+    """Test cases for OpenRouterClient streaming mode with debug chunks."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.domain_rule
+    async def test_chat_completion_captures_debug_chunk(self):
+        """Debug chunk (empty choices) is captured in raw_response."""
+        client = OpenRouterClient(api_key="test-key")
+
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            
+            # Mock SSE stream with debug chunk first (as OpenRouter sends)
+            sse_chunks = [
+                'data: {"debug": {"request_id": "abc-123"}, "choices": []}',
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": null}]}',
+                'data: {"choices": [{"message": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
+            mock_post.return_value = mock_response
+
+            response = await client.chat_completion(
+                model_id="openai/gpt-4",
+                messages=[{"role": "user", "content": "Question?"}],
+            )
+
+            # Verify content is aggregated correctly
+            assert response.content == "Answer is (B)."
+            
+            # Verify raw_response contains ALL chunks including debug
+            assert isinstance(response.raw_response, list)
+            assert len(response.raw_response) == 3  # 3 data chunks (excluding [DONE])
+            
+            # Verify first chunk has debug field
+            first_chunk = response.raw_response[0]
+            assert "debug" in first_chunk
+            assert first_chunk["debug"]["request_id"] == "abc-123"
+            assert first_chunk.get("choices") == []  # Debug chunk has empty choices
+
+    @pytest.mark.asyncio
+    @pytest.mark.domain_rule
+    async def test_chat_completion_handles_empty_content_chunks(self):
+        """Chunks with empty content are skipped in aggregation."""
+        client = OpenRouterClient(api_key="test-key")
+
+        with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            
+            # Mock SSE stream with some empty content chunks
+            sse_chunks = [
+                'data: {"choices": [{"message": {"content": ""}, "finish_reason": null}]}',
+                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": null}]}',
+                'data: {"choices": [{"message": {"content": ""}, "finish_reason": null}]}',
+                'data: {"choices": [{"message": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: [DONE]',
+            ]
+            
+            async def mock_aiter_lines():
+                for chunk in sse_chunks:
+                    yield chunk
+            
+            mock_response.aiter_lines = mock_aiter_lines
+            mock_post.return_value = mock_response
+
+            response = await client.chat_completion(
+                model_id="openai/gpt-4",
+                messages=[{"role": "user", "content": "Question?"}],
+            )
+
+            # Verify only non-empty content is aggregated
+            assert response.content == "Answer is (B)."
+            assert response.input_tokens == 10
+            assert response.output_tokens == 5

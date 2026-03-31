@@ -159,7 +159,7 @@ def handle_add_run(args, conn) -> int:
     )
 
     run_repo.save(run, config_dict)
-    seed_display = str(config_dict.get('seed')) if config_dict.get('seed') is not None else "None"
+    seed_display = str(config_dict.get('RUN_RESPONSES_SEED')) if config_dict.get('RUN_RESPONSES_SEED') is not None else "None"
     print(f"✓ Run created for '{experiment.name}' (ID: {run.run_id}, Seed: {seed_display})")
     print(f"  System Prompt: {'Custom' if args.system_prompt else 'Inherited from experiment/.env'}")
     print(f"  User Prompt: {'Custom' if args.user_prompt else 'Inherited from experiment/.env'}")

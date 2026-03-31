@@ -349,7 +349,11 @@ def handle_execute(args, conn) -> int:
         logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items={total_items}")
 
         # Step 2: Execute plan (pure execution, no DB)
-        api_client = OpenRouterClient(api_key=os.environ.get("OPENROUTER_API_KEY", ""))
+        debug_enabled = os.getenv("OPENROUTER_DEBUG_ENABLED", "false").lower() == "true"
+        api_client = OpenRouterClient(
+            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+            debug_enabled=debug_enabled,
+        )
         randomizer = AnswerRandomizer(seed=plan.runs[0].seed_effective if plan.runs[0].seed_effective else 42)
         parser = AnswerParser()
 
