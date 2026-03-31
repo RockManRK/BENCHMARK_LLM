@@ -319,9 +319,6 @@ class ResultWriter:
         """
         cursor = self.db_connection.cursor()
 
-        # Get model_id from variant
-        model_id = self._get_model_id_from_variant(result.variant_id)
-
         # Generate error_id
         error_id = self._generate_error_id(
             result.run_id,
@@ -330,16 +327,15 @@ class ResultWriter:
         )
 
         cursor.execute("""
-            INSERT INTO errors (
+            INSERT OR IGNORE INTO errors (
                 error_id, run_id, variant_id, snapshot_id,
-                model_id, question_id, error_type, error_message, attempt_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                question_id, error_type, error_message, attempt_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             error_id,
             result.run_id,
             result.variant_id,
             result.snapshot_id,
-            model_id,
             result.question_id,
             result.error_type,
             result.error_message,
@@ -393,11 +389,11 @@ class ResultWriter:
         """
         cursor = self.db_connection.cursor()
 
-        # Set finished_at for terminal states
+        # Update status for terminal states (no finished_at in schema)
         if status in ('completed', 'failed', 'partial_failed'):
             cursor.execute("""
                 UPDATE runs
-                SET status = ?, finished_at = CURRENT_TIMESTAMP
+                SET status = ?
                 WHERE run_id = ?
             """, (status, run_id))
         else:

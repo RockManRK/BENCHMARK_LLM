@@ -526,7 +526,7 @@ class Planner:
                     run_id=run_row["run_id"],
                     variant_id=variant["variant_id"],
                     snapshot_id=snapshot["snapshot_id"],
-                    question_id=snapshot["question_id"],
+                    question_id=snapshot["json_question_id"],
                     question_payload=question_payload,
                 )
 

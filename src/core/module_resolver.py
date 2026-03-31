@@ -58,7 +58,8 @@ def resolve_module(argv: List[str]) -> Optional[str]:
     Priority Rules:
         1. --help / -h always takes highest priority → 'bcllm_main'
         2. --export takes priority when present → 'bcllm_export'
-        3. For other flags, first-match-wins (left-to-right scanning)
+        3. --execute takes priority when present → 'bcllm_execute'
+        4. For other flags, first-match-wins (left-to-right scanning)
 
     Important:
         - Operates on raw argv strings, not parsed argparse objects
@@ -92,6 +93,10 @@ def resolve_module(argv: List[str]) -> Optional[str]:
     # Check for export second (high priority for compound commands)
     if has_flag(args, "--export"):
         return "bcllm_export"
+
+    # Check for execute third (high priority for compound commands)
+    if has_flag(args, "--execute"):
+        return "bcllm_execute"
 
     # Left-to-right scanning for first-match-wins
     for arg in args:
