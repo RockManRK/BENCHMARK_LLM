@@ -75,19 +75,33 @@ Para cada `ExecutionResult` com `status = success`:
 
 #### DB WRITE — `responses`
 
-Campos mínimos recomendados:
+Campos mínimos recomendados (Ainda a definir):
 
 ```text
 responses
 - response_id (PK)
 - run_id
 - variant_id
+- snapshot_id
 - model_id
 - snapshot_id
 - question_id
-- response_payload
-- timing_info
-- created_at
+- status
+- finish-reason
+- error_details
+- response_text
+- selected_answer
+- is_correct
+- parse_confidence
+- raw_response
+- cost
+- input_tokens
+- response_tokens
+- reasoning_tokens
+- effective_tokens
+- latency_ms
+- started_at
+- finished_at
 ```
 
 📌 **Chave lógica de unicidade:**
