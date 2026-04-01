@@ -29,7 +29,7 @@ from src.cli.database import get_database_connection
 from src.core import QuestionLoader
 from src.core.config_resolver import ConfigResolver
 from src.core.argv_utils import parse_args_normalized
-from src.core.null_semantics import nullable_int, nullable_float
+from src.core.null_semantics import EXPLICIT_NULL, nullable_int, nullable_float
 from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
@@ -250,6 +250,71 @@ def parse_seed_value(seed_arg: str, experiment_name: str) -> int | None:
         raise ValueError(f"Invalid seed value: {seed_arg}. Use AUTO, empty, or a number.")
 
 
+def _create_experiment_with_config(name: str, args: argparse.Namespace, conn, logger) -> Experiment:
+    """Create experiment with resolved configuration from ConfigResolver.
+    
+    This is the canonical experiment creation path used by both standalone
+    (--create-experiment) and composite (--create-experiment --add-model) flows.
+    
+    This function:
+    - Uses ConfigResolver to build experiment config (ensures .env defaults are applied)
+    - Generates experiment_id with 'exp_' prefix
+    - Saves experiment via ExperimentRepository
+    - Returns the created Experiment object
+    - Respects cli_null_semantics.md contract (EXPLICIT_NULL for NULL handling)
+    
+    Args:
+        name: Experiment name.
+        args: Parsed CLI arguments with configuration values.
+        conn: Database connection.
+        logger: Logger instance for audit logging.
+    
+    Returns:
+        Created Experiment object with experiment_id, name, and config_json.
+    
+    Raises:
+        ValueError: If experiment name is empty or already exists.
+    """
+    repo = ExperimentRepository(conn)
+    
+    # Check for existing experiment
+    existing = repo.get_by_name(name)
+    if existing:
+        logger.error(f"EXPERIMENT_CREATE | name={name} | error=Already exists")
+        raise ValueError(f"Experiment already exists: {name}")
+    
+    logger.info(f"EXPERIMENT_CREATE | name={name}")
+    
+    # Use ConfigResolver to build complete experiment config
+    # This ensures .env defaults are applied following CLI > .env > NULL priority
+    resolver = ConfigResolver()
+    env_dict = resolver.load_env()
+    config_dict = resolver.build_experiment_config_dict(args)
+    
+    # Serialize config to JSON (compact format)
+    config_json = json.dumps(config_dict, indent=None, separators=(',', ':'))
+    
+    # Generate config hash for integrity checking
+    config_hash = hashlib.sha256(config_json.encode('utf-8')).hexdigest()
+    
+    # Create experiment with exp_ prefix ID
+    experiment = Experiment(
+        experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
+        name=name,
+        description="",
+        config_json=config_json,
+        config_hash=config_hash,
+    )
+    
+    # Save to database
+    repo.save(experiment)
+    
+    # Log creation with experiment name and ID
+    logger.info(f"EXPERIMENT_CREATED | name={name} | experiment_id={experiment.experiment_id}")
+    
+    return experiment
+
+
 def handle_create_experiment(args, conn) -> int:
     """Handle --create-experiment command.
 
@@ -261,58 +326,51 @@ def handle_create_experiment(args, conn) -> int:
         Exit code (0 for success, 1 for error).
     """
     logger = get_logger('cli.experiment')
-    repo = ExperimentRepository(conn)
     name = args.create_experiment
 
     if not name or not name.strip():
         print("Error: Experiment name cannot be empty.", file=sys.stderr)
         return 1
 
-    existing = repo.get_by_name(name)
-    if existing:
-        logger.error(f"EXPERIMENT_CREATE | name={name} | error=Already exists")
-        print(f"Error: Experiment already exists: {name}", file=sys.stderr)
-        return 1
-
-    logger.info(f"EXPERIMENT_CREATE | name={name}")
-
+    # Validate boolean CLI values before creation
     if args.vision is not None and not _validate_bool_value(args.vision):
         print(f"Error: Invalid value for --vision: {args.vision}", file=sys.stderr)
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        print("Note: 'none' is NOT a valid value - it is treated as a literal string", file=sys.stderr)
         print("Example: --vision true", file=sys.stderr)
         return 1
 
     if args.structured is not None and not _validate_bool_value(args.structured):
         print(f"Error: Invalid value for --structured: {args.structured}", file=sys.stderr)
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        print("Note: 'none' is NOT a valid value - it is treated as a literal string", file=sys.stderr)
         print("Example: --structured false", file=sys.stderr)
         return 1
 
-    resolver = ConfigResolver()
-    env_dict = resolver.load_env()
+    # Validate mandatory field --url rejects 'null'
+    if args.url is EXPLICIT_NULL:
+        print("Error: --url is a mandatory field and cannot be set to 'null'.", file=sys.stderr)
+        print("Please provide a valid URL or omit the flag to use .env default.", file=sys.stderr)
+        return 1
 
-    config_dict = resolver.build_experiment_config_dict(args)
-
-    config_json = json.dumps(config_dict, indent=None, separators=(',', ':'))
-    config_hash = hashlib.sha256(config_json.encode('utf-8')).hexdigest()
-
-    experiment = Experiment(
-        experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
-        name=name,
-        description="",
-        config_json=config_json,
-        config_hash=config_hash,
-    )
-
-    repo.save(experiment)
-    logger.info(f"EXPERIMENT_CREATED | name={name} | experiment_id={experiment.experiment_id}")
+    # Use canonical experiment creation function
+    try:
+        experiment = _create_experiment_with_config(name, args, conn, logger)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    
     print(f"✓ Experiment '{experiment.name}' created (ID: {experiment.experiment_id})")
 
+    # Add models at creation time if specified
     if args.add_model:
+        resolver = ConfigResolver()
+        resolver.load_env()
         exit_code = _add_models_at_creation(args.add_model, experiment, conn, resolver)
         if exit_code != 0:
             return exit_code
 
+    # Create question snapshots
     exit_code = _create_question_snapshots(args, experiment, conn)
     if exit_code != 0:
         return exit_code
@@ -320,19 +378,27 @@ def handle_create_experiment(args, conn) -> int:
     return 0
 
 
-def _validate_bool_value(value: str) -> bool:
+def _validate_bool_value(value: str | type[EXPLICIT_NULL]) -> bool:
     """Validate boolean CLI value.
 
     Args:
-        value: String value to validate.
+        value: CLI value (may be EXPLICIT_NULL for 'null' input)
 
     Returns:
-        True if valid (case-insensitive true/false/null), False otherwise.
+        True if value is valid boolean ('true' or 'false'), False otherwise.
+
+    Note:
+        - 'null' (EXPLICIT_NULL) is NOT a valid boolean - it represents explicit absence
+        - 'none' is treated as literal string, not as None
+        - Absent flag (None) is OK - will use default
     """
+    if value is EXPLICIT_NULL:
+        return True  # 'null' is valid - represents explicit absence (will be normalized to None)
     if value is None:
-        return True
-    normalized = value.lower()
-    return normalized in ('true', 'false', 'null')
+        return True  # Absent flag is OK (will use default)
+    if isinstance(value, str):
+        return value.lower() in ('true', 'false')
+    return False
 
 
 def _add_models_at_creation(models: list[str], experiment: Experiment, conn, resolver: ConfigResolver) -> int:
@@ -406,6 +472,18 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     env_dict = resolver.load_env()
 
     dataset_path = env_dict.get('QUESTIONS_DATASET_PATH')
+    
+    # Validate mandatory field --dataset-path rejects 'null'
+    # Note: dataset-path is configured via .env, not CLI flag
+    # If user sets QUESTIONS_DATASET_PATH=null in .env, it will be EXPLICIT_NULL
+    if dataset_path is EXPLICIT_NULL:
+        print(
+            "Error: QUESTIONS_DATASET_PATH in .env cannot be set to 'null'.",
+            file=sys.stderr
+        )
+        print("Please provide a valid dataset path.", file=sys.stderr)
+        return 1
+    
     if not dataset_path:
         print(
             "Error: QUESTIONS_DATASET_PATH not set in .env. "

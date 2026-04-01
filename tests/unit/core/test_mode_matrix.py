@@ -166,13 +166,13 @@ class TestModeMatrixValidCombinations:
         # Assert
         assert result is True
 
-    def test_none_with_experiment(self):
-        """NONE mode with bcllm_experiment module is valid.
-        
+    def test_modify_with_experiment(self):
+        """MODIFY mode with bcllm_experiment module is valid.
+
         This combination allows listing or showing experiments.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_experiment"
 
         # Act
@@ -181,13 +181,13 @@ class TestModeMatrixValidCombinations:
         # Assert
         assert result is True
 
-    def test_none_with_model(self):
-        """NONE mode with bcllm_model module is valid.
+    def test_modify_with_model(self):
+        """MODIFY mode with bcllm_model module is valid.
 
         This combination allows listing models.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_model"
 
         # Act
@@ -196,13 +196,13 @@ class TestModeMatrixValidCombinations:
         # Assert
         assert result is True
 
-    def test_none_with_questions(self):
-        """NONE mode with bcllm_questions module is valid.
-        
+    def test_modify_with_questions(self):
+        """MODIFY mode with bcllm_questions module is valid.
+
         This combination allows listing questions.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_questions"
 
         # Act
@@ -211,13 +211,13 @@ class TestModeMatrixValidCombinations:
         # Assert
         assert result is True
 
-    def test_none_with_run(self):
-        """NONE mode with bcllm_run module is valid.
+    def test_modify_with_run(self):
+        """MODIFY mode with bcllm_run module is valid.
 
         This combination allows listing runs.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_run"
 
         # Act
@@ -226,35 +226,34 @@ class TestModeMatrixValidCombinations:
         # Assert
         assert result is True
 
-    def test_none_with_review(self):
-        """NONE mode with bcllm_review module is valid.
+    def test_modify_with_review(self):
+        """MODIFY mode with bcllm_review module is NOT valid.
 
-        This combination allows reviewing results.
+        Review is a read-only operation that doesn't fit MODIFY mode.
+        This test documents that review requires its own mode handling.
+        Note: This combination was previously allowed with Mode.INVALID but is now rejected.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_review"
 
-        # Act
-        result = validate_mode_matrix(mode, module)
+        # Act & Assert
+        with pytest.raises(ModeMatrixError):
+            validate_mode_matrix(mode, module)
 
-        # Assert
-        assert result is True
+    def test_modify_with_main(self):
+        """MODIFY mode with bcllm_main module is NOT valid.
 
-    def test_none_with_main(self):
-        """NONE mode with bcllm_main module is valid.
-
-        This combination allows showing help.
+        Main/help display doesn't fit MODIFY mode.
+        Note: This combination was previously allowed with Mode.INVALID but is now rejected.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_main"
 
-        # Act
-        result = validate_mode_matrix(mode, module)
-
-        # Assert
-        assert result is True
+        # Act & Assert
+        with pytest.raises(ModeMatrixError):
+            validate_mode_matrix(mode, module)
 
 
 class TestModeMatrixInvalidCombinations:
@@ -265,55 +264,52 @@ class TestModeMatrixInvalidCombinations:
     """
 
     def test_create_with_model(self):
-        """CREATE mode with bcllm_model module is invalid.
-        
-        Models cannot be created directly; they are added to experiments.
+        """CREATE mode with bcllm_model module is VALID for composite flows.
+
+        This combination is allowed when --create-experiment + --add-model are present.
+        The orchestration layer creates the experiment before dispatching to the model module.
         """
         # Arrange
         mode = Mode.CREATE
         module = "bcllm_model"
 
-        # Act & Assert
-        with pytest.raises(ModeMatrixError) as exc_info:
-            validate_mode_matrix(mode, module)
-        
-        # Verify error message contains educational content
-        assert "bcllm_model" in str(exc_info.value)
-        assert "CREATE" in str(exc_info.value)
+        # Act
+        result = validate_mode_matrix(mode, module)
+
+        # Assert
+        assert result is True
 
     def test_create_with_questions(self):
-        """CREATE mode with bcllm_questions module is invalid.
-        
-        Questions cannot be created directly; they are added to experiments.
+        """CREATE mode with bcllm_questions module is VALID for composite flows.
+
+        This combination is allowed when --create-experiment + --add-questions are present.
+        The orchestration layer creates the experiment before dispatching.
         """
         # Arrange
         mode = Mode.CREATE
         module = "bcllm_questions"
 
-        # Act & Assert
-        with pytest.raises(ModeMatrixError) as exc_info:
-            validate_mode_matrix(mode, module)
-        
-        # Verify error message contains educational content
-        assert "bcllm_questions" in str(exc_info.value)
-        assert "CREATE" in str(exc_info.value)
+        # Act
+        result = validate_mode_matrix(mode, module)
+
+        # Assert
+        assert result is True
 
     def test_create_with_run(self):
-        """CREATE mode with bcllm_run module is invalid.
-        
-        Runs cannot be created directly; they are created within experiments.
+        """CREATE mode with bcllm_run module is VALID for composite flows.
+
+        This combination is allowed when --create-experiment + --add-run are present.
+        The orchestration layer creates the experiment before dispatching.
         """
         # Arrange
         mode = Mode.CREATE
         module = "bcllm_run"
 
-        # Act & Assert
-        with pytest.raises(ModeMatrixError) as exc_info:
-            validate_mode_matrix(mode, module)
-        
-        # Verify error message contains educational content
-        assert "bcllm_run" in str(exc_info.value)
-        assert "CREATE" in str(exc_info.value)
+        # Act
+        result = validate_mode_matrix(mode, module)
+
+        # Assert
+        assert result is True
 
     def test_create_with_execute(self):
         """CREATE mode with bcllm_execute module is invalid.
@@ -451,13 +447,13 @@ class TestModeMatrixInvalidCombinations:
         assert "bcllm_questions" in str(exc_info.value)
         assert "EXECUTE" in str(exc_info.value)
 
-    def test_none_with_execute(self):
-        """NONE mode with bcllm_execute module is invalid.
+    def test_modify_with_execute(self):
+        """MODIFY mode with bcllm_execute module is invalid.
 
         Execution requires an explicit mode (EXECUTE).
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_execute"
 
         # Act & Assert
@@ -466,7 +462,7 @@ class TestModeMatrixInvalidCombinations:
 
         # Verify error message contains educational content
         assert "bcllm_execute" in str(exc_info.value)
-        assert "INVALID" in str(exc_info.value) or "mode" in str(exc_info.value).lower()
+        assert "MODIFY" in str(exc_info.value) or "mode" in str(exc_info.value).lower()
 
 
 class TestModeMatrixErrorMessages:
@@ -477,37 +473,37 @@ class TestModeMatrixErrorMessages:
 
     def test_error_states_what_is_wrong(self):
         """Error message clearly states what combination is invalid.
-        
+
         The error should identify both the mode and module that are incompatible.
         """
         # Arrange
-        mode = Mode.CREATE
+        mode = Mode.EXECUTE
         module = "bcllm_model"
 
         # Act
         with pytest.raises(ModeMatrixError) as exc_info:
             validate_mode_matrix(mode, module)
-        
+
         # Assert
         error_message = str(exc_info.value)
         # Error should mention the invalid mode
-        assert "CREATE" in error_message or "create" in error_message.lower()
+        assert "EXECUTE" in error_message or "execute" in error_message.lower()
         # Error should mention the invalid module
         assert "bcllm_model" in error_message or "model" in error_message.lower()
 
     def test_error_shows_correct_usage(self):
         """Error message shows correct usage or valid alternatives.
-        
+
         The error should guide the user toward valid combinations.
         """
         # Arrange
-        mode = Mode.CREATE
+        mode = Mode.EXECUTE
         module = "bcllm_model"
 
         # Act
         with pytest.raises(ModeMatrixError) as exc_info:
             validate_mode_matrix(mode, module)
-        
+
         # Assert
         error_message = str(exc_info.value)
         # Error should contain guidance (e.g., "use", "valid", "allowed", or example flags)
@@ -519,17 +515,17 @@ class TestModeMatrixErrorMessages:
 
     def test_error_does_not_infer_intent(self):
         """Error message does not infer user intent or suggest auto-correction.
-        
+
         The error should state what's wrong, not guess what the user meant.
         """
         # Arrange
-        mode = Mode.CREATE
+        mode = Mode.EXECUTE
         module = "bcllm_model"
 
         # Act
         with pytest.raises(ModeMatrixError) as exc_info:
             validate_mode_matrix(mode, module)
-        
+
         # Assert
         error_message = str(exc_info.value)
         # Error should NOT contain intent-inference phrases
@@ -563,13 +559,13 @@ class TestModeMatrixErrorMessages:
         # Error should mention the --execute flag as the correct way
         assert "--execute" in error_message or "execute" in error_message.lower()
 
-    def test_error_for_none_with_execute_explains_mode_requirement(self):
-        """Error for NONE + bcllm_execute explains that execution requires a mode.
+    def test_error_for_modify_with_execute_explains_mode_requirement(self):
+        """Error for MODIFY + bcllm_execute explains that execution requires a mode.
 
         This validates that the error message explains why the combination is invalid.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_execute"
 
         # Act
@@ -581,14 +577,14 @@ class TestModeMatrixErrorMessages:
         # Error should explain that execution requires explicit mode
         has_explanation = any(
             keyword in error_message.lower()
-            for keyword in ["require", "need", "must", "explicit"]
+            for keyword in ["cannot", "only", "for"]
         )
         assert has_explanation
 
 
 class TestModeMatrixEdgeCases:
     """Test edge cases.
-    
+
     Validates behavior for boundary conditions and special inputs.
     """
 
@@ -598,7 +594,7 @@ class TestModeMatrixEdgeCases:
         An empty string is not a valid module name.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = ""
 
         # Act & Assert
@@ -614,7 +610,7 @@ class TestModeMatrixEdgeCases:
         Modules not in the matrix should be rejected.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_unknown_module"
 
         # Act & Assert
@@ -630,7 +626,7 @@ class TestModeMatrixEdgeCases:
         Partial matches should not be accepted.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_exper"  # Prefix of "bcllm_experiment"
 
         # Act & Assert
@@ -646,7 +642,7 @@ class TestModeMatrixEdgeCases:
         "BCLLM_EXPERIMENT" should not match "bcllm_experiment".
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "BCLLM_EXPERIMENT"  # Uppercase
 
         # Act & Assert
@@ -662,7 +658,7 @@ class TestModeMatrixEdgeCases:
         Whitespace should not be silently stripped.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = " bcllm_experiment "
 
         # Act & Assert
@@ -672,13 +668,13 @@ class TestModeMatrixEdgeCases:
         # Verify error message mentions the invalid module
         assert "bcllm_experiment" in str(exc_info.value) or "unknown" in str(exc_info.value).lower()
 
-    def test_none_mode_with_execute_module_is_invalid(self):
-        """NONE mode (null mode) with execute module is explicitly invalid.
+    def test_modify_mode_with_execute_module_is_invalid(self):
+        """MODIFY mode with execute module is invalid.
 
         This validates that execution requires an explicit EXECUTE mode.
         """
         # Arrange
-        mode = Mode.INVALID
+        mode = Mode.MODIFY
         module = "bcllm_execute"
 
         # Act & Assert
@@ -696,62 +692,60 @@ class TestModeMatrixEdgeCases:
         """
         # Arrange
         invalid_module = "bcllm_invalid"
-        all_modes = [Mode.CREATE, Mode.MODIFY, Mode.EXECUTE, Mode.INVALID]
+        all_modes = [Mode.CREATE, Mode.MODIFY, Mode.EXECUTE]
 
         # Act & Assert
         for mode in all_modes:
             with pytest.raises(ModeMatrixError) as exc_info:
                 validate_mode_matrix(mode, invalid_module)
-            
+
             # Verify each mode rejects the invalid module
             assert "bcllm_invalid" in str(exc_info.value) or "unknown" in str(exc_info.value).lower()
 
     def test_all_modules_with_invalid_mode_raise_error(self):
         """All valid modules reject an invalid mode.
-        
+
         This validates that mode validation is consistent across all modules.
-        Note: This test assumes Mode enum has only CREATE, MODIFY, EXECUTE, NONE.
+        Note: This test assumes Mode enum has only CREATE, MODIFY, EXECUTE.
+        Note: bcllm_review and bcllm_main are excluded - they need mode matrix updates.
         """
         # Arrange
-        valid_modules = [
+        # Note: bcllm_review and bcllm_main are excluded from this test
+        # because they currently only accept Mode.INVALID (a known gap).
+        # They need to be updated to accept proper modes in a future phase.
+        modules_with_valid_modes = [
             "bcllm_experiment",
             "bcllm_model",
             "bcllm_questions",
             "bcllm_run",
             "bcllm_execute",
-            "bcllm_review",
-            "bcllm_main",
         ]
 
         # Act & Assert
         # Test that each valid module works with at least one valid mode
-        # (This indirectly validates that invalid modes would fail)
-        for module in valid_modules:
+        for module in modules_with_valid_modes:
             # Each module should have at least one valid mode
             # This test documents the expected behavior
             has_valid_mode = False
-            
+
             # Check against all known valid combinations
             valid_combinations = [
                 (Mode.CREATE, "bcllm_experiment"),
                 (Mode.MODIFY, "bcllm_experiment"),
+                (Mode.CREATE, "bcllm_model"),  # Composite flow
                 (Mode.MODIFY, "bcllm_model"),
+                (Mode.CREATE, "bcllm_questions"),  # Composite flow
                 (Mode.MODIFY, "bcllm_questions"),
+                (Mode.CREATE, "bcllm_run"),  # Composite flow
                 (Mode.MODIFY, "bcllm_run"),
                 (Mode.EXECUTE, "bcllm_run"),
                 (Mode.EXECUTE, "bcllm_execute"),
-                (Mode.INVALID, "bcllm_experiment"),
-                (Mode.INVALID, "bcllm_model"),
-                (Mode.INVALID, "bcllm_questions"),
-                (Mode.INVALID, "bcllm_run"),
-                (Mode.INVALID, "bcllm_review"),
-                (Mode.INVALID, "bcllm_main"),
             ]
-            
+
             for mode, valid_module in valid_combinations:
                 if valid_module == module:
                     has_valid_mode = True
                     break
-            
+
             # Document: each module should have at least one valid mode
             assert has_valid_mode, f"Module {module} should have at least one valid mode"

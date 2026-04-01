@@ -428,6 +428,102 @@ class TestModuleResolverPriority:
         assert result == "bcllm_model"
 
 
+class TestModuleResolverCompositeFlows:
+    """Test composite flow resolution (CREATE + ADD_*).
+    
+    Validates that:
+    - --create-experiment + --add-* resolves to the action module
+    - Argument order does not affect resolution
+    - All ADD_* actions are supported in composite flows
+    """
+    
+    def test_create_experiment_with_add_model(self):
+        """--create-experiment --add-model resolves to bcllm_model."""
+        # Arrange
+        argv = ["bcllm", "--create-experiment", "EXP", "--add-model", "M"]
+        
+        # Act
+        result = resolve_module(argv)
+        
+        # Assert: Action flag defines module
+        assert result == "bcllm_model"
+    
+    def test_create_experiment_with_add_questions(self):
+        """--create-experiment --add-questions resolves to bcllm_questions."""
+        # Arrange
+        argv = ["bcllm", "--create-experiment", "EXP", "--add-questions", "Q"]
+        
+        # Act
+        result = resolve_module(argv)
+        
+        # Assert: Action flag defines module
+        assert result == "bcllm_questions"
+    
+    def test_create_experiment_with_add_run(self):
+        """--create-experiment --add-run resolves to bcllm_run."""
+        # Arrange
+        argv = ["bcllm", "--create-experiment", "EXP", "--add-run"]
+        
+        # Act
+        result = resolve_module(argv)
+        
+        # Assert: Action flag defines module
+        assert result == "bcllm_run"
+    
+    def test_argument_order_does_not_matter_add_model(self):
+        """Argument order does not affect resolution for --add-model."""
+        # Arrange
+        argv1 = ["bcllm", "--create-experiment", "EXP", "--add-model", "M"]
+        argv2 = ["bcllm", "--add-model", "M", "--create-experiment", "EXP"]
+        
+        # Act
+        result1 = resolve_module(argv1)
+        result2 = resolve_module(argv2)
+        
+        # Assert: Both should resolve to bcllm_model
+        assert result1 == "bcllm_model"
+        assert result2 == "bcllm_model"
+    
+    def test_argument_order_does_not_matter_add_questions(self):
+        """Argument order does not affect resolution for --add-questions."""
+        # Arrange
+        argv1 = ["bcllm", "--create-experiment", "EXP", "--add-questions", "Q"]
+        argv2 = ["bcllm", "--add-questions", "Q", "--create-experiment", "EXP"]
+        
+        # Act
+        result1 = resolve_module(argv1)
+        result2 = resolve_module(argv2)
+        
+        # Assert: Both should resolve to bcllm_questions
+        assert result1 == "bcllm_questions"
+        assert result2 == "bcllm_questions"
+    
+    def test_argument_order_does_not_matter_add_run(self):
+        """Argument order does not affect resolution for --add-run."""
+        # Arrange
+        argv1 = ["bcllm", "--create-experiment", "EXP", "--add-run"]
+        argv2 = ["bcllm", "--add-run", "--create-experiment", "EXP"]
+        
+        # Act
+        result1 = resolve_module(argv1)
+        result2 = resolve_module(argv2)
+        
+        # Assert: Both should resolve to bcllm_run
+        assert result1 == "bcllm_run"
+        assert result2 == "bcllm_run"
+    
+    def test_create_experiment_alone_resolves_to_experiment_module(self):
+        """--create-experiment without --add-* resolves to bcllm_experiment."""
+        # Arrange
+        argv = ["bcllm", "--create-experiment", "EXP"]
+        
+        # Act
+        result = resolve_module(argv)
+        
+        # Assert: No action flag, so context flag defines module
+        assert result == "bcllm_experiment"
+
+
 class TestModuleResolverInvalid:
     """Test invalid/missing module handling.
     

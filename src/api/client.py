@@ -251,6 +251,9 @@ class OpenRouterClient(CompletionProvider):
             # Add debug payload if enabled (per OpenRouter docs)
             if self._debug_enabled:
                 payload["debug"] = {"echo_upstream_body": True}
+                self._logger.info(f"DEBUG_ENABLED | adding debug payload to request for model={model_id}")
+            else:
+                self._logger.debug(f"DEBUG_DISABLED | debug not enabled for model={model_id}")
 
             # Make the request
             # Note: base_url may or may not include /v1 suffix, so ensure correct path

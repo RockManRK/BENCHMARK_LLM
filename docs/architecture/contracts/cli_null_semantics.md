@@ -73,3 +73,16 @@ mechanisms used when a value is absent from all sources (CLI, env, config).
 `null` is an explicit override to "no value", not a new state.
 
 ---
+
+#### Reserved Literal
+
+Only the literal string `null` (case-insensitive) has special semantics.
+
+The string `none` MUST be treated as a regular string value and MUST NOT
+be normalized to Python None.
+
+Examples:
+- "--reasoning null" → None
+- "--reasoning none" → "none"
+
+---

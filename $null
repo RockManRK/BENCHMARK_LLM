@@ -1,4 +1,3 @@
-Já existe uma subpasta ou um arquivo echo.
-Erro ao processar: echo.
-Já existe uma subpasta ou um arquivo Directory created or exists.
-Erro ao processar: Directory created or exists.
+fatal: ambiguous argument ';': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'

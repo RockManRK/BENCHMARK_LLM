@@ -350,6 +350,7 @@ def handle_execute(args, conn) -> int:
 
         # Step 2: Execute plan (pure execution, no DB)
         debug_enabled = os.getenv("OPENROUTER_DEBUG_ENABLED", "false").lower() == "true"
+        logger.info(f"OPENROUTER_DEBUG_ENABLED={debug_enabled} (from env: {os.getenv('OPENROUTER_DEBUG_ENABLED', 'NOT_SET')})")
         api_client = OpenRouterClient(
             api_key=os.environ.get("OPENROUTER_API_KEY", ""),
             debug_enabled=debug_enabled,

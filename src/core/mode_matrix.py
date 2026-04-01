@@ -1,9 +1,28 @@
-"""MODE × MODULE matrix validation."""
+"""MODE × MODULE matrix validation.
+
+This module validates MODE × MODULE combinations AFTER resolution.
+It does NOT orchestrate flow - it only validates if the resolved combination is allowed.
+
+Composite Flow Support:
+- (CREATE, bcllm_model) is valid when --create-experiment + --add-model are present
+- (CREATE, bcllm_questions) is valid when --create-experiment + --add-questions are present
+- (CREATE, bcllm_run) is valid when --create-experiment + --add-run are present
+
+The orchestration layer (bcllm.py) ensures the experiment is created BEFORE
+the action module executes.
+"""
 from src.core.mode import Mode
 
 
 _VALID_COMBINATIONS = {
     (Mode.CREATE, "bcllm_experiment"): True,
+    # NEW: Composite flows (CREATE + ADD_*)
+    # The orchestration layer (bcllm.py) creates the experiment first,
+    # then dispatches to the action module.
+    (Mode.CREATE, "bcllm_model"): True,
+    (Mode.CREATE, "bcllm_questions"): True,
+    (Mode.CREATE, "bcllm_run"): True,
+    
     (Mode.MODIFY, "bcllm_experiment"): True,
     (Mode.MODIFY, "bcllm_model"): True,
     (Mode.MODIFY, "bcllm_questions"): True,
@@ -12,29 +31,13 @@ _VALID_COMBINATIONS = {
     (Mode.EXECUTE, "bcllm_execute"): True,
     (Mode.EXPORT, "bcllm_export"): True,
     (Mode.EXPORT, "bcllm_main"): True,
-    (Mode.INVALID, "bcllm_experiment"): True,
-    (Mode.INVALID, "bcllm_model"): True,
-    (Mode.INVALID, "bcllm_questions"): True,
-    (Mode.INVALID, "bcllm_run"): True,
-    (Mode.INVALID, "bcllm_review"): True,
-    (Mode.INVALID, "bcllm_export"): True,
-    (Mode.INVALID, "bcllm_main"): True,
 }
 
 _ERROR_MESSAGES = {
     Mode.CREATE: {
-        "bcllm_model": (
-            "Error: Invalid MODE × MODULE combination (CREATE, bcllm_model).\n"
-            "Cannot create models directly. Use --create-experiment first, then --experiment NAME --add-model."
-        ),
-        "bcllm_questions": (
-            "Error: Invalid MODE × MODULE combination (CREATE, bcllm_questions).\n"
-            "Cannot create questions directly. Use --create-experiment first, then --experiment NAME --add-questions."
-        ),
-        "bcllm_run": (
-            "Error: Invalid MODE × MODULE combination (CREATE, bcllm_run).\n"
-            "Cannot create runs directly. Use --create-experiment first, then --experiment NAME --add-run."
-        ),
+        # Note: bcllm_model, bcllm_questions, bcllm_run are NOW ALLOWED in CREATE mode
+        # when part of a composite flow (--create-experiment + --add-*).
+        # The orchestration layer creates the experiment before dispatching.
         "bcllm_execute": (
             "Error: Invalid MODE × MODULE combination (CREATE, bcllm_execute).\n"
             "Cannot execute in CREATE mode. Execute requires --execute flag."
@@ -96,16 +99,6 @@ _ERROR_MESSAGES = {
         "bcllm_review": (
             "Error: Invalid MODE × MODULE combination (EXPORT, bcllm_review).\n"
             "Cannot review in EXPORT mode. EXPORT is for exporting results only."
-        ),
-    },
-    Mode.INVALID: {
-        "bcllm_execute": (
-            "Error: Invalid MODE × MODULE combination (INVALID, bcllm_execute).\n"
-            "Cannot execute without a valid mode. Execution requires explicit --execute flag."
-        ),
-        "bcllm_export": (
-            "Error: Invalid MODE × MODULE combination (INVALID, bcllm_export).\n"
-            "Cannot export without a valid mode. Export requires explicit --export flag."
         ),
     },
 }

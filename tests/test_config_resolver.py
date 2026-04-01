@@ -302,16 +302,24 @@ class TestResolveSeed:
 
 
 class TestLoadEnv:
-    """Test cases for the load_env method."""
+    """Test cases for the load_env method.
 
-    def test_load_env_returns_empty_dict_if_file_not_exists(self) -> None:
-        """Test that load_env returns empty dict if file doesn't exist."""
+    NOTE: load_env() now only creates a cached snapshot of os.environ.
+    The .env file is loaded once at application startup by bcllm.py.
+    """
+
+    def test_load_env_creates_snapshot_of_os_environ(self) -> None:
+        """Test that load_env creates a snapshot of current os.environ."""
+        import os
         resolver = ConfigResolver()
 
-        result = resolver.load_env("nonexistent_file.env")
+        result = resolver.load_env()
 
-        assert result == {}
-        assert resolver.env_dict == {}
+        # Should return a copy of os.environ, not empty dict
+        assert result == dict(os.environ)
+        assert resolver.env_dict == dict(os.environ)
+        # Verify it's a copy, not the same object
+        assert resolver.env_dict is not os.environ
 
     def test_load_env_populates_env_dict(self) -> None:
         """Test that load_env populates env_dict from .env file."""
@@ -513,8 +521,12 @@ class TestResolveSeedForRun:
 class TestBuildExperimentConfigDict:
     """Test cases for build_experiment_config_dict method."""
 
-    def test_returns_dict_with_18_keys(self) -> None:
-        """Test that experiment config has 18 expected keys."""
+    def test_returns_dict_with_17_keys(self) -> None:
+        """Test that experiment config has 17 expected keys.
+
+        NOTE: All .env keys are persisted, including empty strings which represent
+        explicit user intention (e.g., QUESTIONS_STATUS_ADD="" means no filter).
+        """
         resolver = ConfigResolver()
         resolver.env_dict = {
             "QUESTIONS_DATASET_PATH": "/path/to/questions",

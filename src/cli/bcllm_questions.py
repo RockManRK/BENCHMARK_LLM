@@ -40,8 +40,16 @@ def _validate_expected_mode(mode: Mode) -> None:
 
     Raises:
         SystemExit: If mode is invalid for this module.
+    
+    Note:
+        Mode.INVALID is not accepted. It represents "no valid mode detected"
+        and should be caught by dispatcher validation before reaching this module.
+        Accepting Mode.INVALID here would mask dispatcher bugs.
     """
-    VALID_MODES = [Mode.MODIFY, Mode.INVALID]
+    # ACCEPT Mode.CREATE for composite flows (--create-experiment + --add-questions)
+    # The orchestration layer (bcllm.py) creates the experiment before dispatching.
+    # Mode.INVALID is explicitly excluded - it indicates a dispatcher resolution failure.
+    VALID_MODES = [Mode.CREATE, Mode.MODIFY]
 
     if mode not in VALID_MODES:
         print(

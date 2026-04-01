@@ -1,18 +1,24 @@
 """Unit tests for null normalization in argv_utils.
 
-Tests the normalize_nulls() function for case-insensitive 'null' → None conversion
+Tests the normalize_nulls() function for case-insensitive 'null' → EXPLICIT_NULL conversion
 while preserving 'none' as a literal string.
 
 The normalization rules are:
-1. 'null' (case-insensitive) → None for nullable arguments
+1. 'null' (case-insensitive) → EXPLICIT_NULL for nullable arguments
 2. 'none' (any case) → preserved as literal string
 3. Only arguments with default=None and required=False are normalized
 4. Non-string values (int, bool, None) are not normalized
+
+Note: The normalization layer converts 'null' to EXPLICIT_NULL sentinel.
+Downstream code (e.g., config_resolver) then handles EXPLICIT_NULL by
+converting to Python None for actual usage. This two-step process ensures
+explicit null semantics are preserved through the configuration chain.
 """
 
 import argparse
 import pytest
 from src.core.argv_utils import normalize_nulls, _is_nullable_arg, parse_args_normalized
+from src.core.null_semantics import EXPLICIT_NULL
 
 
 # =============================================================================
@@ -85,10 +91,10 @@ class TestNullNormalizationCaseInsensitive:
         result = normalize_nulls(args, nullable_parser)
 
         # Assert
-        assert result.seed is None
+        assert result.seed is EXPLICIT_NULL
 
-    def test_uppercase_null_becomes_none(self, nullable_parser):
-        """When value is 'NULL' (uppercase), it is normalized to None."""
+    def test_uppercase_null_becomes_explicit_null(self, nullable_parser):
+        """When value is 'NULL' (uppercase), it is normalized to EXPLICIT_NULL."""
         # Arrange
         args = argparse.Namespace(seed='NULL', vision=None, structured=None, url=None)
 
@@ -96,10 +102,10 @@ class TestNullNormalizationCaseInsensitive:
         result = normalize_nulls(args, nullable_parser)
 
         # Assert
-        assert result.seed is None
+        assert result.seed is EXPLICIT_NULL
 
-    def test_titlecase_null_becomes_none(self, nullable_parser):
-        """When value is 'Null' (title case), it is normalized to None."""
+    def test_titlecase_null_becomes_explicit_null(self, nullable_parser):
+        """When value is 'Null' (title case), it is normalized to EXPLICIT_NULL."""
         # Arrange
         args = argparse.Namespace(seed='Null', vision=None, structured=None, url=None)
 
@@ -107,10 +113,10 @@ class TestNullNormalizationCaseInsensitive:
         result = normalize_nulls(args, nullable_parser)
 
         # Assert
-        assert result.seed is None
+        assert result.seed is EXPLICIT_NULL
 
-    def test_mixed_case_null_becomes_none(self, nullable_parser):
-        """When value is 'nUlL' (mixed case), it is normalized to None."""
+    def test_mixed_case_null_becomes_explicit_null(self, nullable_parser):
+        """When value is 'nUlL' (mixed case), it is normalized to EXPLICIT_NULL."""
         # Arrange
         args = argparse.Namespace(seed='nUlL', vision=None, structured=None, url=None)
 
@@ -118,7 +124,7 @@ class TestNullNormalizationCaseInsensitive:
         result = normalize_nulls(args, nullable_parser)
 
         # Assert
-        assert result.seed is None
+        assert result.seed is EXPLICIT_NULL
 
     def test_multiple_nullable_args_with_null(self, nullable_parser):
         """When multiple nullable args have 'null' values, all are normalized."""
@@ -134,10 +140,10 @@ class TestNullNormalizationCaseInsensitive:
         result = normalize_nulls(args, nullable_parser)
 
         # Assert
-        assert result.seed is None
-        assert result.vision is None
-        assert result.structured is None
-        assert result.url is None
+        assert result.seed is EXPLICIT_NULL
+        assert result.vision is EXPLICIT_NULL
+        assert result.structured is EXPLICIT_NULL
+        assert result.url is EXPLICIT_NULL
 
 
 # =============================================================================
@@ -235,8 +241,8 @@ class TestOnlyNullableArgumentsNormalized:
         result = normalize_nulls(args, mixed_parser)
 
         # Assert
-        assert result.seed is None      # Normalized
-        assert result.vision is None    # Normalized
+        assert result.seed is EXPLICIT_NULL      # Normalized
+        assert result.vision is EXPLICIT_NULL    # Normalized
         assert result.output == 'null'  # NOT normalized (has default)
         assert result.experiment == 'test'
 
@@ -364,8 +370,8 @@ class TestParseArgsNormalized:
         result = parse_args_normalized(nullable_parser, argv)
 
         # Assert
-        assert result.seed is None
-        assert result.vision is None
+        assert result.seed is EXPLICIT_NULL
+        assert result.vision is EXPLICIT_NULL
 
     def test_parse_args_normalized_with_none(self, nullable_parser):
         """parse_args_normalized preserves 'none' from command line."""
@@ -400,7 +406,7 @@ class TestParseArgsNormalized:
         result = parse_args_normalized(nullable_parser, argv)
 
         # Assert
-        assert result.seed is None       # 'null' → None
+        assert result.seed is EXPLICIT_NULL  # 'null' → EXPLICIT_NULL
         assert result.vision == 'none'   # 'none' preserved
         assert result.structured == 'custom'  # literal preserved
 
@@ -413,8 +419,8 @@ class TestParseArgsNormalized:
         result = parse_args_normalized(nullable_parser, argv)
 
         # Assert
-        assert result.seed is None
-        assert result.vision is None
+        assert result.seed is EXPLICIT_NULL
+        assert result.vision is EXPLICIT_NULL
 
 
 # =============================================================================
@@ -489,8 +495,8 @@ class TestNullNormalizationEdgeCases:
         result2 = normalize_nulls(result1, nullable_parser)
 
         # Assert
-        assert result1.seed is None
-        assert result2.seed is None
+        assert result1.seed is EXPLICIT_NULL
+        assert result2.seed is EXPLICIT_NULL
         assert result1 is result2  # Same object returned
 
     def test_parser_with_no_actions(self):
@@ -517,4 +523,4 @@ class TestNullNormalizationEdgeCases:
         result = normalize_nulls(args, parser)
 
         # Assert
-        assert result.seed is None
+        assert result.seed is EXPLICIT_NULL

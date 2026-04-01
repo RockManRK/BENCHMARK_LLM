@@ -175,15 +175,15 @@ def test_list_experiments_empty(in_memory_db, capsys):
     """--list-experiments shows 'no experiments' message when empty."""
     # Arrange
     from src.cli.bcllm_experiment import main as experiment_main
-    
+
     test_args = ["bcllm_experiment.py", "--list-experiments"]
-    
+
     with patch.object(sys, "argv", test_args):
         with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
-            
+
             # Act
-            result = experiment_main(Mode.INVALID)
+            result = experiment_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -221,13 +221,13 @@ def test_list_experiments_with_data(in_memory_db, capsys):
     repo.save(exp2)
     
     test_args = ["bcllm_experiment.py", "--list-experiments"]
-    
+
     with patch.object(sys, "argv", test_args):
         with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
-            
+
             # Act
-            result = experiment_main(Mode.INVALID)
+            result = experiment_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -384,7 +384,7 @@ class TestRemoveExperimentIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = experiment_main(Mode.INVALID)
+                result = experiment_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "to-be-removed" not in captured.out

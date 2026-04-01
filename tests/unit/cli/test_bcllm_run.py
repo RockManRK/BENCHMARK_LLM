@@ -60,7 +60,7 @@ def test_create_run_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -86,7 +86,7 @@ def test_create_run_experiment_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -122,7 +122,7 @@ def test_create_run_no_models(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -159,7 +159,7 @@ def test_create_run_no_snapshots(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -201,7 +201,7 @@ def test_create_run_with_seed(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -234,7 +234,7 @@ def test_list_runs_empty(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -277,7 +277,7 @@ def test_list_runs_with_data(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -325,7 +325,7 @@ def test_list_runs_for_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -367,7 +367,7 @@ def test_show_run_success(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -399,7 +399,7 @@ def test_show_run_not_found(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -439,7 +439,7 @@ def test_show_run_wrong_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = run_main()
+            result = run_main(Mode.MODIFY)
 
             # Assert
             assert result == 1
@@ -485,7 +485,7 @@ class TestCreateRunIntegration:
         with patch.object(sys, "argv", create_args):
             with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = run_main()
+                result = run_main(Mode.MODIFY)
                 assert result == 0
 
         # List runs
@@ -498,7 +498,7 @@ class TestCreateRunIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = run_main()
+                result = run_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "999" in captured.out
@@ -527,7 +527,7 @@ class TestCreateRunIntegration:
         with patch.object(sys, "argv", create_args):
             with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = run_main()
+                result = run_main(Mode.MODIFY)
                 assert result == 1
                 captured = capsys.readouterr()
                 assert "no models" in captured.err.lower()
@@ -560,7 +560,7 @@ class TestShowRunIntegration:
         with patch.object(sys, "argv", show_args):
             with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = run_main()
+                result = run_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert run.run_id in captured.out

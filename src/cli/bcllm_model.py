@@ -23,6 +23,8 @@ import uuid
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
+from src.core.argv_utils import parse_args_normalized
+from src.core.null_semantics import EXPLICIT_NULL
 from src.db.models import ModelVariant
 from src.db.repository import ExperimentRepository, VariantRepository
 from src.utils.variant_signature import generate_variant_signature
@@ -37,8 +39,16 @@ def _validate_expected_mode(mode: Mode) -> None:
 
     Raises:
         SystemExit: If mode is invalid for this module.
+    
+    Note:
+        Mode.INVALID is not accepted. It represents "no valid mode detected"
+        and should be caught by dispatcher validation before reaching this module.
+        Accepting Mode.INVALID here would mask dispatcher bugs.
     """
-    VALID_MODES = [Mode.MODIFY, Mode.INVALID]
+    # ACCEPT Mode.CREATE for composite flows (--create-experiment + --add-model)
+    # The orchestration layer (bcllm.py) creates the experiment before dispatching.
+    # Mode.INVALID is explicitly excluded - it indicates a dispatcher resolution failure.
+    VALID_MODES = [Mode.CREATE, Mode.MODIFY]
 
     if mode not in VALID_MODES:
         print(
@@ -180,11 +190,19 @@ def handle_add_model(args, conn) -> int:
     if args.vision is not None and not _validate_bool_value(args.vision):
         print(f"Error: Invalid value for --vision: {args.vision}", file=sys.stderr)
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        print("Note: 'none' is NOT a valid value - it is treated as a literal string", file=sys.stderr)
         return 1
 
     if args.structured is not None and not _validate_bool_value(args.structured):
         print(f"Error: Invalid value for --structured: {args.structured}", file=sys.stderr)
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
+        print("Note: 'none' is NOT a valid value - it is treated as a literal string", file=sys.stderr)
+        return 1
+
+    # Validate mandatory field --url rejects 'null'
+    if args.url is EXPLICIT_NULL:
+        print("Error: --url is a mandatory field and cannot be set to 'null'.", file=sys.stderr)
+        print("Please provide a valid URL or omit the flag to use .env default.", file=sys.stderr)
         return 1
 
     exp_repo = ExperimentRepository(conn)
@@ -220,19 +238,27 @@ def handle_add_model(args, conn) -> int:
     return 0
 
 
-def _validate_bool_value(value: str) -> bool:
+def _validate_bool_value(value: str | type[EXPLICIT_NULL]) -> bool:
     """Validate boolean CLI value.
 
     Args:
-        value: String value to validate.
+        value: CLI value (may be EXPLICIT_NULL for 'null' input)
 
     Returns:
-        True if valid (case-insensitive true/false/null), False otherwise.
+        True if value is valid boolean ('true' or 'false'), False otherwise.
+
+    Note:
+        - 'null' (EXPLICIT_NULL) is NOT a valid boolean - it represents explicit absence
+        - 'none' is treated as literal string, not as None
+        - Absent flag (None) is OK - will use default
     """
+    if value is EXPLICIT_NULL:
+        return True  # 'null' is valid - represents explicit absence (will be normalized to None)
     if value is None:
-        return True
-    normalized = value.lower()
-    return normalized in ('true', 'false', 'null')
+        return True  # Absent flag is OK (will use default)
+    if isinstance(value, str):
+        return value.lower() in ('true', 'false')
+    return False
 
 
 def handle_list_models(args, conn) -> int:
@@ -310,16 +336,16 @@ def handle_remove_model(args, conn) -> int:
 
 def main(mode: Mode) -> int:
     """Main entry point.
-    
+
     Args:
         mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+
     Returns:
         Exit code (0 for success, 1 for error).
     """
     _validate_expected_mode(mode)
     parser = create_parser()
-    args = parser.parse_args()
+    args = parse_args_normalized(parser)
 
     conn = get_database_connection()
 

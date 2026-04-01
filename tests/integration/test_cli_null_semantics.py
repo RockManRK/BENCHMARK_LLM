@@ -6,10 +6,14 @@ Tests the end-to-end behavior of null normalization across CLI modules:
 - --add-questions argument
 
 These tests verify that:
-1. 'null' (case-insensitive) is normalized to None
+1. 'null' (case-insensitive) is normalized to EXPLICIT_NULL
 2. 'none' (any case) is preserved as literal
 3. Literal values (numbers, strings) are preserved
 4. The normalization works through the full CLI parsing chain
+
+Note: The normalization layer converts 'null' to EXPLICIT_NULL sentinel.
+Downstream code (e.g., config_resolver) then handles EXPLICIT_NULL by
+converting to Python None for actual usage.
 """
 
 import argparse
@@ -21,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core.argv_utils import parse_args_normalized
+from src.core.null_semantics import EXPLICIT_NULL
 
 
 # =============================================================================

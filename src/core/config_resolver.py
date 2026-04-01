@@ -11,13 +11,17 @@ All configuration values flow through this resolver to ensure:
 
 CRITICAL: Seed AUTO resolution happens at RUN_CREATION only, never at experiment level.
 CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback to .env.
+
+ARCHITECTURAL NOTE:
+- The .env file is loaded ONCE at application startup by bcllm.py (entry point)
+- This module does NOT load .env - it only reads from os.environ
+- All modules must assume os.environ is already populated
 """
 
 import hashlib
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
 import os
 
 from .null_semantics import EXPLICIT_NULL
@@ -32,7 +36,7 @@ class ConfigResolver:
     explicit priority chain, with no implicit defaults or inference.
 
     Attributes:
-        env_dict: Loaded .env values (cached)
+        env_dict: Cached snapshot of os.environ at time of load_env() call
 
     Example:
         >>> resolver = ConfigResolver()
@@ -48,35 +52,24 @@ class ConfigResolver:
         """
         self.env_dict: dict[str, str] = {}
 
-    def load_env(self, env_path: str | None = None) -> dict[str, str]:
-        """Load .env file into memory.
-
-        Args:
-            env_path: Path to .env file. If None, uses project root .env.
+    def load_env(self) -> dict[str, str]:
+        """Create a cached snapshot of current os.environ.
+        
+        NOTE: This does NOT load the .env file from disk.
+        The .env file is loaded once at application startup by bcllm.py.
+        This method only creates a cached snapshot for performance.
 
         Returns:
-            Dictionary of key-value pairs from .env file.
-            Returns empty dict if file does not exist.
+            Dictionary copy of current os.environ.
 
         Example:
             >>> resolver = ConfigResolver()
-            >>> env_values = resolver.load_env("./.env")
+            >>> env_values = resolver.load_env()
             >>> print(env_values.get("RANDOM_SEED"))
         """
-        if env_path is None:
-            env_path = ".env"
-
-        path = Path(env_path)
-        if not path.exists():
-            return {}
-
-        load_dotenv(env_path, override=True)
-
-        self.env_dict = {
-            key: value
-            for key, value in os.environ.items()
-        }
-
+        # Create a cached snapshot of os.environ
+        # The .env file was already loaded by bcllm.py at startup
+        self.env_dict = dict(os.environ)
         return self.env_dict
 
     def resolve_prompt(
@@ -331,11 +324,11 @@ class ConfigResolver:
     def build_experiment_config_dict(self, cli_args) -> dict:
         """Build complete configuration dictionary for experiment creation.
 
-        Includes ONLY experiment-scoped keys (14 total).
+        Includes ALL experiment-scoped keys.
         SYSTEM keys are resolved at runtime and NOT stored in experiment config.
 
         Resolution strategy:
-        - EXPERIMENT keys (1): Resolved from CLI/.env at experiment creation
+        - EXPERIMENT keys (4): Resolved from CLI/.env at experiment creation
         - MODEL keys (10): Resolved from CLI/.env as defaults for model variants
         - RUN keys (3): Resolved from CLI/.env as defaults for runs
 
@@ -346,17 +339,11 @@ class ConfigResolver:
         - LOG_LEVEL
         - OPENROUTER_DEBUG_ENABLED
 
-        TRANSIENT keys NOT persisted (used only during CLI execution):
-        - DEFAULT_QUESTIONS (transient - used for question selection)
-        - QUESTIONS_STATUS_ADD (transient - used for filtering)
-        - QUESTIONS_STATUS_EXCLUDE (transient - used for filtering)
-        - MODELS_DEFAULT_FOR_EXPERIMENTS (transient - NOT used, models added explicitly)
-
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
 
         Returns:
-            Dictionary with 14 configuration keys (1 EXPERIMENT + 10 MODEL + 3 RUN).
+            Dictionary with 17 configuration keys (4 EXPERIMENT + 10 MODEL + 3 RUN).
         """
         resolved_seed = self.resolve_seed(
             cli_value=getattr(cli_args, 'seed', None),
@@ -365,8 +352,11 @@ class ConfigResolver:
         )
 
         return {
-            # EXPERIMENT keys (1) - Resolved from .env at experiment creation
+            # EXPERIMENT keys (4) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
+            "QUESTIONS_STATUS_ADD": self.env_dict.get("QUESTIONS_STATUS_ADD"),
+            "QUESTIONS_STATUS_EXCLUDE": self.env_dict.get("QUESTIONS_STATUS_EXCLUDE"),
+            "MODELS_DEFAULT_FOR_EXPERIMENTS": self.env_dict.get("MODELS_DEFAULT_FOR_EXPERIMENTS"),
 
             # MODEL keys (10) - Resolved from CLI/.env as defaults for model variants
             "BASE_URL": self._resolve_with_explicit_null(
@@ -581,40 +571,58 @@ class ConfigResolver:
         except (json.JSONDecodeError, TypeError):
             return None
 
-    def _parse_bool_value(self, value: str | None) -> bool | None:
+    def _parse_bool_value(self, value: str | type[EXPLICIT_NULL] | None) -> bool | None:
         """Parse boolean from CLI value.
 
         Args:
-            value: String value from CLI ('true', 'false', 'NULL').
+            value: String value from CLI ('true', 'false', 'NULL', or None),
+                   or EXPLICIT_NULL for explicit 'null' from CLI.
 
         Returns:
-            Parsed boolean or None if 'NULL' or not provided.
+            Parsed boolean or None if 'NULL' (EXPLICIT_NULL) or not provided.
+            
+        Note:
+            - EXPLICIT_NULL represents explicit 'null' from CLI - returns None
+            - String 'null' should be normalized to EXPLICIT_NULL before reaching here
+            - String 'none' is treated as literal string (not special)
         """
+        if value is EXPLICIT_NULL:
+            return None  # Explicit null from CLI
         if value is None:
-            return None
-        if value.lower() == 'true':
-            return True
-        if value.lower() == 'false':
-            return False
-        if value.upper() == 'NULL':
-            return None
+            return None  # Absent flag
+        if isinstance(value, str):
+            if value.lower() == 'true':
+                return True
+            if value.lower() == 'false':
+                return False
+            if value.lower() == 'null':
+                return None  # Should be EXPLICIT_NULL by now, but handle just in case
         return None
 
-    def _resolve_bool_cli_or_env(self, cli_value: str | None, env_key: str) -> bool | None:
+    def _resolve_bool_cli_or_env(self, cli_value: str | type[EXPLICIT_NULL] | None, env_key: str) -> bool | None:
         """Resolve boolean from CLI > .env.
 
         Args:
-            cli_value: String value from CLI ('true', 'false', 'NULL', or None).
+            cli_value: String value from CLI ('true', 'false', 'NULL', or None),
+                       or EXPLICIT_NULL for explicit 'null' from CLI.
             env_key: Environment variable key.
 
         Returns:
             CLI value if provided (including False), otherwise .env value.
+            
+        Note:
+            - EXPLICIT_NULL means "explicitly null" - no fallback to .env
+            - String 'null' should be normalized to EXPLICIT_NULL before reaching here
         """
         if cli_value is not None:
             parsed = self._parse_bool_value(cli_value)
             if parsed is not None:
                 return parsed
-            if cli_value.upper() == 'NULL':
+            # If cli_value is EXPLICIT_NULL, return None (no fallback)
+            if cli_value is EXPLICIT_NULL:
+                return None
+            # Handle legacy string 'NULL' (should be normalized already)
+            if isinstance(cli_value, str) and cli_value.upper() == 'NULL':
                 return None
         return self._parse_bool_env(env_key)
 

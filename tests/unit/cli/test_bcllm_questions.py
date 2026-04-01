@@ -174,7 +174,7 @@ def test_list_questions_empty(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main(Mode.INVALID)
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -217,7 +217,7 @@ def test_list_questions_with_data(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main(Mode.INVALID)
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -261,7 +261,7 @@ def test_list_questions_for_experiment(in_memory_db, capsys):
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = questions_main(Mode.INVALID)
+            result = questions_main(Mode.MODIFY)
 
             # Assert
             assert result == 0
@@ -506,7 +506,7 @@ class TestRemoveQuestionIntegration:
         with patch.object(sys, "argv", list_args):
             with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
-                result = questions_main(Mode.INVALID)
+                result = questions_main(Mode.MODIFY)
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "no questions" in captured.out.lower()
