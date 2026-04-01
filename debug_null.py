@@ -3,16 +3,18 @@
 
 from src.cli.bcllm_experiment import create_parser
 from src.core.argv_utils import parse_args_normalized, normalize_nulls
+from src.core.null_semantics import FORCE_SYSTEM_DEFAULT
 
 parser = create_parser()
 
-# Test without normalization
-args_raw = parser.parse_args(['--create-experiment', 'test', '--seed', 'null'])
+# Test without normalization - 'system-default' should be normalized
+args_raw = parser.parse_args(['--create-experiment', 'test', '--seed', 'system-default'])
 print(f'RAW: args.seed = {repr(args_raw.seed)}')
 
-# Test with normalization
-args_norm = parse_args_normalized(parser, ['--create-experiment', 'test', '--seed', 'null'])
+# Test with normalization - should convert 'system-default' to FORCE_SYSTEM_DEFAULT
+args_norm = parse_args_normalized(parser, ['--create-experiment', 'test', '--seed', 'system-default'])
 print(f'NORM: args.seed = {repr(args_norm.seed)}')
+print(f'Is FORCE_SYSTEM_DEFAULT: {args_norm.seed is FORCE_SYSTEM_DEFAULT}')
 
 # Check parser action for --seed
 for action in parser._actions:

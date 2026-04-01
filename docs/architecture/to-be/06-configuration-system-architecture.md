@@ -86,41 +86,41 @@ System Defaults ← .env ← Experiment ← Run/Model Variant
 CLI > .env > System Defaults
 ```
 
-### 2.3 EXPLICIT_NULL Behavior
+### 2.3 FORCE_SYSTEM_DEFAULT Behavior
 
-**Definition**: `EXPLICIT_NULL` is a sentinel value representing explicit "null" passed via CLI.
+**Definition**: `FORCE_SYSTEM_DEFAULT` is a sentinel value representing explicit `"system-default"` passed via CLI.
 
 **Behavior**:
 ```
-CLI: --temperature null
+CLI: --temperature system-default
      ↓
-EXPLICIT_NULL (sentinel)
+FORCE_SYSTEM_DEFAULT (sentinel)
      ↓
 Return None (no fallback to .env)
 ```
 
 **Contract**:
-- `EXPLICIT_NULL` bypasses .env hierarchy
-- Case-insensitive: `"null"`, `"NULL"`, `"Null"` all map to `EXPLICIT_NULL`
-- Serialized as JSON `null` (not string `"null"`)
+- `FORCE_SYSTEM_DEFAULT` bypasses .env hierarchy
+- Case-insensitive: `"system-default"`, `"SYSTEM-DEFAULT"`, `"System-Default"` all map to `FORCE_SYSTEM_DEFAULT`
+- Serialized as JSON `null` (not string `"system-default"`)
 
 ### 2.4 Resolution Pseudocode
 
 ```python
 def resolve_value(cli_value, env_key, default=None):
-    # CLI was EXPLICIT_NULL → no fallback
-    if cli_value is EXPLICIT_NULL:
+    # CLI was FORCE_SYSTEM_DEFAULT → no fallback
+    if cli_value is FORCE_SYSTEM_DEFAULT:
         return None
-    
+
     # CLI provided → use CLI value
     if cli_value is not None:
         return cli_value
-    
+
     # CLI not provided → check .env
     env_value = env_dict.get(env_key)
     if env_value is not None:
         return env_value
-    
+
     # .env not set → use default (or NULL)
     return default
 ```
@@ -144,16 +144,16 @@ def resolve_value(cli_value, env_key, default=None):
 
 **CLI Input**:
 ```
-"null" (string, case-insensitive) → EXPLICIT_NULL (sentinel) → None (Python) → null (JSON)
+"system-default" (string, case-insensitive) → FORCE_SYSTEM_DEFAULT (sentinel) → None (Python) → null (JSON)
 ```
 
 **Implementation**:
 ```python
-def normalize_null(value: str | None) -> str | None:
+def normalize_system_default(value: str | None) -> str | None:
     if value is None:
         return None
-    if value.lower() == "null":
-        return EXPLICIT_NULL
+    if value.lower() == "system-default":
+        return FORCE_SYSTEM_DEFAULT
     return value
 ```
 
@@ -165,17 +165,17 @@ def normalize_null(value: str | None) -> str | None:
 
 **Behavior**:
 ```python
-if cli_value is EXPLICIT_NULL and field.is_mandatory:
-    raise ConfigurationError(f"{field.name} cannot be null")
+if cli_value is FORCE_SYSTEM_DEFAULT and field.is_mandatory:
+    raise ConfigurationError(f"{field.name} cannot be system-default")
 ```
 
-**Optional Fields** (can accept `null`):
+**Optional Fields** (can accept `"system-default"`):
 - All MODEL keys (temperature, max_tokens, etc.)
 - All RUN keys (prompts, seed)
 
 **Behavior**:
 ```python
-if cli_value is EXPLICIT_NULL:
+if cli_value is FORCE_SYSTEM_DEFAULT:
     return None  # Valid for optional fields
 ```
 
@@ -415,7 +415,7 @@ Experiment A
 ```
 .env: TEMPERATURE=0.7
 Experiment: {"MODEL_TEMPERATURE": 0.7}
-Variant: CLI --temperature null → None (EXPLICIT_NULL, no fallback)
+Variant: CLI --temperature system-default → None (FORCE_SYSTEM_DEFAULT, no fallback)
 Variant: CLI not specified → 0.7 (inherited from experiment)
 Variant: CLI --temperature 0.9 → 0.9 (CLI override)
 ```
@@ -454,7 +454,6 @@ Variant: CLI --temperature 0.9 → 0.9 (CLI override)
 | `DEFAULT_QUESTIONS` | list | NULL | Default questions for selection |
 | `QUESTIONS_STATUS_ADD` | string | NULL | Filter for adding questions |
 | `QUESTIONS_STATUS_EXCLUDE` | string | NULL | Filter for excluding questions |
-| `MODELS_DEFAULT_FOR_EXPERIMENTS` | list | NULL | Default models (not used) |
 
 ---
 
@@ -572,7 +571,7 @@ def validate_bool(value: str | None) -> bool | None:
         return True
     if value_lower in ('false', '0', 'no'):
         return False
-    if value_lower == 'null':
+    if value_lower == 'system-default':
         return None
     return None  # or raise Error for mandatory fields
 ```
@@ -743,7 +742,7 @@ The Configuration System Architecture is built on these foundational contracts:
 
 1. **Resolution Hierarchy** — CLI > .env > defaults > NULL
 
-2. **Null Semantics** — EXPLICIT_NULL bypasses .env, null-by-default for optional
+2. **Null Semantics** — FORCE_SYSTEM_DEFAULT bypasses .env, null-by-default for optional
 
 3. **Capture Timing** — Configuration frozen at entity creation
 

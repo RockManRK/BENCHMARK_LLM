@@ -521,18 +521,18 @@ class TestResolveSeedForRun:
 class TestBuildExperimentConfigDict:
     """Test cases for build_experiment_config_dict method."""
 
-    def test_returns_dict_with_17_keys(self) -> None:
-        """Test that experiment config has 17 expected keys.
+    def test_returns_dict_with_14_keys(self) -> None:
+        """Test that experiment config has 14 expected keys.
 
-        NOTE: All .env keys are persisted, including empty strings which represent
-        explicit user intention (e.g., QUESTIONS_STATUS_ADD="" means no filter).
+        NOTE: QUESTIONS_STATUS_ADD and QUESTIONS_STATUS_EXCLUDE are NOT persisted
+        (used for filtering at creation time only). MODELS_DEFAULT_FOR_EXPERIMENTS
+        was removed from the system.
         """
         resolver = ConfigResolver()
         resolver.env_dict = {
             "QUESTIONS_DATASET_PATH": "/path/to/questions",
             "QUESTIONS_STATUS_ADD": "active",
             "QUESTIONS_STATUS_EXCLUDE": "draft",
-            "MODELS_DEFAULT_FOR_EXPERIMENTS": '["openai/gpt-4"]',
             "BASE_URL": "https://api.example.com",
             "MODEL_MAX_TOKENS_REASONING": "1000",
             "MODEL_MAX_TOKENS_TOTAL": "4096",
@@ -569,9 +569,6 @@ class TestBuildExperimentConfigDict:
 
         expected_keys = {
             "QUESTIONS_DATASET_PATH",
-            "QUESTIONS_STATUS_ADD",
-            "QUESTIONS_STATUS_EXCLUDE",
-            "MODELS_DEFAULT_FOR_EXPERIMENTS",
             "BASE_URL",
             "MODEL_MAX_TOKENS_REASONING",
             "MODEL_MAX_TOKENS_TOTAL",
@@ -588,7 +585,7 @@ class TestBuildExperimentConfigDict:
         }
 
         assert set(result.keys()) == expected_keys
-        assert len(result) == 17  # 17 keys total
+        assert len(result) == 14  # 14 keys total
 
     def test_does_not_include_system_keys(self) -> None:
         """Test that SYSTEM keys are NOT included in experiment config."""
@@ -637,7 +634,7 @@ class TestBuildExperimentConfigDict:
 
         # All keys should be UPPER_CASE
         for key in result.keys():
-            assert key == key.upper() or key in ("SYSTEM_PROMPT", "USER_PROMPT", "BASE_URL", "MODELS_DEFAULT_FOR_EXPERIMENTS")
+            assert key == key.upper() or key in ("SYSTEM_PROMPT", "USER_PROMPT", "BASE_URL")
 
 
 class TestBuildModelConfigDict:
@@ -704,8 +701,10 @@ class TestBuildModelConfigDict:
         assert resolver._parse_bool_value("false") is False
         assert resolver._parse_bool_value("False") is False
         assert resolver._parse_bool_value("FALSE") is False
-        assert resolver._parse_bool_value("NULL") is None
-        assert resolver._parse_bool_value("null") is None
+        # 'system-default' should be normalized to FORCE_SYSTEM_DEFAULT before reaching here
+        # but legacy string 'null' is still handled for backward compatibility (deprecated)
+        assert resolver._parse_bool_value("NULL") is None  # Deprecated, but handled
+        assert resolver._parse_bool_value("null") is None  # Deprecated, but handled
         assert resolver._parse_bool_value(None) is None
 
 

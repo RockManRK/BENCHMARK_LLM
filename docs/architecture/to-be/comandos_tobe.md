@@ -134,7 +134,7 @@ bcllm --experiment <nome> --add-questions
 ### Seed do experimento
 
 ```bash
-bcllm --experiment <nome> --seed <AUTO | vazio | número | null>
+bcllm --experiment <nome> --seed <AUTO | número | system-default>
 ```
 
 - `AUTO`: gera seed fixo por RUN

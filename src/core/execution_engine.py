@@ -362,7 +362,7 @@ class ExecutionEngine:
                 run.prompts_effective.user,
             )
 
-            # Build messages - filter out null content (null means "do not send")
+            # Build messages - filter out None content (system-default means "do not send")
             messages = []
             if run.prompts_effective.system is not None:
                 messages.append({"role": "system", "content": run.prompts_effective.system})

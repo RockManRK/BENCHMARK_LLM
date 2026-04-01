@@ -25,8 +25,8 @@ Requisitos e Essência:
   - experiments: Ao criar um experimento, o usuário pode setar as configurações que desejar. As que ele não setar são puxadas dos níveis anteriores.
   - runs e model_variants: Ao adicionar runs ou variantes de modelos a um experimento, o usuário pode setar configurações. As que ele não configurar são puxadas dos níveis anteriores;
   - Níveis: Configurações de Sistema > .env > experiments > runs/model_variants
-  - O usuário pode forçar que seja usada a configuração de sistema ao escrever null ao setar uma configuração. Dessa forma o sistema entende que já deve ser usada a configuração interna de sistema.
-  - null é uma instrução explícita do usuário para ignorar configurações herdadas, incluindo .env, e usar o comportamento padrão do sistema.
+  - O usuário pode forçar que seja usada a configuração de sistema ao escrever "system-default" ao setar uma configuração. Dessa forma o sistema entende que já deve ser usada a configuração interna de sistema.
+  - "system-default" é uma instrução explícita do usuário para ignorar configurações herdadas, incluindo .env, e usar o comportamento padrão do sistema.
 - Em geral, as configurações de sistema caem nos seguintes padrões:
   - --add-questions: Ao não setar em nenhum lugar, se entende que todas as perguntas disponíveis no dataset devem ser usadas.
   - --seed: Ao não setar em nenhum lugar, se entende que a randomização das respostas deve ser desligada. Ou será será usado a ordem A, B, C, D etc, original apresentada no dataset.

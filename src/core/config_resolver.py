@@ -1,7 +1,7 @@
 """Configuration resolver for benchmark_llm project.
 
 This module provides centralized configuration resolution with explicit
-priority ordering: CLI > .env > system defaults > NULL.
+priority ordering: CLI > .env > system defaults > system-default.
 
 All configuration values flow through this resolver to ensure:
 - No hardcoded defaults in execution code
@@ -10,7 +10,7 @@ All configuration values flow through this resolver to ensure:
 - Null-by-default for prompts (no fallback strings)
 
 CRITICAL: Seed AUTO resolution happens at RUN_CREATION only, never at experiment level.
-CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback to .env.
+CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly use system default" - no fallback to .env.
 
 ARCHITECTURAL NOTE:
 - The .env file is loaded ONCE at application startup by bcllm.py (entry point)
@@ -24,7 +24,7 @@ from typing import Optional
 
 import os
 
-from .null_semantics import EXPLICIT_NULL
+from .null_semantics import FORCE_SYSTEM_DEFAULT
 
 
 class ConfigResolver:
@@ -86,7 +86,7 @@ class ConfigResolver:
         3. Default (if provided)
         4. None (null-by-default)
 
-        CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback.
+        CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly null" - no fallback.
 
         Args:
             cli_value: Value from CLI flag (already parsed), or None.
@@ -109,15 +109,15 @@ class ConfigResolver:
             >>> # All missing, no default: returns None
             >>> resolver.resolve_prompt(None, "NONEXISTENT_KEY", None)
             None
-            >>> # CLI EXPLICIT_NULL: no fallback to .env
-            >>> resolver.resolve_prompt(EXPLICIT_NULL, "SYSTEM_PROMPT", None)
+            >>> # CLI FORCE_SYSTEM_DEFAULT: no fallback to .env
+            >>> resolver.resolve_prompt(FORCE_SYSTEM_DEFAULT, "SYSTEM_PROMPT", None)
             None
         """
-        # CLI was EXPLICIT_NULL → return None (no fallback)
-        if cli_value is EXPLICIT_NULL:
+        # CLI was FORCE_SYSTEM_DEFAULT → return None (no fallback)
+        if cli_value is FORCE_SYSTEM_DEFAULT:
             return None
         
-        # CLI provided (not None, not EXPLICIT_NULL)
+        # CLI provided (not None, not FORCE_SYSTEM_DEFAULT)
         if cli_value is not None and cli_value.strip():
             return cli_value.strip()
 
@@ -144,7 +144,7 @@ class ConfigResolver:
 
         CRITICAL: This method does NOT resolve AUTO to a number.
         AUTO resolution happens only in resolve_seed_for_run().
-        CRITICAL: EXPLICIT_NULL means "explicitly null" - no fallback.
+        CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly null" - no fallback.
 
         Args:
             cli_value: Value from CLI --seed flag (already parsed), or None.
@@ -167,8 +167,8 @@ class ConfigResolver:
             >>> # None: returns None
             >>> resolver.resolve_seed(None, "RANDOM_SEED", "exp1")
             None
-            >>> # EXPLICIT_NULL: no fallback to .env
-            >>> resolver.resolve_seed(EXPLICIT_NULL, "RANDOM_SEED", "exp1")
+            >>> # FORCE_SYSTEM_DEFAULT: no fallback to .env
+            >>> resolver.resolve_seed(FORCE_SYSTEM_DEFAULT, "RANDOM_SEED", "exp1")
             None
         """
         def parse_seed_value(value: str) -> int | str | None:
@@ -193,15 +193,15 @@ class ConfigResolver:
                 return None
 
         # Check CLI value first
-        if cli_value is not None and cli_value is not EXPLICIT_NULL:
+        if cli_value is not None and cli_value is not FORCE_SYSTEM_DEFAULT:
             parsed = parse_seed_value(cli_value)
             if parsed == "AUTO":
                 return "AUTO"
             if isinstance(parsed, int):
                 return parsed
         
-        # CLI was EXPLICIT_NULL → return None (no fallback)
-        if cli_value is EXPLICIT_NULL:
+        # CLI was FORCE_SYSTEM_DEFAULT → return None (no fallback)
+        if cli_value is FORCE_SYSTEM_DEFAULT:
             return None
         
         # CLI was None (not specified) → check .env
@@ -328,7 +328,7 @@ class ConfigResolver:
         SYSTEM keys are resolved at runtime and NOT stored in experiment config.
 
         Resolution strategy:
-        - EXPERIMENT keys (4): Resolved from CLI/.env at experiment creation
+        - EXPERIMENT keys (1): Resolved from .env at experiment creation
         - MODEL keys (10): Resolved from CLI/.env as defaults for model variants
         - RUN keys (3): Resolved from CLI/.env as defaults for runs
 
@@ -339,11 +339,15 @@ class ConfigResolver:
         - LOG_LEVEL
         - OPENROUTER_DEBUG_ENABLED
 
+        EXPERIMENT keys NOT stored (resolved at creation time, not persisted):
+        - QUESTIONS_STATUS_ADD (used for filtering, not stored)
+        - QUESTIONS_STATUS_EXCLUDE (used for filtering, not stored)
+
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
 
         Returns:
-            Dictionary with 17 configuration keys (4 EXPERIMENT + 10 MODEL + 3 RUN).
+            Dictionary with 14 configuration keys (1 EXPERIMENT + 10 MODEL + 3 RUN).
         """
         resolved_seed = self.resolve_seed(
             cli_value=getattr(cli_args, 'seed', None),
@@ -352,47 +356,44 @@ class ConfigResolver:
         )
 
         return {
-            # EXPERIMENT keys (4) - Resolved from .env at experiment creation
+            # EXPERIMENT keys (1) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
-            "QUESTIONS_STATUS_ADD": self.env_dict.get("QUESTIONS_STATUS_ADD"),
-            "QUESTIONS_STATUS_EXCLUDE": self.env_dict.get("QUESTIONS_STATUS_EXCLUDE"),
-            "MODELS_DEFAULT_FOR_EXPERIMENTS": self.env_dict.get("MODELS_DEFAULT_FOR_EXPERIMENTS"),
 
             # MODEL keys (10) - Resolved from CLI/.env as defaults for model variants
-            "BASE_URL": self._resolve_with_explicit_null(
+            "BASE_URL": self._resolve_with_force_system_default(
                 getattr(cli_args, 'url', None),
                 "BASE_URL"
             ),
-            "MODEL_MAX_TOKENS_REASONING": self._resolve_with_explicit_null(
+            "MODEL_MAX_TOKENS_REASONING": self._resolve_with_force_system_default(
                 getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None),
                 "MODEL_MAX_TOKENS_REASONING",
                 self._parse_int_env
             ),
-            "MODEL_MAX_TOKENS_TOTAL": self._resolve_with_explicit_null(
+            "MODEL_MAX_TOKENS_TOTAL": self._resolve_with_force_system_default(
                 getattr(cli_args, 'max_tokens', None),
                 "MODEL_MAX_TOKENS_TOTAL",
                 self._parse_int_env
             ),
-            "MODEL_REASONING_EFFORT": self._resolve_with_explicit_null(
+            "MODEL_REASONING_EFFORT": self._resolve_with_force_system_default(
                 getattr(cli_args, 'reasoning', None),
                 "MODEL_REASONING_EFFORT"
             ),
-            "MODEL_REPEAT_PENALTY": self._resolve_with_explicit_null(
+            "MODEL_REPEAT_PENALTY": self._resolve_with_force_system_default(
                 getattr(cli_args, 'repeat_penalty', None),
                 "MODEL_REPEAT_PENALTY",
                 self._parse_float_env
             ),
-            "MODEL_TEMPERATURE": self._resolve_with_explicit_null(
+            "MODEL_TEMPERATURE": self._resolve_with_force_system_default(
                 getattr(cli_args, 'temperature', None),
                 "MODEL_TEMPERATURE",
                 self._parse_float_env
             ),
-            "MODEL_TOP_K": self._resolve_with_explicit_null(
+            "MODEL_TOP_K": self._resolve_with_force_system_default(
                 getattr(cli_args, 'top_k', None),
                 "MODEL_TOP_K",
                 self._parse_int_env
             ),
-            "MODEL_TOP_P": self._resolve_with_explicit_null(
+            "MODEL_TOP_P": self._resolve_with_force_system_default(
                 getattr(cli_args, 'top_p', None),
                 "MODEL_TOP_P",
                 self._parse_float_env
@@ -571,23 +572,24 @@ class ConfigResolver:
         except (json.JSONDecodeError, TypeError):
             return None
 
-    def _parse_bool_value(self, value: str | type[EXPLICIT_NULL] | None) -> bool | None:
+    def _parse_bool_value(self, value: str | type[FORCE_SYSTEM_DEFAULT] | None) -> bool | None:
         """Parse boolean from CLI value.
 
         Args:
-            value: String value from CLI ('true', 'false', 'NULL', or None),
-                   or EXPLICIT_NULL for explicit 'null' from CLI.
+            value: String value from CLI ('true', 'false', 'system-default', or None),
+                   or FORCE_SYSTEM_DEFAULT for explicit system-default from CLI.
 
         Returns:
-            Parsed boolean or None if 'NULL' (EXPLICIT_NULL) or not provided.
-            
+            Parsed boolean or None if 'system-default' (FORCE_SYSTEM_DEFAULT) or not provided.
+
         Note:
-            - EXPLICIT_NULL represents explicit 'null' from CLI - returns None
-            - String 'null' should be normalized to EXPLICIT_NULL before reaching here
+            - FORCE_SYSTEM_DEFAULT represents explicit 'system-default' from CLI - returns None
+            - String 'system-default' should be normalized to FORCE_SYSTEM_DEFAULT before reaching here
             - String 'none' is treated as literal string (not special)
+            - Legacy string 'null' is deprecated but handled for backward compatibility
         """
-        if value is EXPLICIT_NULL:
-            return None  # Explicit null from CLI
+        if value is FORCE_SYSTEM_DEFAULT:
+            return None  # Explicit system-default from CLI
         if value is None:
             return None  # Absent flag
         if isinstance(value, str):
@@ -596,30 +598,31 @@ class ConfigResolver:
             if value.lower() == 'false':
                 return False
             if value.lower() == 'null':
-                return None  # Should be EXPLICIT_NULL by now, but handle just in case
+                return None  # Legacy deprecated value, treat as system-default
         return None
 
-    def _resolve_bool_cli_or_env(self, cli_value: str | type[EXPLICIT_NULL] | None, env_key: str) -> bool | None:
+    def _resolve_bool_cli_or_env(self, cli_value: str | type[FORCE_SYSTEM_DEFAULT] | None, env_key: str) -> bool | None:
         """Resolve boolean from CLI > .env.
 
         Args:
-            cli_value: String value from CLI ('true', 'false', 'NULL', or None),
-                       or EXPLICIT_NULL for explicit 'null' from CLI.
+            cli_value: String value from CLI ('true', 'false', 'system-default', or None),
+                       or FORCE_SYSTEM_DEFAULT for explicit system-default from CLI.
             env_key: Environment variable key.
 
         Returns:
             CLI value if provided (including False), otherwise .env value.
-            
+
         Note:
-            - EXPLICIT_NULL means "explicitly null" - no fallback to .env
-            - String 'null' should be normalized to EXPLICIT_NULL before reaching here
+            - FORCE_SYSTEM_DEFAULT means "explicitly system-default" - no fallback to .env
+            - String 'system-default' should be normalized to FORCE_SYSTEM_DEFAULT before reaching here
+            - Legacy string 'NULL' is deprecated but handled for backward compatibility
         """
         if cli_value is not None:
             parsed = self._parse_bool_value(cli_value)
             if parsed is not None:
                 return parsed
-            # If cli_value is EXPLICIT_NULL, return None (no fallback)
-            if cli_value is EXPLICIT_NULL:
+            # If cli_value is FORCE_SYSTEM_DEFAULT, return None (no fallback)
+            if cli_value is FORCE_SYSTEM_DEFAULT:
                 return None
             # Handle legacy string 'NULL' (should be normalized already)
             if isinstance(cli_value, str) and cli_value.upper() == 'NULL':
@@ -678,30 +681,50 @@ class ConfigResolver:
         except ValueError:
             return None
 
-    def _resolve_with_explicit_null(self, cli_value, env_key, parser_func=None):
-        """Resolve value with EXPLICIT_NULL support.
+    def _resolve_with_force_system_default(self, cli_value, env_key, parser_func=None):
+        """Resolve value with FORCE_SYSTEM_DEFAULT support.
+
+        Resolution order:
+        1. CLI value (if provided and not FORCE_SYSTEM_DEFAULT)
+        2. .env value (if key exists)
+        3. None (system-default)
+
+        CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly use system-default" - no fallback to .env.
 
         Args:
-            cli_value: Value from CLI (may be EXPLICIT_NULL)
+            cli_value: Value from CLI (may be FORCE_SYSTEM_DEFAULT)
             env_key: Key to look up in .env
             parser_func: Optional parser function (e.g., _parse_int_env)
 
         Returns:
-            CLI value if provided (and not EXPLICIT_NULL), else .env value, else None
+            CLI value if provided (and not FORCE_SYSTEM_DEFAULT), else .env value, else None
+
+        Example:
+            >>> resolver = ConfigResolver()
+            >>> resolver.load_env()
+            >>> # CLI provided: returns CLI value
+            >>> resolver._resolve_with_force_system_default("42", "MODEL_TEMPERATURE")
+            '42'
+            >>> # CLI FORCE_SYSTEM_DEFAULT: no fallback to .env
+            >>> resolver._resolve_with_force_system_default(FORCE_SYSTEM_DEFAULT, "MODEL_TEMPERATURE")
+            None
+            >>> # CLI None, .env has value: returns .env value
+            >>> resolver._resolve_with_force_system_default(None, "MODEL_TEMPERATURE")
+            '0.7'
         """
-        # CLI was EXPLICIT_NULL → return None (no fallback)
-        if cli_value is EXPLICIT_NULL:
+        # CLI was FORCE_SYSTEM_DEFAULT → return None (no fallback)
+        if cli_value is FORCE_SYSTEM_DEFAULT:
             return None
-        
+
         # CLI provided
         if cli_value is not None:
             return cli_value
-        
+
         # CLI was None (not specified) → check .env
         env_value = self.env_dict.get(env_key)
         if env_value is not None:
             if parser_func:
                 return parser_func(env_key)
             return env_value
-        
+
         return None

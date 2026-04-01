@@ -24,7 +24,7 @@ import uuid
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.core.argv_utils import parse_args_normalized
-from src.core.null_semantics import EXPLICIT_NULL
+from src.core.null_semantics import FORCE_SYSTEM_DEFAULT
 from src.db.models import ModelVariant
 from src.db.repository import ExperimentRepository, VariantRepository
 from src.utils.variant_signature import generate_variant_signature
@@ -199,9 +199,9 @@ def handle_add_model(args, conn) -> int:
         print("Note: 'none' is NOT a valid value - it is treated as a literal string", file=sys.stderr)
         return 1
 
-    # Validate mandatory field --url rejects 'null'
-    if args.url is EXPLICIT_NULL:
-        print("Error: --url is a mandatory field and cannot be set to 'null'.", file=sys.stderr)
+    # Validate mandatory field --url rejects 'system-default'
+    if args.url is FORCE_SYSTEM_DEFAULT:
+        print("Error: --url is a mandatory field and cannot be set to 'system-default'.", file=sys.stderr)
         print("Please provide a valid URL or omit the flag to use .env default.", file=sys.stderr)
         return 1
 
@@ -238,21 +238,21 @@ def handle_add_model(args, conn) -> int:
     return 0
 
 
-def _validate_bool_value(value: str | type[EXPLICIT_NULL]) -> bool:
+def _validate_bool_value(value: str | type[FORCE_SYSTEM_DEFAULT]) -> bool:
     """Validate boolean CLI value.
 
     Args:
-        value: CLI value (may be EXPLICIT_NULL for 'null' input)
+        value: CLI value (may be FORCE_SYSTEM_DEFAULT for 'null' input)
 
     Returns:
         True if value is valid boolean ('true' or 'false'), False otherwise.
 
     Note:
-        - 'null' (EXPLICIT_NULL) is NOT a valid boolean - it represents explicit absence
+        - 'null' (FORCE_SYSTEM_DEFAULT) is NOT a valid boolean - it represents explicit absence
         - 'none' is treated as literal string, not as None
         - Absent flag (None) is OK - will use default
     """
-    if value is EXPLICIT_NULL:
+    if value is FORCE_SYSTEM_DEFAULT:
         return True  # 'null' is valid - represents explicit absence (will be normalized to None)
     if value is None:
         return True  # Absent flag is OK (will use default)

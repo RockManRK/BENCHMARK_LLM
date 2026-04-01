@@ -76,7 +76,7 @@ A block corresponds to one or more related capabilities defined in:
   - logical immutability
   - configuration hierarchy
 - CLI is never a configuration level
-- `null` always bypasses inheritance
+- `system-default` always bypasses inheritance
 - Logs are scientific data
 - No capability is considered complete until validated
 

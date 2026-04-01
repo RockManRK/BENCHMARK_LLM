@@ -10,14 +10,14 @@ bcllm --create-experiment <nome>
 
 bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome> é o único campo obrigatório se o .env tiver configuração)
 
-    --add-questions <valor / NULL> (NULL = Gerar snapshots de todas as questões disponíveis)
+    --add-questions <valor / system-default> (system-default = Gerar snapshots de todas as questões disponíveis)
         **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
         --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5 - com espaços, requer aspas)
         --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
         --questions "1-50" --where status=valid (Adiciona perguntas da 1 até a 50 onde a flag "status" for "valid")
         --questions "1-100" --exclude status=annulled (Adiciona todas exceto onde status="annulled")
         --questions 1-10 --where status=valid has_image=false (Adiciona perguntas de 1 até a 10 em que a flag "status" seja "valid" e a flag "has_image" seja "false")
-        --where e --exclude <NULL> = Desativa filtragem configurada no .env.
+        --where e --exclude <system-default> = Desativa filtragem configurada no .env.
         
         Formatos suportados:
         - Individual: "1"
@@ -30,62 +30,62 @@ bcllm --create-experiment <nome> (Cria experimento com o nome indicado / O <nome
         ✓ CORRETO: --questions 1,3,5 (sem espaços)
         ✗ ERRADO: --questions 1, 3, 5 (sem aspas com espaços - shell divide em múltiplos args)
         
-    --seed <AUTO / # / NULL> - (o seed de um experimento já criado poderá ser alterado, porém não afeta o seed de runs já criados) - ('NULL' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
+    --seed <AUTO / # / system-default> - (o seed de um experimento já criado poderá ser alterado, porém não afeta o seed de runs já criados) - ('system-default' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
     --add-model <modelo> (´--add-questions´ e ´--questions´ são alias, e funcionam da mesma forma.)
-        --reasoning <none, minimal, low, medium, high, xhigh / NULL> - (null = não enviar na requisição)
-        --max-tokens <# / NULL>
-        --reasoning-tokens <# / NULL>
-        --temperature <# / NULL>
-        --top-p <# / NULL>
-        --top-k <# / NULL>
-        --repeat-penalty <# / NULL>
-        --vision <opção> (true / false / NULL)
-        --structured <opção> (true / false / NULL)
+        --reasoning <none, minimal, low, medium, high, xhigh / system-default> - (system-default = não enviar na requisição)
+        --max-tokens <# / system-default>
+        --reasoning-tokens <# / system-default>
+        --temperature <# / system-default>
+        --top-p <# / system-default>
+        --top-k <# / system-default>
+        --repeat-penalty <# / system-default>
+        --vision <opção> (true / false / system-default)
+        --structured <opção> (true / false / system-default)
         --url <base-url padrão do experimento>
-    --system-prompt <"Frase entre aspas para ser usada como system prompt" / NULL> (Se não especificado, usa o do .env como padrão / null = não enviar na requisição)
-    --user-prompt <"Frase entre aspas para ser usada como user prompt" / NULL> (Se não especificado, usa o do .env como padrão / null = não enviar na requisição)
+    --system-prompt <"Frase entre aspas para ser usada como system prompt" / system-default> (Se não especificado, usa o do .env como padrão / system-default = não enviar na requisição)
+    --user-prompt <"Frase entre aspas para ser usada como user prompt" / system-default> (Se não especificado, usa o do .env como padrão / system-default = não enviar na requisição)
     --retry-policy <#> (Configuração não vai mais existir. Configuração de retry-policy agora será apenas por .env)
     --url <base-url padrão do experimento>
 
-    QUASE todos os comandos suportam "NULL", dessa forma são tradados como o padrão de sistema.
+    QUASE todos os comandos suportam "system-default", dessa forma são tradados como o padrão de sistema.
     **comandos estruturais não suportam:**
-    --create-experiment (Não suporta NULL)
-    --url (Não suporta NULL)
-    --data-set (Não suporta NULL)
-    --add-model (Não suporta NULL)
-    --remove-model (Não suporta NULL)
-    --add-run (Não suporta NULL)
-    --remove-run (Não suporta NULL)
-    --execute (Não suporta NULL)
+    --create-experiment (Não suporta system-default)
+    --url (Não suporta system-default)
+    --data-set (Não suporta system-default)
+    --add-model (Não suporta system-default)
+    --remove-model (Não suporta system-default)
+    --add-run (Não suporta system-default)
+    --remove-run (Não suporta system-default)
+    --execute (Não suporta system-default)
 
-    Todos as flags de modelos (exceto --url), ao receberem "NULL", são tradados como o padrão de sistema. Que nesse caso significa que a configuração não será enviada na requisição a API.
+    Todos as flags de modelos (exceto --url), ao receberem "system-default", são tradados como o padrão de sistema. Que nesse caso significa que a configuração não será enviada na requisição a API.
 
 bcllm --experiment <nome> (Visualiza as especificações do experimento indicado)
 
-    --add-questions <valor / NULL> (Pode adicionar perguntas a um experimento já criado - 'NULL' = Gerar snapshots de todas as questões disponíveis)
+    --add-questions <valor / system-default> (Pode adicionar perguntas a um experimento já criado - 'system-default' = Gerar snapshots de todas as questões disponíveis)
         **FORMATO OBRIGATÓRIO**: Use aspas para argumentos com espaços
-        
+
         --questions "1, 3, 5" (Adiciona perguntas 1, 3 e 5)
         --questions "1, 5-20" (Adiciona pergunta 1 e da 5 até a 20)
         --questions "1-50" --where status=valid
         --questions "1-100" --exclude status=annulled
-        
-    --seed <AUTO / # / NULL> - (o seed de um experimento já criado poderá ser alterado, porém não afeta o seed de runs já criados) - ('NULL' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
-    --add-model <modelo> (pode ser adicionado modelos a um experimento já criado)
-        --reasoning <none, minimal, low, medium, high, xhigh / NULL> - (null = não enviar na requisição)
-        --max-tokens <# / NULL>
-        --reasoning-tokens <# / NULL>
-        --temperature <# / NULL>
-        --top-p <# / NULL>
-        --top-k <# / NULL>
-        --repeat-penalty <# / NULL>
-        --vision <opção> (true / false / NULL)
-        --structured <opção> (true / false / NULL)
-        --url <base-url padrão do experimento>
-    --system-prompt <"Frase entre aspas" / NULL> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
-    --user-prompt <"Frase entre aspas" / NULL> (user prompt poderá ser alterado em experimento já criado)
 
-    Todos os campos suportam "NULL" (exceto --url e --dataset-path), dessa forma o seu comportamento será o padrão de sistema.
+    --seed <AUTO / # / system-default> - (o seed de um experimento já criado poderá ser alterado, porém não afeta o seed de runs já criados) - ('system-default' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
+    --add-model <modelo> (pode ser adicionado modelos a um experimento já criado)
+        --reasoning <none, minimal, low, medium, high, xhigh / system-default> - (system-default = não enviar na requisição)
+        --max-tokens <# / system-default>
+        --reasoning-tokens <# / system-default>
+        --temperature <# / system-default>
+        --top-p <# / system-default>
+        --top-k <# / system-default>
+        --repeat-penalty <# / system-default>
+        --vision <opção> (true / false / system-default)
+        --structured <opção> (true / false / system-default)
+        --url <base-url padrão do experimento>
+    --system-prompt <"Frase entre aspas" / system-default> (system prompt poderá ser alterado em experimento já criado, porém não afeta runs já criados)
+    --user-prompt <"Frase entre aspas" / system-default> (user prompt poderá ser alterado em experimento já criado)
+    --review (inícia o processo de revisão das perguntas)
+    Todos os campos suportam "system-default" (exceto --url e --dataset-path), dessa forma o seu comportamento será o padrão de sistema.
 
 ---
 
@@ -104,15 +104,15 @@ bcllm --experiment <nome> --remove-model ? (Apresenta uma lista dos modelos do e
 
 ## Valores Booleanos (vision, structured):
 
-    Formato: true, false, NULL (case-insensitive)
-    
+    Formato: true, false, system-default (case-insensitive)
+
     Exemplos válidos:
     --vision true
     --vision TRUE
     --vision True
     --vision false
-    --vision NULL
-    --vision null
+    --vision system-default
+    --vision system-default
 
 ---
 
@@ -120,9 +120,9 @@ bcllm --experiment <nome> --remove-model ? (Apresenta uma lista dos modelos do e
 
 bcllm --experiment <nome> --add-run
 
-    --seed <AUTO / # / NULL> (SEED não poderá ser alterado em RUN já criado) ('NULL' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
-    --system-prompt <"Frase entre aspas para ser usada como system prompt" / NULL> (Se não especificado, usa a configuração registrada no 'experiment.config_json' como padrão / NULL = não enviar na requisição) (system prompt não poderá ser alterado em RUN já criado)
-    --user-prompt <"Frase entre aspas para ser usada como user prompt" / NULL> (Se não especificado, usa a configuração registrada no 'experiment.config_json' como padrão / NULL = não enviar na requisição) (user prompt não poderá ser alterado em RUN já criado)
+    --seed <AUTO / # / system-default> (SEED não poderá ser alterado em RUN já criado) ('system-default' = randomização de respostas desativadas, será utilizada a ordem original apresentada no dataset)
+    --system-prompt <"Frase entre aspas para ser usada como system prompt" / system-default> (Se não especificado, usa a configuração registrada no 'experiment.config_json' como padrão / system-default = não enviar na requisição) (system prompt não poderá ser alterado em RUN já criado)
+    --user-prompt <"Frase entre aspas para ser usada como user prompt" / system-default> (Se não especificado, usa a configuração registrada no 'experiment.config_json' como padrão / system-default = não enviar na requisição) (user prompt não poderá ser alterado em RUN já criado)
 
 bcllm --experiment <nome> --remove-run <run> (remove RUNs indicados do experimento)
 bcllm --experiment <nome> --remove-run ? (Apresenta uma lista dos RUNs do experimento, com um número ao lado, para o usuário escolher quais dos RUNs quer remover. Podendo escolher 1 ou mais. Dados já gerados não serão apagados do banco de dados)
@@ -162,7 +162,7 @@ Se nenhum filtro de execução for adicionado, serão processadas todas as requi
 
 ---
 
-# Configurações padrão do sistema:
+# Configurações padrão do sistema (system-default):
 
 - questions = Configuração padrão de **questions** é usada quando não informado na configuração de experimento e no campo QUESTIONS_DATASET_PATH do .env.
     - Comportamento: Utiliza todas as perguntas disponíveis.
@@ -174,17 +174,17 @@ Se nenhum filtro de execução for adicionado, serão processadas todas as requi
     - Comportamento: Ao não ser configurado o comportamento padrão é "não enviar esse comando na requisição.
 - user-prompt = Configuração padrão de **user-prompt** é usada quando não informado na configuração de experimento, RUN e no campo USER_PROMPT do .env.
     - Comportamento: Ao não ser configurado o comportamento padrão é "não enviar esse comando na requisição.
-- Todas as configurações de modelos, ao não serem definidas, serão ignoradas no envio da requisição, ativando a configuração padrão do servidor/modelo. O mesmo ocorre ao serem setadas como "NULL"
-- A configuração padrão pode ser forçada pelo usuário ao preencher o comando com "NULL" Ex: --reasoning null
+- Todas as configurações de modelos, ao não serem definidas, serão ignoradas no envio da requisição, ativando a configuração padrão do servidor/modelo. O mesmo ocorre ao serem setadas como "system-default"
+- A configuração padrão pode ser forçada pelo usuário ao preencher o comando com "system-default" Ex: --reasoning system-default
 
-- dataset-path e url não podem receber null, pois são comandos que precisar ser informados no .env ou na criação do experimento para o sistema funcionar.
-- --add-model recebendo "null" na criação do experimento faz com que nenhum modelo configurado em MODELS_DEFAULT_FOR_EXPERIMENTS do .env seja adicionado ao experimento.
+- dataset-path e url não podem receber "system-default", pois são comandos que precisam ser informados no .env ou na criação do experimento para o sistema funcionar.
+- --add-model recebendo "system-default" na criação do experimento não adiciona nenhum modelo (comportamento padrão).
 
 ---
 
 ## Lista completa de comandos:
 
-bcllm --create-experiment
+bcllm --create-experiment <name>
         ├──> --seed
         ├──> --system-prompt
         ├──> --user-prompt
@@ -205,7 +205,7 @@ bcllm --create-experiment
                ├──> --structured
                └──> --url
 
-bcllm --experiment
+bcllm --experiment <name>
         ├──> --seed
         ├──> --system-prompt
         ├──> --user-prompt
@@ -231,10 +231,11 @@ bcllm --experiment
         │      ├──> --system-prompt
         │      └──> --user-prompt
         ├──> --remove-run
-        └──> --execute
-               ├──> --run
-               ├──> --questions
-               └──> --model
+        ├──> --execute
+        │      ├──> --run
+        │      ├──> --questions
+        │      └──> --model
+        └──> --review
 
 ---
 
@@ -252,7 +253,7 @@ bcllm --experiment
 
 Inicia revisão de todas as respostas pendentes de revisão de um experimento
 
-bcllm --review-experiment <nome>
+bcllm --experiment <nome> --review
 
 ### Interface de Revisão
 

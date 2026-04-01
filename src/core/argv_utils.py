@@ -1,6 +1,6 @@
 """Command-line argument utilities for null normalization."""
 import argparse
-from .null_semantics import EXPLICIT_NULL, normalize_nulls_explicit
+from .null_semantics import FORCE_SYSTEM_DEFAULT, normalize_nulls_explicit
 
 
 def has_flag(args: list[str], flag: str) -> bool:
@@ -22,38 +22,38 @@ def has_flag(args: list[str], flag: str) -> bool:
 
 
 def parse_args_normalized(parser: argparse.ArgumentParser, argv=None) -> argparse.Namespace:
-    """Parse arguments and normalize 'null' values to EXPLICIT_NULL.
-    
+    """Parse arguments and normalize 'null' values to FORCE_SYSTEM_DEFAULT.
+
     This function wraps parser.parse_args() to automatically normalize
-    explicit 'null' string values to EXPLICIT_NULL for optional arguments.
-    
+    explicit 'null' string values to FORCE_SYSTEM_DEFAULT for optional arguments.
+
     Args:
         parser: ArgumentParser instance
         argv: Command-line arguments (defaults to sys.argv[1:] if None)
-        
+
     Returns:
-        Parsed namespace with 'null' values converted to EXPLICIT_NULL
+        Parsed namespace with 'null' values converted to FORCE_SYSTEM_DEFAULT
     """
     args = parser.parse_args(argv)
     return normalize_nulls_explicit(args, parser)
 
 
 def normalize_nulls(args: argparse.Namespace, parser: argparse.ArgumentParser) -> argparse.Namespace:
-    """Normalize 'null' string values to EXPLICIT_NULL for optional string arguments.
-    
+    """Normalize 'null' string values to FORCE_SYSTEM_DEFAULT for optional string arguments.
+
     Iterates through parser actions to find nullable arguments:
     - default=None (optional arguments)
     - required=False (not mandatory)
-    
+
     For each nullable argument, if the value is the string 'null' (case-insensitive),
-    it is converted to EXPLICIT_NULL. The string 'none' is preserved as a literal.
-    
+    it is converted to FORCE_SYSTEM_DEFAULT. The string 'none' is preserved as a literal.
+
     Args:
         args: Parsed argument namespace
         parser: ArgumentParser instance (used to inspect action metadata)
-        
+
     Returns:
-        Namespace with 'null' values converted to EXPLICIT_NULL
+        Namespace with 'null' values converted to FORCE_SYSTEM_DEFAULT
     """
     return normalize_nulls_explicit(args, parser)
 

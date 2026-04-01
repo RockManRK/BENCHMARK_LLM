@@ -29,7 +29,7 @@ from src.cli.database import get_database_connection
 from src.core import QuestionLoader
 from src.core.config_resolver import ConfigResolver
 from src.core.argv_utils import parse_args_normalized
-from src.core.null_semantics import EXPLICIT_NULL, nullable_int, nullable_float
+from src.core.null_semantics import FORCE_SYSTEM_DEFAULT, nullable_int, nullable_float
 from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
@@ -261,7 +261,7 @@ def _create_experiment_with_config(name: str, args: argparse.Namespace, conn, lo
     - Generates experiment_id with 'exp_' prefix
     - Saves experiment via ExperimentRepository
     - Returns the created Experiment object
-    - Respects cli_null_semantics.md contract (EXPLICIT_NULL for NULL handling)
+    - Respects cli_null_semantics.md contract (FORCE_SYSTEM_DEFAULT for NULL handling)
     
     Args:
         name: Experiment name.
@@ -347,9 +347,9 @@ def handle_create_experiment(args, conn) -> int:
         print("Example: --structured false", file=sys.stderr)
         return 1
 
-    # Validate mandatory field --url rejects 'null'
-    if args.url is EXPLICIT_NULL:
-        print("Error: --url is a mandatory field and cannot be set to 'null'.", file=sys.stderr)
+    # Validate mandatory field --url rejects 'system-default'
+    if args.url is FORCE_SYSTEM_DEFAULT:
+        print("Error: --url is a mandatory field and cannot be set to 'system-default'.", file=sys.stderr)
         print("Please provide a valid URL or omit the flag to use .env default.", file=sys.stderr)
         return 1
 
@@ -378,21 +378,21 @@ def handle_create_experiment(args, conn) -> int:
     return 0
 
 
-def _validate_bool_value(value: str | type[EXPLICIT_NULL]) -> bool:
+def _validate_bool_value(value: str | type[FORCE_SYSTEM_DEFAULT]) -> bool:
     """Validate boolean CLI value.
 
     Args:
-        value: CLI value (may be EXPLICIT_NULL for 'null' input)
+        value: CLI value (may be FORCE_SYSTEM_DEFAULT for 'null' input)
 
     Returns:
         True if value is valid boolean ('true' or 'false'), False otherwise.
 
     Note:
-        - 'null' (EXPLICIT_NULL) is NOT a valid boolean - it represents explicit absence
+        - 'null' (FORCE_SYSTEM_DEFAULT) is NOT a valid boolean - it represents explicit absence
         - 'none' is treated as literal string, not as None
         - Absent flag (None) is OK - will use default
     """
-    if value is EXPLICIT_NULL:
+    if value is FORCE_SYSTEM_DEFAULT:
         return True  # 'null' is valid - represents explicit absence (will be normalized to None)
     if value is None:
         return True  # Absent flag is OK (will use default)
@@ -458,7 +458,7 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         Exit code (0 for success, 1 for error).
 
     Behavior:
-        - If --add-questions null (EXPLICIT_NULL): use ALL questions from dataset (no .env fallback)
+        - If --add-questions null (FORCE_SYSTEM_DEFAULT): use ALL questions from dataset (no .env fallback)
         - If --add-questions provided with value: use specified questions
         - If --add-questions NOT provided (None): check DEFAULT_QUESTIONS from .env
         - If neither provided: select ALL questions from dataset
@@ -466,19 +466,19 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         - Apply QUESTIONS_STATUS_EXCLUDE from .env for filtering (if --exclude not provided)
         - Fails loudly if dataset invalid (no placeholders)
     """
-    from src.core.null_semantics import EXPLICIT_NULL
+    from src.core.null_semantics import FORCE_SYSTEM_DEFAULT
 
     resolver = ConfigResolver()
     env_dict = resolver.load_env()
 
     dataset_path = env_dict.get('QUESTIONS_DATASET_PATH')
     
-    # Validate mandatory field --dataset-path rejects 'null'
+    # Validate mandatory field --dataset-path rejects 'system-default'
     # Note: dataset-path is configured via .env, not CLI flag
-    # If user sets QUESTIONS_DATASET_PATH=null in .env, it will be EXPLICIT_NULL
-    if dataset_path is EXPLICIT_NULL:
+    # If user sets QUESTIONS_DATASET_PATH=system-default in .env, it will be FORCE_SYSTEM_DEFAULT
+    if dataset_path is FORCE_SYSTEM_DEFAULT:
         print(
-            "Error: QUESTIONS_DATASET_PATH in .env cannot be set to 'null'.",
+            "Error: QUESTIONS_DATASET_PATH in .env cannot be set to 'system-default'.",
             file=sys.stderr
         )
         print("Please provide a valid dataset path.", file=sys.stderr)
@@ -500,10 +500,10 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         print(f"Error loading question dataset: {e}", file=sys.stderr)
         return 1
 
-    # Check if add_questions was explicitly set (even if EXPLICIT_NULL)
+    # Check if add_questions was explicitly set (even if FORCE_SYSTEM_DEFAULT)
     add_questions_value = getattr(args, 'add_questions', None)
 
-    if add_questions_value is EXPLICIT_NULL:
+    if add_questions_value is FORCE_SYSTEM_DEFAULT:
         # User explicitly passed --add-questions null → use ALL questions (no filter)
         selected_questions = questions
     elif add_questions_value is not None:

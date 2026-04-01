@@ -109,7 +109,7 @@ The target V2 system will be:
 ### 2.1 Guiding Principles
 
 **1. Explicit Over Implicit**
-- Configuration resolution must be explicit (CLI > .env > NULL) - CLI overrides configuration hierarchy; null bypasses inheritance.
+- Configuration resolution must be explicit (CLI > .env > system-default) - CLI overrides configuration hierarchy; system-default bypasses inheritance.
 - No hidden behavior or magic defaults
 - All decisions traceable to source
 

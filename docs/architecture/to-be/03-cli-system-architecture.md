@@ -110,8 +110,8 @@ group.add_argument("--remove-experiment", metavar="NAME", ...)
 | **String** | `str` (default) | Pass-through |
 | **Integer** | `int` | Parse integer, error on invalid |
 | **Float** | `float` | Parse float, error on invalid |
-| **Nullable Int** | `nullable_int` | `"null"` → `None`, `"42"` → `42` |
-| **Nullable Float** | `nullable_float` | `"null"` → `None`, `"0.5"` → `0.5` |
+| **Nullable Int** | `nullable_int` | `"system-default"` → `None`, `"42"` → `42` |
+| **Nullable Float** | `nullable_float` | `"system-default"` → `None`, `"0.5"` → `0.5` |
 | **Custom** | Custom function | Validate and transform |
 
 **Example:**
@@ -153,7 +153,7 @@ def _validate_bool_value(value: str) -> bool:
     if value is None:
         return True
     normalized = value.lower()
-    return normalized in ('true', 'false', 'null')
+    return normalized in ('true', 'false', 'system-default')
 ```
 
 ### 3.3 Argument Normalization
@@ -167,7 +167,7 @@ args = parse_args_normalized(parser)
 ```
 
 **Purpose:**
-- Normalize `null` strings to `EXPLICIT_NULL`
+- Normalize `"system-default"` strings to `FORCE_SYSTEM_DEFAULT`
 - Handle case-insensitive boolean values
 - Apply consistent type conversion
 
@@ -175,33 +175,33 @@ args = parse_args_normalized(parser)
 
 ## 4. Null Semantics Contract
 
-### 4.1 EXPLICIT_NULL Definition
+### 4.1 FORCE_SYSTEM_DEFAULT Definition
 
 ```python
-from src.core.null_semantics import EXPLICIT_NULL
+from src.core.null_semantics import FORCE_SYSTEM_DEFAULT
 
 # Sentinel value
-EXPLICIT_NULL = object()
+FORCE_SYSTEM_DEFAULT = object()
 ```
 
-**Meaning:** User explicitly passed `null` to override .env defaults.
+**Meaning:** User explicitly passed `"system-default"` to override .env defaults.
 
 ### 4.2 Normalization Rule
 
 | CLI Input | Python Value | Resolution |
 |-----------|--------------|------------|
 | `--seed 42` | `42` | Use CLI value |
-| `--seed null` | `EXPLICIT_NULL` | Skip .env, use system default |
+| `--seed system-default` | `FORCE_SYSTEM_DEFAULT` | Skip .env, use system default |
 | `--seed` (not provided) | `None` | Check .env, then system default |
 
 **Implementation:**
 ```python
-from src.core.null_semantics import EXPLICIT_NULL, normalize_nulls
+from src.core.null_semantics import FORCE_SYSTEM_DEFAULT, normalize_system_default
 
 add_questions_value = getattr(args, 'add_questions', None)
 
-if add_questions_value is EXPLICIT_NULL:
-    # Explicitly null → use ALL questions (no .env fallback)
+if add_questions_value is FORCE_SYSTEM_DEFAULT:
+    # Explicitly system-default → use ALL questions (no .env fallback)
     selected_questions = questions
 elif add_questions_value is not None:
     # User provided value → use it
@@ -226,14 +226,14 @@ else:
 
 **Validation:**
 ```python
-if args.url is EXPLICIT_NULL:
-    print("Error: --url cannot be null", file=sys.stderr)
+if args.url is FORCE_SYSTEM_DEFAULT:
+    print("Error: --url cannot be system-default", file=sys.stderr)
     return 1
 ```
 
 ### 4.4 Persistence Rule
 
-**Rule:** `None` values serialized as JSON `null`, never string `"null"`.
+**Rule:** `None` values serialized as JSON `null`, never string `"system-default"`.
 
 ```python
 config_dict = {
@@ -706,7 +706,7 @@ This document defines the **authoritative contracts** for the V2 CLI system:
 1. **CLI Philosophy** — Explicit, declarative, modular
 2. **Command Structure** — Consistent naming, argument patterns
 3. **Argument Parsing** — Type converters, validators, normalization
-4. **Null Semantics** — `EXPLICIT_NULL`, resolution rules
+4. **Null Semantics** — `FORCE_SYSTEM_DEFAULT`, resolution rules
 5. **Configuration Hierarchy** — CLI > .env > NULL
 6. **Error Communication** — stderr, structure, guidance
 7. **Help Text** — Examples, descriptions, flag docs

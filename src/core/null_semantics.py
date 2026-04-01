@@ -1,64 +1,71 @@
 """Null semantics for explicit CLI null handling.
 
-This module provides the EXPLICIT_NULL sentinel value to distinguish between:
-- None: "not specified, use fallback"  
-- EXPLICIT_NULL: "explicitly null, DO NOT use fallback"
+This module provides the FORCE_SYSTEM_DEFAULT sentinel value to distinguish between:
+- None: "not specified, use fallback"
+- FORCE_SYSTEM_DEFAULT: "user explicitly passed system-default, skip .env fallback, omit from API request"
 
 Example:
-    >>> from src.core.null_semantics import EXPLICIT_NULL
-    >>> value = EXPLICIT_NULL
-    >>> value is EXPLICIT_NULL
+    >>> from src.core.null_semantics import FORCE_SYSTEM_DEFAULT
+    >>> value = FORCE_SYSTEM_DEFAULT
+    >>> value is FORCE_SYSTEM_DEFAULT
     True
 """
 
+import argparse
 
-class ExplicitNull:
-    """Sentinel value representing explicit 'null' from CLI.
-    
-    When a user passes --flag null, the argument is set to EXPLICIT_NULL
-    to indicate intentional null (no fallback) vs. None (use fallback).
-    
+
+class ForceSystemDefault:
+    """Sentinel value representing explicit 'system-default' from CLI.
+
+    When a user passes --flag system-default, the argument is set to FORCE_SYSTEM_DEFAULT
+    to indicate: "use system default, skip .env fallback, omit from API request".
+
     This is a singleton pattern - all instances are identical.
     """
-    
+
     _instance = None
-    
+
     def __new__(cls):
         """Ensure only one instance exists (singleton pattern)."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __repr__(self) -> str:
-        return '<EXPLICIT_NULL>'
-    
+        return '<FORCE_SYSTEM_DEFAULT>'
+
     def __bool__(self) -> bool:
-        """ExplicitNull is falsy (like None)."""
+        """ForceSystemDefault is falsy (like None)."""
         return False
-    
+
     def __eq__(self, other) -> bool:
-        """All ExplicitNull instances are equal."""
-        return isinstance(other, ExplicitNull)
+        """All ForceSystemDefault instances are equal."""
+        return isinstance(other, ForceSystemDefault)
 
 
 # Singleton instance - use this everywhere
-EXPLICIT_NULL = ExplicitNull()
+FORCE_SYSTEM_DEFAULT = ForceSystemDefault()
 
 
 def nullable_int(value: str) -> int | None:
-    """Parse int that accepts 'null' as EXPLICIT_NULL.
-    
+    """Parse int that accepts 'system-default' as FORCE_SYSTEM_DEFAULT.
+
     Args:
         value: String value from CLI
-        
+
     Returns:
-        int if valid integer, EXPLICIT_NULL if 'null', raises ValueError otherwise
-        
+        int if valid integer, FORCE_SYSTEM_DEFAULT if 'system-default', raises ValueError otherwise
+
     Raises:
-        argparse.ArgumentTypeError: If value is not a valid integer or 'null'
+        argparse.ArgumentTypeError: If value is not a valid integer, 'system-default', or deprecated 'null'
     """
+    if value.lower() == 'system-default':
+        return FORCE_SYSTEM_DEFAULT
     if value.lower() == 'null':
-        return EXPLICIT_NULL
+        from argparse import ArgumentTypeError
+        raise ArgumentTypeError(
+            "The 'null' literal is deprecated. Use 'system-default' instead."
+        )
     try:
         return int(value)
     except ValueError:
@@ -67,19 +74,24 @@ def nullable_int(value: str) -> int | None:
 
 
 def nullable_float(value: str) -> float | None:
-    """Parse float that accepts 'null' as EXPLICIT_NULL.
-    
+    """Parse float that accepts 'system-default' as FORCE_SYSTEM_DEFAULT.
+
     Args:
         value: String value from CLI
-        
+
     Returns:
-        float if valid float, EXPLICIT_NULL if 'null', raises ValueError otherwise
-        
+        float if valid float, FORCE_SYSTEM_DEFAULT if 'system-default', raises ValueError otherwise
+
     Raises:
-        argparse.ArgumentTypeError: If value is not a valid float or 'null'
+        argparse.ArgumentTypeError: If value is not a valid float, 'system-default', or deprecated 'null'
     """
+    if value.lower() == 'system-default':
+        return FORCE_SYSTEM_DEFAULT
     if value.lower() == 'null':
-        return EXPLICIT_NULL
+        from argparse import ArgumentTypeError
+        raise ArgumentTypeError(
+            "The 'null' literal is deprecated. Use 'system-default' instead."
+        )
     try:
         return float(value)
     except ValueError:
@@ -88,51 +100,73 @@ def nullable_float(value: str) -> float | None:
 
 
 def nullable_str(value: str) -> str | None:
-    """Parse string that accepts 'null' as EXPLICIT_NULL.
-    
+    """Parse string that accepts 'system-default' as FORCE_SYSTEM_DEFAULT.
+
     Args:
         value: String value from CLI
-        
+
     Returns:
-        str if valid string, EXPLICIT_NULL if 'null'
-        
-    Note: This is for string arguments that need EXPLICIT_NULL support.
+        str if valid string, FORCE_SYSTEM_DEFAULT if 'system-default'
+
+    Raises:
+        argparse.ArgumentTypeError: If value is deprecated 'null'
+
+    Note: This is for string arguments that need FORCE_SYSTEM_DEFAULT support.
     Most string args don't need type= and will be normalized by normalize_nulls_explicit().
+    
+    Note: "none" is NOT treated as special — it's preserved as literal string.
+    This is intentional because "none" is a valid reasoning_effort value.
     """
+    if value.lower() == 'system-default':
+        return FORCE_SYSTEM_DEFAULT
     if value.lower() == 'null':
-        return EXPLICIT_NULL
+        from argparse import ArgumentTypeError
+        raise ArgumentTypeError(
+            "The 'null' literal is deprecated. Use 'system-default' instead."
+        )
     return value
 
 
 def normalize_nulls_explicit(args, parser):
-    """Normalize 'null' string values to EXPLICIT_NULL.
-    
+    """Normalize 'system-default' string values to FORCE_SYSTEM_DEFAULT.
+
     Iterates through parser actions to find nullable arguments:
     - default=None (optional arguments)
     - required=False (not mandatory)
-    
-    For each nullable argument, if the value is the string 'null' (case-insensitive),
-    it is converted to EXPLICIT_NULL. The string 'none' is preserved as literal.
-    
+
+    For each nullable argument:
+    - If the value is 'system-default' (case-insensitive), converts to FORCE_SYSTEM_DEFAULT
+    - If the value is 'null' (case-insensitive), raises ArgumentError with migration hint
+    - The string 'none' is preserved as literal (intentional - valid reasoning_effort value)
+
     Args:
         args: Parsed argument namespace
         parser: ArgumentParser instance (used to inspect action metadata)
-        
+
     Returns:
-        Namespace with 'null' values converted to EXPLICIT_NULL
+        Namespace with 'system-default' values converted to FORCE_SYSTEM_DEFAULT
+
+    Raises:
+        argparse.ArgumentError: If 'null' literal is used (deprecated)
     """
     for action in parser._actions:
         # Skip if not a nullable argument
         if not _is_nullable_arg(action):
             continue
-        
+
         # Get current value
         value = getattr(args, action.dest, None)
-        
-        # Normalize only if value is a string equal to 'null'
-        if isinstance(value, str) and value.lower() == 'null':
-            setattr(args, action.dest, EXPLICIT_NULL)
-    
+
+        # Normalize 'system-default' to FORCE_SYSTEM_DEFAULT
+        if isinstance(value, str) and value.lower() == 'system-default':
+            setattr(args, action.dest, FORCE_SYSTEM_DEFAULT)
+        # Reject deprecated 'null' literal with migration hint
+        elif isinstance(value, str) and value.lower() == 'null':
+            raise argparse.ArgumentError(
+                action,
+                "The 'null' literal is deprecated. Use 'system-default' instead."
+            )
+
     return args
 
 

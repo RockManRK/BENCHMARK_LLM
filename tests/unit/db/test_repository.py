@@ -813,9 +813,6 @@ class TestConfigJsonPersistence:
         import json
         config = {
             "QUESTIONS_DATASET_PATH": "/path/to/questions",
-            "QUESTIONS_STATUS_ADD": "active",
-            "QUESTIONS_STATUS_EXCLUDE": "draft",
-            "MODELS_DEFAULT_FOR_EXPERIMENTS": ["openai/gpt-4"],
             "BASE_URL": "https://api.example.com",
             "MODEL_MAX_TOKENS_REASONING": 1000,
             "MODEL_MAX_TOKENS_TOTAL": 4096,

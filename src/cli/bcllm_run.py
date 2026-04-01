@@ -26,6 +26,7 @@ import uuid
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
+from src.core.argv_utils import parse_args_normalized
 from src.db.models import Run
 from src.db.repository import ExperimentRepository, RunRepository
 
@@ -286,16 +287,16 @@ def handle_remove_run(args, conn) -> int:
 
 def main(mode: Mode) -> int:
     """Main entry point.
-    
+
     Args:
         mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+
     Returns:
         Exit code (0 for success, 1 for error).
     """
     _validate_expected_mode(mode)
     parser = create_parser()
-    args = parser.parse_args()
+    args = parse_args_normalized(parser)
 
     conn = get_database_connection()
 
