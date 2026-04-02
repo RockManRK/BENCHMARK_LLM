@@ -393,7 +393,7 @@ class ExecutionEngine:
             response_text = self._extract_response_content(response)
             latency_ms = self._extract_latency(response)
             input_tokens = self._extract_input_tokens(response)
-            response_tokens = self._extract_output_tokens(response)
+            response_tokens = self._extract_response_tokens(response)
             finish_reason = self._extract_finish_reason(response)
             raw_response = response.raw_response if hasattr(response, 'raw_response') else None
 
@@ -731,20 +731,18 @@ class ExecutionEngine:
             return response.input_tokens
         return None
 
-    def _extract_output_tokens(self, response: Any) -> int | None:
-        """Extract output tokens from API response.
+    def _extract_response_tokens(self, response: Any) -> int | None:
+        """Extract response tokens (completion_tokens) from API response.
 
         Args:
             response: API response
 
         Returns:
-            Output token count or None
+            Response token count or None
         """
         if isinstance(response, dict):
             usage = response.get("usage", {})
-            return usage.get("completion_tokens") or usage.get("output_tokens")
-        if hasattr(response, "output_tokens"):
-            return response.output_tokens
+            return usage.get("completion_tokens")
         return None
 
     def _extract_finish_reason(self, response: Any) -> str | None:

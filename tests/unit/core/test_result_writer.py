@@ -174,7 +174,7 @@ def setup_test_data(in_memory_db: sqlite3.Connection) -> dict:
 # =============================================================================
 
 @pytest.mark.domain_rule
-def test_writer_calculates_needs_review_clear(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
+def test_writer_calculates_review_status_clear(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter calculates needs_review=False for clear confidence with answer."""
     # Arrange
     result = ExecutionResult(
@@ -189,7 +189,7 @@ def test_writer_calculates_needs_review_clear(in_memory_db: sqlite3.Connection, 
         parse_confidence="clear",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -202,14 +202,14 @@ def test_writer_calculates_needs_review_clear(in_memory_db: sqlite3.Connection, 
 
     # Assert: needs_review was calculated as FALSE
     cursor = in_memory_db.cursor()
-    cursor.execute("SELECT needs_review FROM responses WHERE run_id = 'run-test-001'")
+    cursor.execute("SELECT review_status FROM responses WHERE run_id = 'run-test-001'")
     row = cursor.fetchone()
     assert row is not None, "Response was not written"
-    assert row[0] == 0, "needs_review should be FALSE (0) for clear confidence with answer"
+    assert row[0] == 'auto', "review_status should be 'auto' (0) for clear confidence with answer"
 
 
 @pytest.mark.domain_rule
-def test_writer_calculates_needs_review_ambiguous(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
+def test_writer_calculates_review_status_ambiguous(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter calculates needs_review=True for ambiguous confidence."""
     # Arrange
     result = ExecutionResult(
@@ -224,7 +224,7 @@ def test_writer_calculates_needs_review_ambiguous(in_memory_db: sqlite3.Connecti
         parse_confidence="ambiguous",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -237,14 +237,14 @@ def test_writer_calculates_needs_review_ambiguous(in_memory_db: sqlite3.Connecti
 
     # Assert: needs_review was calculated as TRUE
     cursor = in_memory_db.cursor()
-    cursor.execute("SELECT needs_review FROM responses WHERE run_id = 'run-test-001'")
+    cursor.execute("SELECT review_status FROM responses WHERE run_id = 'run-test-001'")
     row = cursor.fetchone()
     assert row is not None
-    assert row[0] == 1, "needs_review should be TRUE (1) for ambiguous confidence"
+    assert row[0] == 'needs_review', "review_status should be 'needs_review' (1) for ambiguous confidence"
 
 
 @pytest.mark.domain_rule
-def test_writer_calculates_needs_review_no_answer(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
+def test_writer_calculates_review_status_no_answer(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter calculates needs_review=True for no_answer confidence."""
     # Arrange
     result = ExecutionResult(
@@ -259,7 +259,7 @@ def test_writer_calculates_needs_review_no_answer(in_memory_db: sqlite3.Connecti
         parse_confidence="no_answer",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -272,14 +272,14 @@ def test_writer_calculates_needs_review_no_answer(in_memory_db: sqlite3.Connecti
 
     # Assert: needs_review was calculated as TRUE
     cursor = in_memory_db.cursor()
-    cursor.execute("SELECT needs_review FROM responses WHERE run_id = 'run-test-001'")
+    cursor.execute("SELECT review_status FROM responses WHERE run_id = 'run-test-001'")
     row = cursor.fetchone()
     assert row is not None
-    assert row[0] == 1, "needs_review should be TRUE (1) for no_answer confidence"
+    assert row[0] == 'needs_review', "review_status should be 'needs_review' (1) for no_answer confidence"
 
 
 @pytest.mark.domain_rule
-def test_writer_calculates_needs_review_low_confidence(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
+def test_writer_calculates_review_status_low_confidence(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter calculates needs_review=True for low_confidence."""
     # Arrange
     result = ExecutionResult(
@@ -294,7 +294,7 @@ def test_writer_calculates_needs_review_low_confidence(in_memory_db: sqlite3.Con
         parse_confidence="low_confidence",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -307,14 +307,14 @@ def test_writer_calculates_needs_review_low_confidence(in_memory_db: sqlite3.Con
 
     # Assert: needs_review was calculated as TRUE
     cursor = in_memory_db.cursor()
-    cursor.execute("SELECT needs_review FROM responses WHERE run_id = 'run-test-001'")
+    cursor.execute("SELECT review_status FROM responses WHERE run_id = 'run-test-001'")
     row = cursor.fetchone()
     assert row is not None
-    assert row[0] == 1, "needs_review should be TRUE (1) for low_confidence"
+    assert row[0] == 'needs_review', "review_status should be 'needs_review' (1) for low_confidence"
 
 
 @pytest.mark.domain_rule
-def test_writer_calculates_needs_review_null_answer(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
+def test_writer_calculates_review_status_null_answer(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter calculates needs_review=True when selected_answer is None."""
     # Arrange: clear confidence but no answer selected
     result = ExecutionResult(
@@ -329,7 +329,7 @@ def test_writer_calculates_needs_review_null_answer(in_memory_db: sqlite3.Connec
         parse_confidence="clear",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -342,10 +342,10 @@ def test_writer_calculates_needs_review_null_answer(in_memory_db: sqlite3.Connec
 
     # Assert: needs_review was calculated as TRUE (null answer trumps clear confidence)
     cursor = in_memory_db.cursor()
-    cursor.execute("SELECT needs_review FROM responses WHERE run_id = 'run-test-001'")
+    cursor.execute("SELECT review_status FROM responses WHERE run_id = 'run-test-001'")
     row = cursor.fetchone()
     assert row is not None
-    assert row[0] == 1, "needs_review should be TRUE (1) when selected_answer is None"
+    assert row[0] == 'needs_review', "review_status should be 'needs_review' (1) when selected_answer is None"
 
 
 # =============================================================================
@@ -368,7 +368,7 @@ def test_writer_idempotent_writes(in_memory_db: sqlite3.Connection, setup_test_d
         parse_confidence="clear",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -411,7 +411,7 @@ def test_writer_persists_success_results(in_memory_db: sqlite3.Connection, setup
         parse_confidence="clear",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -464,7 +464,7 @@ def test_writer_persists_failure_results(in_memory_db: sqlite3.Connection, setup
         parse_confidence=None,
         latency_ms=100,
         input_tokens=0,
-        output_tokens=0,
+        response_tokens=0,
         error_type="timeout",
         error_message="Request timed out after 30s",
         attempt_count=3,
@@ -517,7 +517,7 @@ def test_writer_updates_run_status_completed(in_memory_db: sqlite3.Connection, s
         parse_confidence="clear",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,
@@ -563,7 +563,7 @@ def test_writer_updates_run_status_partial_failed(in_memory_db: sqlite3.Connecti
             parse_confidence="clear",
             latency_ms=500,
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             error_type=None,
             error_message=None,
             attempt_count=1,
@@ -580,7 +580,7 @@ def test_writer_updates_run_status_partial_failed(in_memory_db: sqlite3.Connecti
             parse_confidence=None,
             latency_ms=100,
             input_tokens=0,
-            output_tokens=0,
+            response_tokens=0,
             error_type="timeout",
             error_message="Request timed out",
             attempt_count=3,
@@ -618,7 +618,7 @@ def test_writer_updates_run_status_failed(in_memory_db: sqlite3.Connection, setu
         parse_confidence=None,
         latency_ms=100,
         input_tokens=0,
-        output_tokens=0,
+        response_tokens=0,
         error_type="api_error",
         error_message="API returned 500",
         attempt_count=3,
@@ -668,7 +668,7 @@ def test_writer_returns_write_report(in_memory_db: sqlite3.Connection, setup_tes
             parse_confidence="clear",
             latency_ms=500,
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             error_type=None,
             error_message=None,
             attempt_count=1,
@@ -685,7 +685,7 @@ def test_writer_returns_write_report(in_memory_db: sqlite3.Connection, setup_tes
             parse_confidence=None,
             latency_ms=100,
             input_tokens=0,
-            output_tokens=0,
+            response_tokens=0,
             error_type="timeout",
             error_message="Request timed out",
             attempt_count=3,
@@ -725,7 +725,7 @@ def test_writer_report_includes_skipped_count(in_memory_db: sqlite3.Connection, 
         parse_confidence="clear",
         latency_ms=500,
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         error_type=None,
         error_message=None,
         attempt_count=1,

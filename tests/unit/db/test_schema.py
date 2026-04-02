@@ -151,12 +151,15 @@ class TestSchemaCreation:
             "selected_answer": "TEXT",
             "is_correct": "BOOLEAN",
             "parse_confidence": "TEXT",
-            "needs_review": "BOOLEAN",
+            "review_status": "TEXT",
             "manual_answer": "TEXT",
             "latency_ms": "INTEGER",
             "input_tokens": "INTEGER",
-            "output_tokens": "INTEGER",
-            "created_at": "TIMESTAMP",
+            "response_tokens": "INTEGER",
+            "reasoning_tokens": "INTEGER",
+            "effective_tokens": "INTEGER",
+            "started_at": "TIMESTAMP",
+            "finished_at": "TIMESTAMP",
         }
 
         for col, col_type in expected_columns.items():
@@ -273,7 +276,6 @@ class TestIndexes:
             "idx_runs_by_experiment",
             "idx_runs_pending",
             "idx_runs_active",
-            "idx_responses_needs_review",
             "idx_responses_by_run",
             "idx_errors_by_run",
         }

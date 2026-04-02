@@ -156,8 +156,8 @@ class ReviewUI:
             SELECT r.response_id, r.run_id, r.variant_id, r.snapshot_id,
                    r.model_id, r.question_id, r.selected_answer,
                    r.response_text, r.is_correct,
-                   r.parse_confidence, r.needs_review, r.manual_answer,
-                   r.latency_ms, r.input_tokens, r.output_tokens, r.created_at,
+                   r.parse_confidence, r.review_status, r.manual_answer,
+                   r.latency_ms, r.input_tokens, r.response_tokens, r.created_at,
                    json_extract(q.question_payload, '$.stem') as stem,
                    json_extract(q.question_payload, '$.options') as options_json,
                    json_extract(q.question_payload, '$.answer_key') as answer_key
@@ -165,7 +165,7 @@ class ReviewUI:
             JOIN question_snapshots q ON r.snapshot_id = q.snapshot_id
             JOIN runs run ON r.run_id = run.run_id
             WHERE run.experiment_id = ?
-              AND r.needs_review = 1
+              AND r.review_status = 'needs_review'
             ORDER BY r.question_id, r.model_id, r.created_at
         """, (experiment_id,))
 
@@ -184,11 +184,11 @@ class ReviewUI:
                 selected_answer=row["selected_answer"],
                 is_correct=row["is_correct"],
                 parse_confidence=row["parse_confidence"] or "unknown",
-                needs_review=bool(row["needs_review"]),
+                review_status=row["review_status"],
                 manual_answer=row["manual_answer"],
                 latency_ms=row["latency_ms"],
                 input_tokens=row["input_tokens"],
-                output_tokens=row["output_tokens"],
+                response_tokens=row["response_tokens"],
                 created_at=row["created_at"],
             )
 
@@ -354,28 +354,28 @@ class ReviewUI:
 
         if classification in ("A", "B", "C", "D"):
             item.response.manual_answer = classification
-            item.response.needs_review = False
+            item.response.review_status = 'reviewed'
             item.response.selected_answer = classification
             item.response.is_correct = (classification.upper() == item.correct_answer.upper())
         elif classification == "N":
             item.response.manual_answer = None
-            item.response.needs_review = False
+            item.response.review_status = 'reviewed'
             item.response.selected_answer = None
             item.response.is_correct = False
         elif classification == "E":
             item.response.manual_answer = None
-            item.response.needs_review = False
+            item.response.review_status = 'reviewed'
             item.response.selected_answer = None
             item.response.is_correct = False
 
         cursor.execute("""
             UPDATE responses
-            SET manual_answer = ?, needs_review = ?,
+            SET manual_answer = ?, review_status = ?,
                 selected_answer = ?, is_correct = ?
             WHERE response_id = ?
         """, (
             item.response.manual_answer,
-            0,
+            'reviewed',
             item.response.selected_answer,
             item.response.is_correct,
             item.response.response_id,
@@ -553,8 +553,8 @@ class ReviewUI:
             SELECT r.response_id, r.run_id, r.variant_id, r.snapshot_id,
                    r.model_id, r.question_id, r.selected_answer,
                    r.response_text, r.is_correct,
-                   r.parse_confidence, r.needs_review, r.manual_answer,
-                   r.latency_ms, r.input_tokens, r.output_tokens, r.created_at,
+                   r.parse_confidence, r.review_status, r.manual_answer,
+                   r.latency_ms, r.input_tokens, r.response_tokens, r.created_at,
                    json_extract(q.question_payload, '$.stem') as stem,
                    json_extract(q.question_payload, '$.options') as options_json,
                    json_extract(q.question_payload, '$.answer_key') as answer_key,
@@ -562,7 +562,7 @@ class ReviewUI:
             FROM responses r
             JOIN question_snapshots q ON r.snapshot_id = q.snapshot_id
             JOIN runs run ON r.run_id = run.run_id
-            WHERE r.needs_review = 1
+            WHERE r.review_status = 'needs_review'
             ORDER BY run.experiment_id, r.question_id, r.model_id, r.created_at
         """)
 
@@ -581,11 +581,11 @@ class ReviewUI:
                 selected_answer=row["selected_answer"],
                 is_correct=row["is_correct"],
                 parse_confidence=row["parse_confidence"] or "unknown",
-                needs_review=bool(row["needs_review"]),
+                review_status=row["review_status"],
                 manual_answer=row["manual_answer"],
                 latency_ms=row["latency_ms"],
                 input_tokens=row["input_tokens"],
-                output_tokens=row["output_tokens"],
+                response_tokens=row["response_tokens"],
                 created_at=row["created_at"],
             )
 

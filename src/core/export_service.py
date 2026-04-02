@@ -46,7 +46,7 @@ class ExportedResponse:
         parse_confidence: Parser confidence level
         latency_ms: API call latency in milliseconds
         input_tokens: Number of input tokens used
-        output_tokens: Number of output tokens (response_tokens)
+        output_tokens: Number of output tokens (mapped from response_tokens in DB)
         reasoning_tokens: Number of reasoning tokens
         effective_tokens: Computed: input + output + reasoning tokens
         status: Response processing status

@@ -1,0 +1,129 @@
+{
+    "_debug": {
+        "request_payload": {
+            "model": "google/gemini-3.1-flash-lite-preview",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Voc\u00ea n\u00e3o gos..."
+                },
+                {
+                    "role": "user",
+                    "content": "Mulher de 58 anos..."
+                }
+            ],
+            "debug": {
+                "echo_upstream_body": true
+            },
+            "stream": false
+        },
+        "upstream_body": null
+    },
+    "response": {
+        "id": "gen-1773441136-Y8taMDK1lKClHYmljbjx",
+        "object": "chat.completion",
+        "created": 1773441136,
+        "model": "google...",
+        "provider": "Google",
+        "system_fingerprint": null,
+        "choices": [
+            {
+                "index": 0,
+                "logprobs": null,
+                "finish_reason": "stop",
+                "native_finish_reason": "STOP",
+                "message": {
+                    "role": "assistant",
+                    "content": "A",
+                    "refusal": null,
+                    "reasoning": null,
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.encrypted",
+                            "data": "AY89a1/o2G...",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                }
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 309,
+            "completion_tokens": 1,
+            "total_tokens": 310,
+            "cost": 7.79625e-05,
+            "is_byok": false,
+            "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+            },
+            "cost_details": {
+                "upstream_inference_cost": 7.875e-05,
+                "upstream_inference_prompt_cost": 7.725e-05,
+                "upstream_inference_completions_cost": 1.5e-06
+            },
+            "completion_tokens_details": {
+                "reasoning_tokens": 0,
+                "image_tokens": 0,
+                "audio_tokens": 0
+            }
+        },
+        "debug": {
+            "echo_upstream_body": {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": "Mulher ..."
+                            }
+                        ]
+                    }
+                ],
+                "systemInstruction": {
+                    "role": "system",
+                    "parts": [
+                        {
+                            "text": "Voc\u00ea n\u00e3o..."
+                        }
+                    ]
+                },
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+                        "threshold": "OFF"
+                    }
+                ],
+                "labels": "<included to upstream but not in debug info>",
+                "generationConfig": {
+                    "thinkingConfig": {
+                        "thinkingLevel": "minimal"
+                    },
+                    "candidateCount": 1,
+                    "maxOutputTokens": 65536,
+                    "topP": 1,
+                    "temperature": 1
+                }
+            }
+        }
+    }
+}

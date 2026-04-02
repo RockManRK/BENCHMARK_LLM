@@ -92,11 +92,11 @@ def mock_api_client():
                 pass
 
         class CompletionResponse:
-            def __init__(self, content, model_id, input_tokens, output_tokens, latency_ms):
+            def __init__(self, content, model_id, input_tokens, response_tokens, latency_ms):
                 self.content = content
                 self.model_id = model_id
                 self.input_tokens = input_tokens
-                self.output_tokens = output_tokens
+                self.response_tokens = response_tokens
                 self.latency_ms = latency_ms
 
     client = MagicMock(spec=OpenRouterClient)
@@ -104,7 +104,7 @@ def mock_api_client():
         content="The answer is (B).",
         model_id="openai/gpt-4",
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         latency_ms=500,
     )
     return client

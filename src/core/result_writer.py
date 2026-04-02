@@ -66,7 +66,7 @@ class ResultWriter:
     The ResultWriter is the ONLY component with database write access.
     It is responsible for:
 
-    - Calculating needs_review from parse_confidence and selected_answer
+    - Calculating review_status from parse_confidence and selected_answer
     - Idempotent writes using UNIQUE constraint + INSERT OR IGNORE
     - Updating run status after all writes complete
     - Writing success results to responses table
@@ -100,7 +100,7 @@ class ResultWriter:
         """Persist execution results to database.
 
         This method processes all ExecutionResult instances and:
-        1. Calculates needs_review for each result
+        1. Calculates review_status for each result
         2. Writes success results to responses table (idempotent)
         3. Writes failure results to errors table
         4. Updates run status based on overall results
@@ -156,43 +156,43 @@ class ResultWriter:
 
         return report
 
-    def _calculate_needs_review(
+    def _calculate_review_status(
         self,
         parse_confidence: str | None,
         selected_answer: str | None,
-    ) -> bool:
-        """Calculate needs_review flag from parse_confidence and selected_answer.
+    ) -> str:
+        """Calculate review_status from parse_confidence and selected_answer.
 
         Domain Rules:
-        - parse_confidence in ('ambiguous', 'no_answer', 'low_confidence') → TRUE
-        - selected_answer is None → TRUE
-        - parse_confidence == 'clear' AND selected_answer is not None → FALSE
+        - parse_confidence in ('ambiguous', 'no_answer', 'low_confidence') → 'needs_review'
+        - selected_answer is None → 'needs_review'
+        - parse_confidence == 'clear' AND selected_answer is not None → 'auto'
 
         Args:
             parse_confidence: Confidence level from answer parser
             selected_answer: Parsed answer letter (A/B/C/D) or None
 
         Returns:
-            True if result needs manual review, False otherwise
+            'needs_review' if manual review needed, 'auto' otherwise
 
         Example:
-            >>> writer._calculate_needs_review('clear', 'B')
-            False
-            >>> writer._calculate_needs_review('ambiguous', 'B')
-            True
-            >>> writer._calculate_needs_review('clear', None)
-            True
+            >>> writer._calculate_review_status('clear', 'B')
+            'auto'
+            >>> writer._calculate_review_status('ambiguous', 'B')
+            'needs_review'
+            >>> writer._calculate_review_status('clear', None)
+            'needs_review'
         """
         # Check confidence level first
         if parse_confidence in ('ambiguous', 'no_answer', 'low_confidence'):
-            return True
+            return 'needs_review'
 
         # Check if answer was selected
         if selected_answer is None:
-            return True
+            return 'needs_review'
 
         # Clear confidence with answer = no review needed
-        return False
+        return 'auto'
 
     def _generate_response_id(
         self,
@@ -259,14 +259,11 @@ class ResultWriter:
         """
         cursor = self.db_connection.cursor()
 
-        # Calculate needs_review before INSERT
-        needs_review = self._calculate_needs_review(
+        # Calculate review_status directly
+        review_status = self._calculate_review_status(
             result.parse_confidence,
             result.selected_answer,
         )
-
-        # Calculate review_status from needs_review
-        review_status = 'needs_review' if needs_review else 'auto'
 
         # Get model_id from variant (we need to look it up)
         model_id = self._get_model_id_from_variant(result.variant_id)

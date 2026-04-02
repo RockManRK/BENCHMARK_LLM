@@ -230,11 +230,11 @@ class ResponseFactory:
         selected_answer: str | None = None,
         is_correct: bool | None = None,
         parse_confidence: str = "unknown",
-        needs_review: bool = False,
+        review_status: str | None = None,
         manual_answer: str | None = None,
         latency_ms: int | None = None,
         input_tokens: int | None = None,
-        output_tokens: int | None = None,
+        response_tokens: int | None = None,
     ) -> Response:
         """Create a Response with sensible defaults.
 
@@ -249,11 +249,11 @@ class ResponseFactory:
             selected_answer: Parsed answer (A/B/C/D)
             is_correct: Whether answer is correct
             parse_confidence: Confidence level
-            needs_review: Requires human review
+            review_status: Review status ('needs_review', 'reviewed', 'auto')
             manual_answer: Human override
             latency_ms: API call latency
             input_tokens: Input tokens used
-            output_tokens: Output tokens generated
+            response_tokens: Response tokens generated
 
         Returns:
             Response instance
@@ -275,11 +275,11 @@ class ResponseFactory:
             selected_answer=selected_answer,
             is_correct=is_correct,
             parse_confidence=parse_confidence,
-            needs_review=needs_review,
+            review_status=review_status,
             manual_answer=manual_answer,
             latency_ms=latency_ms,
             input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            response_tokens=response_tokens,
         )
 
 

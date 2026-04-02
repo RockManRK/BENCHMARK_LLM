@@ -395,9 +395,9 @@ class TestRunRepository:
 class TestResponseRepository:
     """Tests for ResponseRepository CRUD operations."""
 
-    @pytest.mark.domain_rule("Responses must calculate needs_review on save")
-    def test_repository_response_needs_review(self, repos):
-        """Verify needs_review is calculated correctly on save."""
+    @pytest.mark.domain_rule("Responses must calculate review_status on save")
+    def test_repository_response_review_status(self, repos):
+        """Verify review_status is calculated correctly on save."""
         # Setup: create experiment, variant, snapshot, run
         exp_repo = repos["experiment"]
         var_repo = repos["variant"]
@@ -440,7 +440,7 @@ class TestResponseRepository:
         )
         run_repo.save(run)
 
-        # CREATE response with clear answer (should NOT need review)
+        # CREATE response with clear answer (should be 'auto')
         response = Response(
             response_id="resp_clear",
             run_id="run_resp",
@@ -452,10 +452,10 @@ class TestResponseRepository:
             parse_confidence="clear",
         )
         resp_repo.save(response)
-        
-        # Check the persisted value, not the object attribute
+
+        # Check the persisted value
         persisted = resp_repo.get_by_id("resp_clear")
-        assert persisted.needs_review is False
+        assert persisted.review_status == 'auto'
 
         # CREATE response with ambiguous confidence (needs review)
         response_ambig = Response(
@@ -469,12 +469,12 @@ class TestResponseRepository:
             parse_confidence="ambiguous",
         )
         resp_repo.save(response_ambig)
-        
-        # Check the persisted value, not the object attribute
-        persisted_ambig = resp_repo.get_by_id("resp_ambig")
-        assert persisted_ambig.needs_review is True
 
-    @pytest.mark.domain_rule("Responses must support listing by needs_review flag")
+        # Check the persisted value
+        persisted_ambig = resp_repo.get_by_id("resp_ambig")
+        assert persisted_ambig.review_status == 'needs_review'
+
+    @pytest.mark.domain_rule("Responses must support listing by review_status")
     def test_response_list_needs_review(self, repos):
         """Verify listing responses that need review."""
         # Setup (same as previous test)
