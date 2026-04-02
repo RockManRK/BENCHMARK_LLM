@@ -45,6 +45,8 @@ from src.api.errors import (
     TimeoutError,
     ErrorClassifier,
 )
+from src.api.response_parser import parse_to_completion_response
+from src.api.stream_aggregator import aggregate_streaming_response
 from src.utils.logging_config import get_logger
 
 
@@ -60,6 +62,8 @@ class CompletionResponse:
         model_id: Model identifier that generated the response
         input_tokens: Number of input tokens used
         response_tokens: Number of output tokens generated
+        reasoning_tokens: Number of tokens used for reasoning (if available)
+        cost: Cost of the API call in USD (if available)
         latency_ms: API call latency in milliseconds
         raw_response: Optional provider-specific raw response data (dict for non-streaming, list for streaming)
 
@@ -70,6 +74,8 @@ class CompletionResponse:
         ...     input_tokens=50,
         ...     response_tokens=10,
         ...     latency_ms=500,
+        ...     reasoning_tokens=5,
+        ...     cost=0.0001,
         ... )
     """
 
@@ -78,6 +84,8 @@ class CompletionResponse:
     input_tokens: int
     response_tokens: int
     latency_ms: int
+    reasoning_tokens: int | None = None
+    cost: float | None = None
     raw_response: list[dict] | dict | None = None
 
 
@@ -278,16 +286,16 @@ class OpenRouterClient(CompletionProvider):
             # Parse SSE stream
             response.raise_for_status()
             chunks: list[dict] = []
-            
+
             async for line in response.aiter_lines():
                 line = line.strip()
                 if not line or not line.startswith("data: "):
                     continue
-                
+
                 data = line[6:]  # Remove "data: " prefix
                 if data == "[DONE]":
                     break
-                
+
                 try:
                     chunk = json.loads(data)
                     chunks.append(chunk)
@@ -295,47 +303,23 @@ class OpenRouterClient(CompletionProvider):
                     self._logger.warning(f"Failed to parse SSE chunk: {e}")
                     continue
 
-            # Aggregate content from all chunks (streaming deltas)
-            aggregated_content: str = ""
-            for chunk in chunks:
-                if chunk.get("choices") and len(chunk["choices"]) > 0:
-                    # OpenRouter streaming uses delta, not message
-                    choice = chunk["choices"][0]
-                    delta = choice.get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        aggregated_content += content
-
-            # Extract other fields from final chunk
-            final_chunk = chunks[-1] if chunks else {}
-            usage = final_chunk.get("usage", {})
-            input_tokens = usage.get("prompt_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0)
-
-            # Extract finish_reason from final chunk
-            finish_reason = None
-            if final_chunk.get("choices") and len(final_chunk["choices"]) > 0:
-                finish_reason = final_chunk["choices"][0].get("finish_reason")
-
-            # Calculate total tokens
-            total_tokens = input_tokens + output_tokens
+            # Aggregate streaming chunks into a single logical response
+            # This is necessary because SSE streaming sends multiple chunks,
+            # with fields like 'usage' and 'finish_reason' only appearing in the final chunk.
+            aggregated = aggregate_streaming_response(chunks)
 
             # Log API response
+            total_tokens = (
+                aggregated.usage.get("prompt_tokens", 0)
+                + aggregated.usage.get("completion_tokens", 0)
+            )
             self._logger.info(
-                f"API_RESPONSE | model={model_id} | latency={latency_ms}ms | tokens={total_tokens} | finish_reason={finish_reason}"
+                f"API_RESPONSE | model={model_id} | latency={latency_ms}ms | tokens={total_tokens} | finish_reason={aggregated.finish_reason}"
             )
 
-            # raw_response contains ALL chunks (including debug)
-            raw_response = chunks
-
-            return CompletionResponse(
-                content=aggregated_content,
-                model_id=model_id,
-                input_tokens=input_tokens,
-                response_tokens=output_tokens,
-                latency_ms=latency_ms,
-                raw_response=raw_response,
-            )
+            # Parse aggregated response into canonical CompletionResponse format
+            # This extracts all fields (tokens, cost, reasoning_tokens) in a tolerant way
+            return parse_to_completion_response(aggregated, model_id, latency_ms)
 
         except httpx.TimeoutException as e:
             error_type = "timeout"

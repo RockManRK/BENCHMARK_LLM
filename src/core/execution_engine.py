@@ -61,6 +61,9 @@ class ExecutionResult:
         latency_ms: API call latency in milliseconds (None on failure)
         input_tokens: Number of input tokens (None on failure)
         response_tokens: Number of output tokens (None on failure)
+        reasoning_tokens: Number of tokens used for reasoning (None on failure)
+        cost: Cost of the API call in USD (None on failure)
+        effective_tokens: Total tokens (input + response + reasoning) (None on failure)
         error_type: Type of error if failed (None on success)
         error_message: Error message if failed (None on success)
         attempt_count: Number of API call attempts made
@@ -84,6 +87,9 @@ class ExecutionResult:
         ...     latency_ms=500,
         ...     input_tokens=50,
         ...     response_tokens=10,
+        ...     reasoning_tokens=5,
+        ...     cost=0.0001,
+        ...     effective_tokens=65,
         ...     error_type=None,
         ...     error_message=None,
         ...     attempt_count=1,
@@ -105,6 +111,9 @@ class ExecutionResult:
     error_type: str | None
     error_message: str | None
     attempt_count: int
+    reasoning_tokens: int | None = None
+    cost: float | None = None
+    effective_tokens: int | None = None
     raw_response: list[dict] | dict | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -392,10 +401,17 @@ class ExecutionEngine:
             # Extract response data
             response_text = self._extract_response_content(response)
             latency_ms = self._extract_latency(response)
-            input_tokens = self._extract_input_tokens(response)
-            response_tokens = self._extract_response_tokens(response)
+            input_tokens = response.input_tokens if hasattr(response, 'input_tokens') else None
+            response_tokens = response.response_tokens if hasattr(response, 'response_tokens') else None
+            reasoning_tokens = response.reasoning_tokens if hasattr(response, 'reasoning_tokens') else None
+            cost = response.cost if hasattr(response, 'cost') else None
             finish_reason = self._extract_finish_reason(response)
             raw_response = response.raw_response if hasattr(response, 'raw_response') else None
+
+            # Calculate effective tokens (input + response + reasoning)
+            effective_tokens = None
+            if input_tokens is not None and response_tokens is not None:
+                effective_tokens = input_tokens + response_tokens + (reasoning_tokens or 0)
 
             # Check for model-level error (HTTP 200 with finish_reason: 'error')
             error_details: str | None = None
@@ -431,6 +447,9 @@ class ExecutionEngine:
                 "latency_ms": latency_ms,
                 "input_tokens": input_tokens,
                 "response_tokens": response_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "cost": cost,
+                "effective_tokens": effective_tokens,
                 "finish_reason": finish_reason,
                 "raw_response": raw_response,
                 "error_details": error_details,
@@ -450,6 +469,9 @@ class ExecutionEngine:
             latency_ms = result_data["latency_ms"]
             input_tokens = result_data["input_tokens"]
             response_tokens = result_data["response_tokens"]
+            reasoning_tokens = result_data.get("reasoning_tokens")
+            cost = result_data.get("cost")
+            effective_tokens = result_data.get("effective_tokens")
             finish_reason = result_data["finish_reason"]
             raw_response = result_data["raw_response"]
             error_details = result_data.get("error_details")
@@ -457,12 +479,12 @@ class ExecutionEngine:
             # Capture finish timestamp
             finished_at = datetime.now()
 
-            # Calculate total tokens
-            total_tokens = (input_tokens or 0) + (response_tokens or 0)
+            # Calculate total tokens for logging
+            total_tokens = (input_tokens or 0) + (response_tokens or 0) + (reasoning_tokens or 0)
 
             # Log success
             self._logger.info(
-                f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens}"
+                f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens} | cost={cost}"
             )
 
             return ExecutionResult(
@@ -478,6 +500,9 @@ class ExecutionEngine:
                 latency_ms=latency_ms,
                 input_tokens=input_tokens,
                 response_tokens=response_tokens,
+                reasoning_tokens=reasoning_tokens,
+                cost=cost,
+                effective_tokens=effective_tokens,
                 error_type=None,
                 error_message=None,
                 attempt_count=attempt_count,
@@ -652,15 +677,33 @@ class ExecutionEngine:
         options: list[str],
         user_prompt_template: str,
     ) -> str:
-        """Build the user prompt from template.
+        """Build the user prompt from stem, options, and user prompt template.
+
+        The user prompt is built by concatenating stem, options, and user_prompt_template
+        with double newlines between them.
+
+        Format:
+            {stem}
+
+            {options}
+
+            {user_prompt_template}
 
         Args:
             stem: Question stem
             options: Answer options (may be randomized)
-            user_prompt_template: User prompt template
+            user_prompt_template: User prompt template (may be empty)
 
         Returns:
-            Formatted user prompt
+            Complete user prompt with stem, options, and user prompt
+
+        Example:
+            >>> stem = "What is 2+2?"
+            >>> options = ["3", "4", "5", "6"]
+            >>> user_prompt = "Select the correct answer."
+            >>> result = _build_user_prompt(stem, options, user_prompt)
+            >>> result
+            "What is 2+2?\\n\\nA) 3\\nB) 4\\nC) 5\\nD) 6\\n\\nSelect the correct answer."
         """
         # Build options text
         option_letters = ["A", "B", "C", "D"]
@@ -669,13 +712,12 @@ class ExecutionEngine:
             for letter, option in zip(option_letters, options[:len(option_letters)])
         )
 
-        # Build question text
-        question_text = f"{stem}\n\n{options_text}"
+        # Build complete user prompt: stem + options + user_prompt
+        parts = [stem, options_text]
+        if user_prompt_template:
+            parts.append(user_prompt_template)
 
-        # Format template
-        user_prompt = user_prompt_template.replace("{question}", question_text)
-
-        return user_prompt
+        return "\n\n".join(parts)
 
     def _extract_response_content(self, response: Any) -> str:
         """Extract content from API response.
@@ -713,36 +755,6 @@ class ExecutionEngine:
             return response.get("latency_ms")
         if hasattr(response, "latency_ms"):
             return response.latency_ms
-        return None
-
-    def _extract_input_tokens(self, response: Any) -> int | None:
-        """Extract input tokens from API response.
-
-        Args:
-            response: API response
-
-        Returns:
-            Input token count or None
-        """
-        if isinstance(response, dict):
-            usage = response.get("usage", {})
-            return usage.get("prompt_tokens") or usage.get("input_tokens")
-        if hasattr(response, "input_tokens"):
-            return response.input_tokens
-        return None
-
-    def _extract_response_tokens(self, response: Any) -> int | None:
-        """Extract response tokens (completion_tokens) from API response.
-
-        Args:
-            response: API response
-
-        Returns:
-            Response token count or None
-        """
-        if isinstance(response, dict):
-            usage = response.get("usage", {})
-            return usage.get("completion_tokens")
         return None
 
     def _extract_finish_reason(self, response: Any) -> str | None:

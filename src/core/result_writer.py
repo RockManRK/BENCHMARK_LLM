@@ -295,9 +295,9 @@ class ResultWriter:
                 model_id, question_id, status, finish_reason, error_details,
                 response_text, selected_answer, is_correct,
                 parse_confidence, review_status, latency_ms,
-                input_tokens, response_tokens,
+                input_tokens, response_tokens, reasoning_tokens, cost, effective_tokens,
                 raw_response, started_at, finished_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             response_id,
             result.run_id,
@@ -316,6 +316,9 @@ class ResultWriter:
             result.latency_ms,
             result.input_tokens,
             result.response_tokens,
+            result.reasoning_tokens,
+            result.cost,
+            result.effective_tokens,
             raw_response_json,
             started_at_str,
             finished_at_str,
