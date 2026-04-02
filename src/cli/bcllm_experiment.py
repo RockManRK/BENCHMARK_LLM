@@ -446,6 +446,34 @@ def _add_models_at_creation(models: list[str], experiment: Experiment, conn, res
     return 0
 
 
+def _normalize_options(options: dict | list) -> list:
+    """Normalize options from dict to list format.
+
+    The dataset stores options as a dict with letter keys:
+        {"A": "text A", "B": "text B", "C": "text C", "D": "text D"}
+
+    But the execution engine expects a list of option texts:
+        ["text A", "text B", "text C", "text D"]
+
+    This function converts dict to list, preserving the order of values.
+
+    Args:
+        options: Options in dict format (from dataset) or list format (already normalized)
+
+    Returns:
+        List of option texts
+
+    Example:
+        >>> _normalize_options({"A": "opt1", "B": "opt2"})
+        ["opt1", "opt2"]
+        >>> _normalize_options(["opt1", "opt2"])
+        ["opt1", "opt2"]
+    """
+    if isinstance(options, dict):
+        return list(options.values())
+    return options
+
+
 def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     """Create question snapshots for experiment.
 
@@ -599,7 +627,7 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
 
         payload = {
             'stem': question.get('stem', ''),
-            'options': question.get('options', []),
+            'options': _normalize_options(question.get('options', {})),
             'answer_key': question.get('answer_key', ''),
             'meta': {k: v for k, v in question.items() if k not in ('stem', 'options', 'answer_key', 'id', 'source_id', 'question_id', 'internal_id')},
             'internal_id': question.get('internal_id'),
