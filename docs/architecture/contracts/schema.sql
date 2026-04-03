@@ -128,7 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pend
 -- responses table
 -- ============================================================================
 -- Stores model response results for each (run, variant, snapshot) combination
--- 
+--
 -- Columns:
 --   response_id       TEXT PRIMARY KEY  - Unique response identifier (resp_XXXXXXXX)
 --   run_id            TEXT NOT NULL     - FK to runs.run_id
@@ -141,7 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pend
 --   error_details     TEXT              - Error message if failed
 --   response_text     TEXT              - Raw model response text
 --   selected_answer   TEXT              - Parsed answer (A/B/C/D)
---   is_correct        BOOLEAN           - Whether selected_answer matches answer_key
+--   is_correct        BOOLEAN           - Whether selected_answer matches correct_option_presented
 --   parse_confidence  TEXT DEFAULT 'unknown' - Parser confidence (clear|ambiguous|unknown)
 --   review_status     TEXT              - Review flag (needs_review|reviewed|auto)
 --   manual_answer     TEXT              - Human-corrected answer (post-review)
@@ -154,12 +154,28 @@ CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pend
 --   latency_ms        INTEGER           - API latency in milliseconds
 --   started_at        TIMESTAMP         - Execution start time
 --   finished_at       TIMESTAMP         - Execution end time
--- 
+--
+-- Experimental Context (Randomization Tracking):
+--   Estas colunas congelam o contexto experimental real de cada resposta.
+--   Elas evitam inferência indireta via run e garantem auditoria e reprodutibilidade.
+--
+--   randomization_enabled BOOLEAN       - Se randomização foi aplicada nesta resposta
+--   randomization_seed  INTEGER         - Seed usada (NULL = desligada)
+--   options_presented   TEXT (JSON)     - Alternativas exatamente como apresentadas à LLM
+--   correct_option_presented TEXT       - Gabarito no espaço apresentado (ex: "C")
+--   option_letter_map   TEXT (JSON)     - Mapeamento letra apresentada → letra original
+--
 -- Constraints:
 --   UNIQUE(run_id, variant_id, snapshot_id) - Prevent duplicate responses
--- 
+--
 -- Review Fields Contract:
 --   review_status values: 'needs_review', 'reviewed', 'auto'
+--
+-- Randomization Contract:
+--   randomization_enabled = TRUE significa que as opções foram embaralhadas
+--   correct_option_presented é o gabarito CORRETO no espaço apresentado à LLM
+--   is_correct é calculado comparando selected_answer vs correct_option_presented
+--   O que foi apresentado à LLM é a verdade experimental e nunca deve ser "desrandomizado"
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS responses (
     response_id       TEXT PRIMARY KEY,
@@ -186,6 +202,15 @@ CREATE TABLE IF NOT EXISTS responses (
     latency_ms        INTEGER,
     started_at        TIMESTAMP,
     finished_at       TIMESTAMP,
+
+    -- Contexto experimental de randomização por resposta
+    -- Estas colunas congelam o contexto experimental real:
+    randomization_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    randomization_seed  INTEGER,
+    options_presented   TEXT,
+    correct_option_presented TEXT,
+    option_letter_map   TEXT,
+
     UNIQUE(run_id, variant_id, snapshot_id)
 );
 

@@ -14,6 +14,29 @@ The ExecutionEngine is initialized with:
 - AnswerRandomizer: For answer option randomization
 - AnswerParser: For parsing LLM responses
 
+IMPORTANT - Randomization Contract:
+    Randomização de alternativas é uma decisão experimental explícita.
+
+    - seed = None significa randomização DESLIGADA (NÃO embaralhar)
+    - seed = int significa randomização LIGADA (embaralhar deterministicamente)
+    - seed NÃO é uma flag - é apenas parâmetro do RNG
+    - A decisão de randomizar é feita EXCLUSIVAMENTE com:
+        randomization_enabled = (seed_effective is not None)
+    - NUNCA usar checagens truthy (if seed_effective)
+    - seed = 0 NÃO deve desligar randomização
+
+    O que foi apresentado à LLM é a verdade experimental:
+    - Opções são salvas EXATAMENTE como apresentadas
+    - NUNCA "desrandomizar" respostas após a execução
+    - NUNCA reescrever texto da LLM
+    - Cada response carrega seu próprio contexto experimental
+    - is_correct é calculado usando correct_option_presented (espaço apresentado)
+
+    Estes dados são persistidos por resposta para garantir:
+    - reprodutibilidade
+    - auditoria
+    - integridade científica
+
 Example:
     >>> engine = ExecutionEngine(api_client, randomizer, parser)
     >>> results = engine.execute(plan)
