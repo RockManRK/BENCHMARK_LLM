@@ -629,7 +629,8 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             'stem': question.get('stem', ''),
             'options': _normalize_options(question.get('options', {})),
             'answer_key': question.get('answer_key', ''),
-            'meta': {k: v for k, v in question.items() if k not in ('stem', 'options', 'answer_key', 'id', 'source_id', 'question_id', 'internal_id')},
+            'assets': question.get('assets', []),
+            'meta': {k: v for k, v in question.items() if k not in ('stem', 'options', 'answer_key', 'id', 'source_id', 'question_id', 'internal_id', 'assets')},
             'internal_id': question.get('internal_id'),
             'source_id': source_id,
         }

@@ -413,6 +413,7 @@ def handle_add_questions(args, conn) -> int:
             "stem": question_data.get("stem", ""),
             "options": list(question_data.get("options", {}).values()) if isinstance(question_data.get("options"), dict) else question_data.get("options", []),
             "answer_key": question_data.get("answer_key", ""),
+            "assets": question_data.get("assets", []),
             "meta": question_data.get("meta", {}),
         }
 

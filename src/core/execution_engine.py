@@ -47,8 +47,10 @@ Example:
 from dataclasses import dataclass
 from datetime import datetime
 from logging import Logger
+from pathlib import Path
 from typing import Any, Literal, Optional
 
+from src.api.message_builder import MessageBuilder
 from src.core.execution_plan import (
     ExecutionPlan,
     PlanRun,
@@ -480,19 +482,20 @@ class ExecutionEngine:
                 # No randomization: correct answer letter stays the same
                 correct_option_presented = answer_key_letter.upper()
 
-            # Build the prompt
-            user_prompt = self._build_user_prompt(
-                item.question_payload.stem,
-                options,
-                run.prompts_effective.user,
+            # Build user message (text-only or multimodal based on vision config)
+            user_message = self._build_user_message_for_item(
+                item=item,
+                options=options,
+                user_prompt_template=run.prompts_effective.user,
+                model_config=variant.model_config_effective,
             )
 
             # Build messages - filter out None content (system-default means "do not send")
             messages = []
             if run.prompts_effective.system is not None:
                 messages.append({"role": "system", "content": run.prompts_effective.system})
-            if user_prompt is not None:
-                messages.append({"role": "user", "content": user_prompt})
+            if user_message is not None:
+                messages.append(user_message)
 
             # Get model config
             model_config = variant.model_config_effective
@@ -853,6 +856,100 @@ class ExecutionEngine:
             parts.append(user_prompt_template)
 
         return "\n\n".join(parts)
+
+    def _build_user_message_for_item(
+        self,
+        item: PlanItem,
+        options: list[str],
+        user_prompt_template: str,
+        model_config: ModelConfig,
+    ) -> dict[str, Any] | None:
+        """Build user message for an item (text-only or multimodal).
+
+        This method decides whether to build a text-only or multimodal message
+        based on:
+        1. Whether the question has images (`has_image` and `image_path`)
+        2. Whether the model variant has vision enabled (`enable_vision`)
+
+        Vision Gating Logic:
+        - If question has images AND variant has enable_vision=True:
+            -> Build multimodal message with image
+            -> If image file is missing: raise FileNotFoundError (item will fail)
+        - If question has images BUT variant has enable_vision=False:
+            -> Log warning
+            -> Build text-only message (image omitted)
+        - If question has no images:
+            -> Build text-only message
+
+        Args:
+            item: Plan item containing question payload
+            options: Answer options (may be randomized)
+            user_prompt_template: User prompt template from run configuration
+            model_config: Model configuration including vision flag
+
+        Returns:
+            User message dictionary (text-only or multimodal), or None if
+            user_prompt_template is None (system-default behavior)
+
+        Raises:
+            FileNotFoundError: If question has image, vision is enabled, but
+                              image file does not exist.
+        """
+        has_image = item.question_payload.has_image
+        image_path_str = item.question_payload.image_path
+
+        # Check if we should send images
+        should_send_image = (
+            has_image
+            and image_path_str is not None
+            and model_config.enable_vision
+        )
+
+        # Build text prompt
+        text_prompt = self._build_user_prompt(
+            stem=item.question_payload.stem,
+            options=options,
+            user_prompt_template=user_prompt_template,
+        )
+
+        # If text prompt is None (system-default), return None
+        if text_prompt is None:
+            return None
+
+        # Handle image logic
+        if should_send_image:
+            image_path = Path(image_path_str)
+
+            if not image_path.exists():
+                # V2 FIX: Explicit failure instead of silent fallback
+                error_msg = (
+                    f"Image file not found for question {item.question_id}: {image_path}. "
+                    f"Vision is enabled for this model variant, but the image file is missing. "
+                    f"This item will fail to ensure data integrity."
+                )
+                self._logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
+
+            # Build multimodal message
+            self._logger.info(
+                f"VISION_ENABLED | question={item.question_id} | "
+                f"image={image_path} | building multimodal message"
+            )
+            return MessageBuilder.build_multimodal_message(
+                text=text_prompt,
+                image_path=image_path,
+            )
+
+        # Question has images but vision is NOT enabled for this variant
+        if has_image and image_path_str is not None:
+            self._logger.warning(
+                f"VISION_DISABLED | question={item.question_id} | "
+                f"question has image ({image_path_str}) but model variant has "
+                f"enable_vision=False. Sending text-only message (image omitted)."
+            )
+
+        # Build text-only message
+        return MessageBuilder.build_user_message(content=text_prompt)
 
     def _extract_response_content(self, response: Any) -> str:
         """Extract content from API response.

@@ -74,6 +74,7 @@ Example:
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 
@@ -88,6 +89,8 @@ class QuestionPayload:
         stem: The question text/statement
         options: List of answer options (already randomized if seed provided)
         answer_key: The correct answer (for validation)
+        has_image: Whether this question includes an image asset
+        image_path: Path to the image file (if has_image is True)
 
     Example:
         payload = QuestionPayload(
@@ -95,11 +98,22 @@ class QuestionPayload:
             options=["London", "Berlin", "Paris", "Madrid"],
             answer_key="Paris",
         )
+
+        # With image:
+        payload = QuestionPayload(
+            stem="Describe the X-ray findings.",
+            options=["Pneumonia", "Fracture", "Normal", "Tumor"],
+            answer_key="A",
+            has_image=True,
+            image_path="data/assets/image_Q005.png",
+        )
     """
 
     stem: str
     options: list[str]
     answer_key: str
+    has_image: bool = False
+    image_path: str | None = None
 
 
 @dataclass(frozen=True)
