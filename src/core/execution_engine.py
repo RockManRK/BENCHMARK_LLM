@@ -310,8 +310,15 @@ class ExecutionEngine:
         )
 
         # Apply randomization seed if set
-        if run.seed_effective is not None:
-            self.randomizer.set_seed(run.seed_effective)
+        # Contract: run.seed_effective is guaranteed to be int | None by the Planner.
+        # This layer does NOT normalize — it only verifies and executes.
+        seed = run.seed_effective
+        if seed is not None:
+            assert isinstance(seed, int), (
+                f"seed_effective must be int, got {type(seed).__name__}. "
+                f"Seed normalization must happen in Planner._resolve_seed_effective()."
+            )
+            self.randomizer.set_seed(seed)
 
         # Calculate milestone interval (25%, 50%, 75%, 100%)
         milestone_interval = max(1, total_items // 4)

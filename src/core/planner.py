@@ -414,35 +414,84 @@ class Planner:
         """Resolve effective seed for run.
 
         Run-level seed overrides experiment-level seed.
-        
+
         Resolution chain:
         1. Run config.RUN_RESPONSES_SEED
         2. Experiment config.RUN_RESPONSES_SEED (fallback)
-        
+
         Seed is stored in run.config JSON column as RUN_RESPONSES_SEED.
+
+        CONTRATO ARQUITETURAL DE SEED:
+
+        Este método é a ÚNICA fonte de verdade para normalização de seed.
+        Após este método, seed_effective é GARANTIDAMENTE int | None.
+
+        Por que a normalização acontece aqui:
+        - O planner é o ponto onde configs do banco são lidos e resolvidos
+        - Configs podem conter strings ("OFF", "NULL", etc.) ou ints
+        - Após resolução, todas as camadas downstream assumem contrato limpo
+        - Outras camadas NÃO devem repetir normalização
+
+        Regras de conversão:
+        - "OFF", "NULL", "NONE", "" → None (randomização DESLIGADA)
+        - strings numéricas ("42") → int (randomização LIGADA)
+        - int → int (mantido)
+        - qualquer valor inválido → None
+
+        Este é um contrato arquitetural, não uma convenção informal.
 
         Args:
             experiment_row: Experiment database row
             run_row: Run database row (has config column with RUN_RESPONSES_SEED)
 
         Returns:
-            Effective seed (None = no randomization)
+            Effective seed (int | None only — never string or other type)
         """
         import json
-        
+
         # Parse run config
         run_config_str = run_row["config"] if "config" in run_row.keys() else "{}"
         run_config = json.loads(run_config_str) if run_config_str else {}
-        
+
         # Run seed takes precedence
         run_seed = run_config.get("RUN_RESPONSES_SEED")
         if run_seed is not None:
-            return run_seed
-        
+            return self._normalize_seed_value(run_seed)
+
         # Fallback to experiment config
         exp_config_str = experiment_row["config_json"] if "config_json" in experiment_row.keys() else "{}"
         exp_config = json.loads(exp_config_str) if exp_config_str else {}
-        return exp_config.get("RUN_RESPONSES_SEED")
+        return self._normalize_seed_value(exp_config.get("RUN_RESPONSES_SEED"))
+
+    def _normalize_seed_value(self, seed_value) -> int | None:
+        """Normalize seed value to int | None.
+
+        This is the ONLY method that handles string seeds.
+        All other code assumes seed is already int | None.
+
+        Args:
+            seed_value: Raw seed value from config (may be str, int, or None)
+
+        Returns:
+            int if valid seed, None if disabled or invalid.
+        """
+        if seed_value is None:
+            return None
+
+        if isinstance(seed_value, int):
+            return seed_value
+
+        if isinstance(seed_value, str):
+            normalized = seed_value.strip().upper()
+            if normalized in ("OFF", "NULL", "NONE", ""):
+                return None
+            try:
+                return int(seed_value)
+            except ValueError:
+                return None
+
+        # Any other type → disable randomization
+        return None
 
     def _build_model_config(self, variant_row: sqlite3.Row) -> ModelConfig:
         """Build ModelConfig from variant row.

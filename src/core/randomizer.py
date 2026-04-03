@@ -34,7 +34,8 @@ class AnswerRandomizer:
     def __init__(self, seed: int | None = None) -> None:
         """Initialize the AnswerRandomizer.
 
-        Sets the global random seed for reproducibility.
+        Contract: seed is guaranteed to be int | None by the caller (ExecutionEngine).
+        This class does NOT validate, normalize, or decide — it only executes.
 
         Args:
             seed: Seed value for reproducible randomization.
@@ -45,19 +46,26 @@ class AnswerRandomizer:
             >>> randomizer_disabled = AnswerRandomizer(seed=None)
         """
         self.seed = seed
-        self._randomization_enabled = seed is not None
-        if self._randomization_enabled:
+        if seed is None:
+            self._randomization_enabled = False
+        else:
+            self._randomization_enabled = True
             random.seed(seed)
 
     def set_seed(self, seed: int | None) -> None:
         """Set the random seed.
 
+        Contract: seed is guaranteed to be int | None by the caller.
+        This method does NOT validate or normalize — it only executes.
+
         Args:
             seed: New seed value. If None, disables randomization.
         """
         self.seed = seed
-        self._randomization_enabled = seed is not None
-        if self._randomization_enabled:
+        if seed is None:
+            self._randomization_enabled = False
+        else:
+            self._randomization_enabled = True
             random.seed(seed)
 
     def randomize_options(
