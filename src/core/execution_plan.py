@@ -194,30 +194,38 @@ class ModelConfig:
     Attributes:
         temperature: Sampling temperature (None = model default)
         top_p: Nucleus sampling parameter (None = model default)
+        top_k: Top-K sampling parameter (None = model default)
+        repeat_penalty: Repetition penalty (None = model default)
         max_output_tokens: Maximum tokens to generate (None = model default)
+        max_reasoning_tokens: Maximum reasoning tokens (None = model default)
+        reasoning_effort: Reasoning effort level (None = model default)
         enable_vision: Whether vision/image input is enabled
         structured_output: Whether structured output format is enabled
         reasoning_mode: Reasoning mode ('off', 'auto', 'effort', 'budget')
-        reasoning_effort: Reasoning effort level (when mode='effort')
 
     Example:
         config = ModelConfig(
             temperature=0.7,
             top_p=0.9,
+            top_k=50,
             max_output_tokens=1000,
+            max_reasoning_tokens=2000,
+            reasoning_effort='high',
             enable_vision=True,
             reasoning_mode='effort',
-            reasoning_effort='high',
         )
     """
 
     temperature: float | None = None
     top_p: float | None = None
+    top_k: int | None = None
+    repeat_penalty: float | None = None
     max_output_tokens: int | None = None
+    max_reasoning_tokens: int | None = None
+    reasoning_effort: str | None = None
     enable_vision: bool = False
     structured_output: bool = False
     reasoning_mode: str = 'off'
-    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)

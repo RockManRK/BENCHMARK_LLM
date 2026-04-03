@@ -106,6 +106,7 @@ def get_schema_sql() -> str:
         review_status     TEXT,
         manual_answer     TEXT,
         raw_response      TEXT,
+        request_json      TEXT,
         cost              REAL,
         input_tokens      INTEGER,
         response_tokens   INTEGER,

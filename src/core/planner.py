@@ -529,11 +529,14 @@ class Planner:
         return ModelConfig(
             temperature=config.get("MODEL_TEMPERATURE"),
             top_p=config.get("MODEL_TOP_P"),
+            top_k=config.get("MODEL_TOP_K"),
+            repeat_penalty=config.get("MODEL_REPEAT_PENALTY"),
             max_output_tokens=config.get("MODEL_MAX_TOKENS_TOTAL"),
+            max_reasoning_tokens=config.get("MODEL_MAX_TOKENS_REASONING"),
+            reasoning_effort=reasoning_effort if has_reasoning else None,
             enable_vision=config.get("MODEL_VISION", False),
             structured_output=config.get("STRUCTURED_OUTPUTS", False),
             reasoning_mode="effort" if has_reasoning else "off",
-            reasoning_effort=reasoning_effort if has_reasoning else None,
         )
 
     def _build_items(

@@ -156,6 +156,7 @@ class ExecutionResult:
     finished_at: datetime | None = None
     finish_reason: str | None = None
     error_details: str | None = None
+    request_json: str | None = None
 
     # Experimental context (randomization tracking)
     randomization_enabled: bool = False
@@ -402,6 +403,9 @@ class ExecutionEngine:
             )
 
         # Retry wrapper for API call
+        # Mutable container to capture request_json even on exception
+        execution_context: dict[str, Any] = {"request_json": None}
+        
         async def api_call_with_retry() -> dict:
             """Inner function for RetryHandler to execute."""
             nonlocal attempt_count
@@ -505,6 +509,49 @@ class ExecutionEngine:
             if model_config.structured_output:
                 response_format = {"type": "json_object"}
 
+            # Build the complete request payload for audit/capture
+            # This is the EXACT payload that will be sent to the API
+            request_payload: dict[str, Any] = {
+                "model": variant.model_id,
+                "messages": messages,
+            }
+
+            # Add optional sampling parameters (only if not None)
+            if model_config.temperature is not None:
+                request_payload["temperature"] = model_config.temperature
+            if model_config.top_p is not None:
+                request_payload["top_p"] = model_config.top_p
+            if model_config.top_k is not None:
+                request_payload["top_k"] = model_config.top_k
+            if model_config.repeat_penalty is not None:
+                # OpenRouter API uses 'repetition_penalty' as field name
+                request_payload["repetition_penalty"] = model_config.repeat_penalty
+            if model_config.max_output_tokens is not None:
+                request_payload["max_tokens"] = model_config.max_output_tokens
+
+            # Add reasoning configuration (if either effort or max_tokens is specified)
+            reasoning_config: dict[str, Any] = {}
+            if model_config.reasoning_effort is not None:
+                reasoning_config["effort"] = model_config.reasoning_effort
+            if model_config.max_reasoning_tokens is not None:
+                reasoning_config["max_tokens"] = model_config.max_reasoning_tokens
+            
+            if reasoning_config:
+                request_payload["reasoning"] = reasoning_config
+
+            # Add response format for structured outputs
+            if response_format is not None:
+                request_payload["response_format"] = response_format
+
+            # Enable streaming (matching API client behavior)
+            request_payload["stream"] = True
+
+            # Serialize request payload for persistence (deterministic: sort_keys, ensure_ascii=False)
+            request_json = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
+            
+            # Store in context for exception handling
+            execution_context["request_json"] = request_json
+
             # Call API (this is what RetryHandler will retry)
             # CRITICAL: Use variant.model_id for API calls (external identifier)
             # variant.variant_id is for internal identity tracking only
@@ -513,7 +560,11 @@ class ExecutionEngine:
                 messages=messages,
                 temperature=model_config.temperature,
                 top_p=model_config.top_p,
+                top_k=model_config.top_k,
+                repeat_penalty=model_config.repeat_penalty,
                 max_tokens=model_config.max_output_tokens,
+                reasoning_effort=model_config.reasoning_effort,
+                max_reasoning_tokens=model_config.max_reasoning_tokens,
                 response_format=response_format,
             )
 
@@ -572,6 +623,7 @@ class ExecutionEngine:
                 "finish_reason": finish_reason,
                 "raw_response": raw_response,
                 "error_details": error_details,
+                "request_json": request_json,
                 # Experimental context
                 "randomization_enabled": randomization_enabled,
                 "randomization_seed": run.seed_effective,
@@ -600,6 +652,7 @@ class ExecutionEngine:
             finish_reason = result_data["finish_reason"]
             raw_response = result_data["raw_response"]
             error_details = result_data.get("error_details")
+            request_json = result_data.get("request_json")
 
             # Extract experimental context
             randomization_enabled = result_data.get("randomization_enabled", False)
@@ -643,6 +696,7 @@ class ExecutionEngine:
                 finished_at=finished_at,
                 finish_reason=finish_reason,
                 error_details=error_details,
+                request_json=request_json,
                 # Experimental context
                 randomization_enabled=randomization_enabled,
                 randomization_seed=randomization_seed,
@@ -685,6 +739,7 @@ class ExecutionEngine:
                 started_at=started_at,
                 finished_at=finished_at,
                 finish_reason=None,
+                request_json=execution_context.get("request_json"),
             )
 
     def _execute_item(

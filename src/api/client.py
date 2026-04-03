@@ -195,7 +195,11 @@ class OpenRouterClient(CompletionProvider):
         messages: list[dict],
         temperature: float | None = None,
         top_p: float | None = None,
+        top_k: int | None = None,
+        repeat_penalty: float | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        max_reasoning_tokens: int | None = None,
         stop: list[str] | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> CompletionResponse:
@@ -206,7 +210,11 @@ class OpenRouterClient(CompletionProvider):
             messages: List of message dicts with 'role' and 'content'
             temperature: Sampling temperature (0.0-2.0)
             top_p: Nucleus sampling parameter
+            top_k: Top-K sampling parameter
+            repeat_penalty: Repetition penalty (maps to repetition_penalty in API)
             max_tokens: Maximum output tokens
+            reasoning_effort: Reasoning effort level (none/minimal/low/medium/high/xhigh)
+            max_reasoning_tokens: Maximum reasoning tokens
             stop: Stop sequences
             response_format: Response format configuration for structured outputs.
                             Example: {"type": "json_object"}
@@ -239,15 +247,30 @@ class OpenRouterClient(CompletionProvider):
                 "messages": messages,
             }
 
-            # Add optional parameters
+            # Add optional sampling parameters (only if not None)
             if temperature is not None:
                 payload["temperature"] = temperature
             if top_p is not None:
                 payload["top_p"] = top_p
+            if top_k is not None:
+                payload["top_k"] = top_k
+            if repeat_penalty is not None:
+                # OpenRouter API uses 'repetition_penalty' as field name
+                payload["repetition_penalty"] = repeat_penalty
             if max_tokens is not None:
                 payload["max_tokens"] = max_tokens
             if stop is not None:
                 payload["stop"] = stop
+
+            # Add reasoning configuration (if either effort or max_tokens is specified)
+            reasoning_config: dict[str, Any] = {}
+            if reasoning_effort is not None:
+                reasoning_config["effort"] = reasoning_effort
+            if max_reasoning_tokens is not None:
+                reasoning_config["max_tokens"] = max_reasoning_tokens
+            
+            if reasoning_config:
+                payload["reasoning"] = reasoning_config
 
             # Add response format for structured outputs
             if response_format is not None:

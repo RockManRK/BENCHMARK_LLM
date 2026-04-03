@@ -301,10 +301,10 @@ class ResultWriter:
                 response_text, selected_answer, is_correct,
                 parse_confidence, review_status, latency_ms,
                 input_tokens, response_tokens, reasoning_tokens, cost, effective_tokens,
-                raw_response, started_at, finished_at,
+                raw_response, request_json, started_at, finished_at,
                 randomization_enabled, randomization_seed,
                 options_presented, correct_option_presented, option_letter_map
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             response_id,
             result.run_id,
@@ -327,6 +327,7 @@ class ResultWriter:
             result.cost,
             result.effective_tokens,
             raw_response_json,
+            result.request_json,
             started_at_str,
             finished_at_str,
             # Experimental context
