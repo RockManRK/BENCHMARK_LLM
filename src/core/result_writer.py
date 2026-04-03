@@ -275,19 +275,16 @@ class ResultWriter:
             result.snapshot_id,
         )
 
-        # Get answer_key from snapshot to calculate is_correct
-        # IMPORTANT: When options are randomized, is_correct must be calculated
-        # using correct_option_presented (the correct answer in the presented space),
-        # not the original answer_key from the snapshot.
-        answer_key = self._get_answer_key_from_snapshot(result.snapshot_id)
+        # Calculate is_correct by comparing selected_answer vs correct_option_presented
+        # Both are LETTERS (A/B/C/D), never text.
+        #
+        # IMPORTANT: When options are randomized, correct_option_presented contains
+        # the correct answer letter IN THE PRESENTED SPACE (not the original answer_key).
+        # This ensures the LLM's answer is evaluated against what was actually shown.
         is_correct = None
 
-        # Use correct_option_presented if available (randomization scenario)
-        # Otherwise fall back to original answer_key
-        correct_answer_to_use = result.correct_option_presented or answer_key
-
-        if result.selected_answer and correct_answer_to_use:
-            is_correct = (result.selected_answer.upper() == correct_answer_to_use.upper())
+        if result.selected_answer and result.correct_option_presented:
+            is_correct = (result.selected_answer.upper() == result.correct_option_presented.upper())
 
         # Serialize raw_response to JSON (supports dict and list)
         raw_response_json = json.dumps(result.raw_response) if result.raw_response else None
@@ -307,7 +304,7 @@ class ResultWriter:
                 raw_response, started_at, finished_at,
                 randomization_enabled, randomization_seed,
                 options_presented, correct_option_presented, option_letter_map
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             response_id,
             result.run_id,

@@ -424,23 +424,54 @@ class ExecutionEngine:
                 options = randomized["options"]
 
                 # Build mapping from presented letter to original letter
-                # e.g., if options were shuffled to [C, A, D, B]:
-                #   A->C, B->A, C->D, D->B
+                # e.g., if original was [A_text, B_text, C_text, D_text]
+                # and shuffled is [C_text, A_text, D_text, B_text]:
+                #   A (presented) -> C (original position)
+                #   B (presented) -> A (original position)
+                #   C (presented) -> D (original position)
+                #   D (presented) -> B (original position)
                 option_letter_map = {}
-                for i, original_opt in enumerate(original_options):
-                    presented_letter = chr(65 + i)
-                    original_letter = chr(65 + original_options.index(options[i]))
+                for presented_idx, shuffled_option in enumerate(options):
+                    presented_letter = chr(65 + presented_idx)
+                    # Find where this option was in the original list
+                    original_idx = original_options.index(shuffled_option)
+                    original_letter = chr(65 + original_idx)
                     option_letter_map[presented_letter] = original_letter
 
             # Determine correct answer in the presented space
             # If options were shuffled, the correct answer letter changes
-            correct_answer_original = item.question_payload.answer_key
+            """
+            Contrato Experimental - Avaliação por Letras:
+
+            Este sistema trabalha EXCLUSIVAMENTE com letras (A/B/C/D), nunca com texto.
+
+            - answer_key é uma LETRA original: "A", "B", "C", ou "D"
+            - selected_answer é uma LETRA respondida pela LLM: "A", "B", "C", ou "D"
+            - correct_option_presented é uma LETRA no espaço apresentado
+            - is_correct é calculado APENAS por: selected_answer == correct_option_presented
+
+            O TEXTO das opções é apenas para apresentação visual.
+            NUNCA usar options.index(text) para lógica de correção.
+
+            Isso é um contrato experimental, não uma heurística.
+            """
+
+            answer_key_letter = item.question_payload.answer_key  # "A", "B", "C", or "D"
+
             if randomization_enabled:
-                # Find where the correct answer ended up after shuffling
-                correct_idx = original_options.index(correct_answer_original)
-                correct_option_presented = chr(65 + options.index(original_options[correct_idx]))
+                # Convert answer_key letter to original index
+                # e.g., "A" -> 0, "B" -> 1, "C" -> 2, "D" -> 3
+                original_letter = answer_key_letter.upper()
+                original_idx = ord(original_letter) - ord("A")
+
+                # The option at this original position moved to a new position after shuffling
+                # Find where the original option ended up
+                original_option_text = original_options[original_idx]
+                presented_idx = options.index(original_option_text)
+                correct_option_presented = chr(ord("A") + presented_idx)
             else:
-                correct_option_presented = correct_answer_original
+                # No randomization: correct answer letter stays the same
+                correct_option_presented = answer_key_letter.upper()
 
             # Build the prompt
             user_prompt = self._build_user_prompt(
