@@ -44,6 +44,7 @@ Example:
     ...     print(f"Item {result.item_id}: {result.status}")
 """
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from logging import Logger
@@ -546,7 +547,10 @@ class ExecutionEngine:
             # Enable streaming (matching API client behavior)
             request_payload["stream"] = True
 
-            # Serialize request payload for persistence (deterministic: sort_keys, ensure_ascii=False)
+            # Capture request_json AFTER all modifications to request_payload are complete.
+            # This ensures the persisted JSON represents the EXACT payload that would be sent to the API,
+            # including: all non-null fields, merged reasoning object, and streaming flag.
+            # Serialization is deterministic: sort_keys=True, ensure_ascii=False
             request_json = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
             
             # Store in context for exception handling

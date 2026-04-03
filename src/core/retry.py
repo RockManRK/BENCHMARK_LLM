@@ -186,18 +186,37 @@ class RetryHandler:
                 await asyncio.sleep(delay)
 
             except Exception as e:
-                # Non-APIError exceptions
+                # Non-APIError exceptions - use whitelist to determine retryability
+                # Only explicitly transient errors are retried; all others fail fast
                 last_exception = e
                 error_message = str(e)
+                error_type = type(e).__name__
 
-                # Check if more attempts available
+                # Whitelist of explicitly retryable exception types
+                # These represent known transient failures that are safe to retry
+                RETRYABLE_EXCEPTIONS = (
+                    ConnectionError,      # Network connectivity issues
+                    TimeoutError,         # Request timeouts
+                    OSError,              # Low-level network/OS errors
+                )
+
+                # Fail fast for programming errors and unknown exceptions
+                if not isinstance(e, RETRYABLE_EXCEPTIONS):
+                    self._logger.error(
+                        f"RETRY_NON_RETRYABLE | {log_context} | "
+                        f"attempt={attempt} | error_type={error_type} | "
+                        f"error={error_message}"
+                    )
+                    raise  # Programming error or unknown exception - fail immediately
+
+                # Check if more attempts available for whitelisted exceptions
                 if attempt >= max_attempts:
                     break
 
-                # Wait before retry (use default delay for unknown errors)
+                # Wait before retry (use default delay for transient errors)
                 delay = self.calculate_delay(attempt)
 
-                # Log retry attempt
+                # Log retry attempt for whitelisted transient error
                 self._logger.warning(
                     f"RETRY_ATTEMPT | {log_context} | "
                     f"attempt={attempt}/{max_attempts} | delay={delay:.2f}s | error={error_message}"

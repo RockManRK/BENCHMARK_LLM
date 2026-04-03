@@ -301,11 +301,12 @@ class Planner:
                 [experiment_id] + list(run_ids),
             )
         else:
-            # Get all pending runs
+            # Get all runs that can be executed (pending or recoverable failed states)
+            # Data integrity is ensured by UNIQUE constraint on responses table
             cursor = self.conn.execute(
                 """
                 SELECT * FROM runs
-                WHERE experiment_id = ? AND status = 'pending'
+                WHERE experiment_id = ? AND status IN ('pending', 'failed', 'partial_failed')
                 """,
                 (experiment_id,),
             )
