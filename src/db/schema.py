@@ -114,6 +114,20 @@ def get_schema_sql() -> str:
         latency_ms        INTEGER,
         started_at        TIMESTAMP,
         finished_at       TIMESTAMP,
+
+        -- Experimental context (randomization tracking)
+        -- Estas colunas congelam o contexto experimental real:
+        -- randomization_enabled: se randomização foi aplicada
+        -- randomization_seed: seed usada (None = desligada)
+        -- options_presented: alternativas como apresentadas (JSON)
+        -- correct_option_presented: gabarito no espaço apresentado
+        -- option_letter_map: mapeamento de letra apresentada para original
+        randomization_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        randomization_seed  INTEGER,
+        options_presented   TEXT,
+        correct_option_presented TEXT,
+        option_letter_map   TEXT,
+
         UNIQUE(run_id, variant_id, snapshot_id)
     );
 

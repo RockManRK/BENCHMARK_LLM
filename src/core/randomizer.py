@@ -5,6 +5,12 @@ the Fisher-Yates shuffle algorithm, with reproducible results via seeding.
 
 The randomizer is used by the ExecutionEngine to shuffle answer options
 before sending them to the API, ensuring reproducible benchmarking.
+
+IMPORTANT CONTRACT:
+- seed=None means randomization is DISABLED (no shuffling)
+- seed=int means randomization is ENABLED with deterministic results
+- This class does NOT decide whether to randomize - it only executes
+- The decision is made by ExecutionEngine based on run.seed_effective
 """
 
 import random

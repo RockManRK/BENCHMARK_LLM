@@ -355,7 +355,9 @@ def handle_execute(args, conn) -> int:
             api_key=os.environ.get("OPENROUTER_API_KEY", ""),
             debug_enabled=debug_enabled,
         )
-        randomizer = AnswerRandomizer(seed=plan.runs[0].seed_effective if plan.runs[0].seed_effective else 42)
+        # Randomization is explicitly enabled only when seed is set.
+        # seed=None means randomization OFF. No fallback.
+        randomizer = AnswerRandomizer(seed=plan.runs[0].seed_effective)
         parser = AnswerParser()
 
         engine = ExecutionEngine(api_client, randomizer, parser)

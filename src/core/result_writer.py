@@ -296,8 +296,10 @@ class ResultWriter:
                 response_text, selected_answer, is_correct,
                 parse_confidence, review_status, latency_ms,
                 input_tokens, response_tokens, reasoning_tokens, cost, effective_tokens,
-                raw_response, started_at, finished_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                raw_response, started_at, finished_at,
+                randomization_enabled, randomization_seed,
+                options_presented, correct_option_presented, option_letter_map
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             response_id,
             result.run_id,
@@ -322,6 +324,12 @@ class ResultWriter:
             raw_response_json,
             started_at_str,
             finished_at_str,
+            # Experimental context
+            result.randomization_enabled,
+            result.randomization_seed,
+            json.dumps(result.options_presented, ensure_ascii=False) if result.options_presented else None,
+            result.correct_option_presented,
+            json.dumps(result.option_letter_map, ensure_ascii=False) if result.option_letter_map else None,
         ))
 
         self.db_connection.commit()

@@ -73,6 +73,13 @@ class ExecutionResult:
         finish_reason: API finish reason (None on failure)
         error_details: Model-level error details (None on success or execution failure)
 
+        # Experimental context (randomization tracking)
+        randomization_enabled: Whether answer options were randomized
+        randomization_seed: Seed used for randomization (None if disabled)
+        options_presented: Options exactly as presented to LLM (JSON)
+        correct_option_presented: Correct answer letter in presented space
+        option_letter_map: Mapping from presented letter to original letter
+
     Example:
         >>> result = ExecutionResult(
         ...     item_id="run-001::var-abc::snap-xyz::it-1",
@@ -93,6 +100,11 @@ class ExecutionResult:
         ...     error_type=None,
         ...     error_message=None,
         ...     attempt_count=1,
+        ...     randomization_enabled=False,
+        ...     randomization_seed=None,
+        ...     options_presented=["opt A", "opt B", "opt C", "opt D"],
+        ...     correct_option_presented="A",
+        ...     option_letter_map={"A": "A", "B": "B", "C": "C", "D": "D"},
         ... )
     """
 
@@ -119,6 +131,13 @@ class ExecutionResult:
     finished_at: datetime | None = None
     finish_reason: str | None = None
     error_details: str | None = None
+
+    # Experimental context (randomization tracking)
+    randomization_enabled: bool = False
+    randomization_seed: int | None = None
+    options_presented: list[str] | None = None
+    correct_option_presented: str | None = None
+    option_letter_map: dict[str, str] | None = None
 
 
 class OpenRouterClient:
@@ -355,14 +374,50 @@ class ExecutionEngine:
             """Inner function for RetryHandler to execute."""
             nonlocal attempt_count
 
-            # Apply randomization if seed is set
-            options = list(item.question_payload.options)
-            if run.seed_effective is not None:
+            """
+            Randomização de alternativas é uma decisão experimental explícita.
+
+            Seed = None significa randomização DESLIGADA.
+            Seed não é flag, apenas parâmetro do RNG.
+
+            O que foi apresentado à LLM é a verdade experimental e deve ser
+            preservado exatamente como ocorreu, sem desrandomização posterior.
+            """
+
+            # Determine if randomization is enabled (explicit check, not truthy)
+            randomization_enabled = run.seed_effective is not None
+
+            # Start with original options
+            original_options = list(item.question_payload.options)
+            options = original_options
+            option_letter_map = {chr(65 + i): chr(65 + i) for i in range(len(original_options))}
+
+            # Apply randomization ONLY if seed is explicitly set (not None)
+            if randomization_enabled:
                 randomized = self.randomizer.randomize_options(
-                    options,
+                    original_options,
                     seed=run.seed_effective,
                 )
                 options = randomized["options"]
+
+                # Build mapping from presented letter to original letter
+                # e.g., if options were shuffled to [C, A, D, B]:
+                #   A->C, B->A, C->D, D->B
+                option_letter_map = {}
+                for i, original_opt in enumerate(original_options):
+                    presented_letter = chr(65 + i)
+                    original_letter = chr(65 + original_options.index(options[i]))
+                    option_letter_map[presented_letter] = original_letter
+
+            # Determine correct answer in the presented space
+            # If options were shuffled, the correct answer letter changes
+            correct_answer_original = item.question_payload.answer_key
+            if randomization_enabled:
+                # Find where the correct answer ended up after shuffling
+                correct_idx = original_options.index(correct_answer_original)
+                correct_option_presented = chr(65 + options.index(original_options[correct_idx]))
+            else:
+                correct_option_presented = correct_answer_original
 
             # Build the prompt
             user_prompt = self._build_user_prompt(
@@ -453,6 +508,12 @@ class ExecutionEngine:
                 "finish_reason": finish_reason,
                 "raw_response": raw_response,
                 "error_details": error_details,
+                # Experimental context
+                "randomization_enabled": randomization_enabled,
+                "randomization_seed": run.seed_effective,
+                "options_presented": options,
+                "correct_option_presented": correct_option_presented,
+                "option_letter_map": option_letter_map,
             }
 
         try:
@@ -475,6 +536,13 @@ class ExecutionEngine:
             finish_reason = result_data["finish_reason"]
             raw_response = result_data["raw_response"]
             error_details = result_data.get("error_details")
+
+            # Extract experimental context
+            randomization_enabled = result_data.get("randomization_enabled", False)
+            randomization_seed = result_data.get("randomization_seed")
+            options_presented = result_data.get("options_presented")
+            correct_option_presented = result_data.get("correct_option_presented")
+            option_letter_map = result_data.get("option_letter_map")
 
             # Capture finish timestamp
             finished_at = datetime.now()
@@ -511,6 +579,12 @@ class ExecutionEngine:
                 finished_at=finished_at,
                 finish_reason=finish_reason,
                 error_details=error_details,
+                # Experimental context
+                randomization_enabled=randomization_enabled,
+                randomization_seed=randomization_seed,
+                options_presented=options_presented,
+                correct_option_presented=correct_option_presented,
+                option_letter_map=option_letter_map,
             )
 
         except Exception as e:
