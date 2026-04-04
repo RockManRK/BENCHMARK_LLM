@@ -263,11 +263,25 @@ class OpenRouterClient(CompletionProvider):
                 payload["stop"] = stop
 
             # Add reasoning configuration (if either effort or max_tokens is specified)
+            # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
+            # If both are defined, prioritize effort and log a warning.
             reasoning_config: dict[str, Any] = {}
-            if reasoning_effort is not None:
+            if reasoning_effort is not None and max_reasoning_tokens is not None:
+                # Conflict: both defined - prioritize effort per OpenRouter contract
+                self._logger.warning(
+                    f"REASONING_CONFLICT | model={model_id} | "
+                    f"Both reasoning_effort='{reasoning_effort}' and "
+                    f"max_reasoning_tokens={max_reasoning_tokens} are set. "
+                    f"Prioritizing reasoning_effort and ignoring max_reasoning_tokens."
+                )
                 reasoning_config["effort"] = reasoning_effort
-            if max_reasoning_tokens is not None:
+            elif reasoning_effort is not None:
+                # Only effort defined - use it normally
+                reasoning_config["effort"] = reasoning_effort
+            elif max_reasoning_tokens is not None:
+                # Only max_tokens defined - use it normally
                 reasoning_config["max_tokens"] = max_reasoning_tokens
+            # else: neither defined - no reasoning config at all
             
             if reasoning_config:
                 payload["reasoning"] = reasoning_config

@@ -531,11 +531,27 @@ class ExecutionEngine:
                 request_payload["max_tokens"] = model_config.max_output_tokens
 
             # Add reasoning configuration (if either effort or max_tokens is specified)
+            # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
+            # If both are defined, prioritize effort and log a warning.
             reasoning_config: dict[str, Any] = {}
-            if model_config.reasoning_effort is not None:
+            
+            if model_config.reasoning_effort is not None and model_config.max_reasoning_tokens is not None:
+                # Conflict: both defined - prioritize effort per OpenRouter contract
+                self._logger.warning(
+                    f"REASONING_CONFLICT | run={item.run_id} | variant={item.variant_id} | "
+                    f"snapshot={item.snapshot_id} | "
+                    f"Both reasoning_effort='{model_config.reasoning_effort}' and "
+                    f"max_reasoning_tokens={model_config.max_reasoning_tokens} are set. "
+                    f"Prioritizing reasoning_effort and ignoring max_reasoning_tokens."
+                )
                 reasoning_config["effort"] = model_config.reasoning_effort
-            if model_config.max_reasoning_tokens is not None:
+            elif model_config.reasoning_effort is not None:
+                # Only effort defined - use it normally
+                reasoning_config["effort"] = model_config.reasoning_effort
+            elif model_config.max_reasoning_tokens is not None:
+                # Only max_tokens defined - use it normally
                 reasoning_config["max_tokens"] = model_config.max_reasoning_tokens
+            # else: neither defined - no reasoning config at all
             
             if reasoning_config:
                 request_payload["reasoning"] = reasoning_config
@@ -790,6 +806,13 @@ class ExecutionEngine:
     ) -> Any:
         """Call the API synchronously.
 
+        This method handles the async/sync boundary properly:
+        - If already in async context: runs in thread pool
+        - If not: creates new event loop
+        - The HTTP client lifecycle is managed by the api_client instance,
+          NOT by individual item execution. Client is shared across all items
+          and only closed when the entire execution completes.
+
         Args:
             model_id: Model identifier for API call
             messages: Chat messages
@@ -799,55 +822,46 @@ class ExecutionEngine:
             API response
         """
         import asyncio
+        import concurrent.futures
 
         # Build response_format if structured_output is enabled
         response_format: dict[str, Any] | None = None
         if model_config.structured_output:
             response_format = {"type": "json_object"}
 
+        async def _api_call():
+            return await self.api_client.chat_completion(
+                model_id=model_id,
+                messages=messages,
+                temperature=model_config.temperature,
+                top_p=model_config.top_p,
+                top_k=model_config.top_k,
+                repeat_penalty=model_config.repeat_penalty,
+                max_tokens=model_config.max_output_tokens,
+                reasoning_effort=model_config.reasoning_effort,
+                max_reasoning_tokens=model_config.max_reasoning_tokens,
+                response_format=response_format,
+            )
+
         try:
-            # Try to get the current event loop
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # We're in an async context - run in a new thread
-                import concurrent.futures
+                # IMPORTANT: asyncio.run() creates a NEW event loop in the thread,
+                # which is independent of the caller's loop. This prevents
+                # "Event loop is closed" errors from affecting the caller.
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
                         asyncio.run,
-                        self.api_client.chat_completion(
-                            model_id=model_id,
-                            messages=messages,
-                            temperature=model_config.temperature,
-                            top_p=model_config.top_p,
-                            max_tokens=model_config.max_output_tokens,
-                            response_format=response_format,
-                        )
+                        _api_call()
                     )
                     return future.result()
             else:
                 # No running loop - use asyncio.run directly
-                return asyncio.run(
-                    self.api_client.chat_completion(
-                        model_id=model_id,
-                        messages=messages,
-                        temperature=model_config.temperature,
-                        top_p=model_config.top_p,
-                        max_tokens=model_config.max_output_tokens,
-                        response_format=response_format,
-                    )
-                )
+                return asyncio.run(_api_call())
         except RuntimeError:
             # No event loop exists - create new one
-            return asyncio.run(
-                self.api_client.chat_completion(
-                    model_id=model_id,
-                    messages=messages,
-                    temperature=model_config.temperature,
-                    top_p=model_config.top_p,
-                    max_tokens=model_config.max_output_tokens,
-                    response_format=response_format,
-                )
-            )
+            return asyncio.run(_api_call())
 
     def _get_variant_for_item(
         self,
