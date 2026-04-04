@@ -96,6 +96,19 @@ class ResultWriter:
         self.db_connection = db_connection
         self._logger = logger or get_logger('core.result_writer')
 
+    def write_result(self, result: ExecutionResult) -> None:
+        """Write a single ExecutionResult to the database.
+
+        Dispatches to _write_response() or _write_error() based on result.status.
+
+        Args:
+            result: ExecutionResult to persist
+        """
+        if result.status == 'success':
+            self._write_response(result)
+        else:
+            self._write_error(result)
+
     def write_results(self, results: list[ExecutionResult]) -> WriteReport:
         """Persist execution results to database.
 

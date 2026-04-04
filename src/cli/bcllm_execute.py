@@ -46,12 +46,11 @@ from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.db.repository import ExperimentRepository, RunRepository, VariantRepository, SnapshotRepository
 from src.core.planner import Planner, PlannerValidationError
-from src.core.execution_engine import ExecutionEngine
-from src.core.result_writer import ResultWriter
-from src.core.randomizer import AnswerRandomizer
-from src.core.answer_parser import AnswerParser
+from src.core.async_orchestrator import AsyncOrchestrator
 from src.core.execution_plan import RetryPolicy
 from src.api.client import OpenRouterClient
+from src.core.randomizer import AnswerRandomizer
+from src.core.answer_parser import AnswerParser
 from src.utils.logging_config import get_logger
 
 
@@ -348,7 +347,7 @@ def handle_execute(args, conn) -> int:
 
         logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items={total_items}")
 
-        # Step 2: Execute plan (pure execution, no DB)
+        # Step 2: Execute plan via AsyncOrchestrator
         debug_enabled = os.getenv("OPENROUTER_DEBUG_ENABLED", "false").lower() == "true"
         logger.info(f"OPENROUTER_DEBUG_ENABLED={debug_enabled} (from env: {os.getenv('OPENROUTER_DEBUG_ENABLED', 'NOT_SET')})")
         api_client = OpenRouterClient(
@@ -360,29 +359,31 @@ def handle_execute(args, conn) -> int:
         randomizer = AnswerRandomizer(seed=plan.runs[0].seed_effective)
         parser = AnswerParser()
 
-        engine = ExecutionEngine(api_client, randomizer, parser)
-        results = engine.execute(plan)
+        orchestrator = AsyncOrchestrator(
+            api_client=api_client,
+            db_connection=conn,
+            randomizer=randomizer,
+            parser=parser,
+            logger=logger,
+        )
 
-        # Step 3: Write results to DB
-        writer = ResultWriter(conn)
-        report = writer.write_results(results)
+        results = orchestrator.execute(plan)
 
-        # Calculate totals
-        succeeded = report.responses_written
-        failed = report.errors_written
+        # Calculate totals from orchestrator results (already in DB)
+        succeeded = sum(1 for r in results if r.status == 'success')
+        failed = sum(1 for r in results if r.status == 'failure')
         total = succeeded + failed
 
         logger.info(f"EXECUTE_COMPLETE | run={run_id if run_id else 'all'} | experiment={experiment_id} | total={total} | succeeded={succeeded} | failed={failed}")
 
         # Print summary (user-facing output stays as print)
         print(f"✓ Execution completed")
-        print(f"  Runs executed: {len(report.runs_updated)}")
-        print(f"  Success: {report.responses_written}")
-        print(f"  Failed: {report.errors_written}")
-        print(f"  Skipped (already existed): {report.responses_skipped}")
-        if report.runs_updated:
-            for run_id_item, status in report.runs_updated:
-                print(f"  Run {run_id_item} status: {status}")
+        print(f"  Runs executed: {len(plan.runs)}")
+        print(f"  Success: {succeeded}")
+        print(f"  Failed: {failed}")
+        print(f"  Total: {total}")
+        for run_item in plan.runs:
+            print(f"  Run {run_item.run_id} items: {len(run_item.items)}")
 
         return 0
 

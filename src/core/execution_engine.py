@@ -44,6 +44,7 @@ Example:
     ...     print(f"Item {result.item_id}: {result.status}")
 """
 
+import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -241,33 +242,30 @@ class ExecutionEngine:
         )
 
     def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
-        """Execute all items in the plan.
-
-        This method executes all items in all runs in the execution plan.
-        For each item:
-
-        1. Apply randomization (if seed is set)
-        2. Build the prompt
-        3. Call the API
-        4. Parse the response
-        5. Create ExecutionResult
+        """Backward-compatible sync wrapper. Deprecated — use execute_async().
 
         Args:
             plan: Immutable execution plan from Planner
 
         Returns:
             List of ExecutionResult (one per item)
+        """
+        queue: asyncio.Queue = asyncio.Queue()
+        return asyncio.run(self.execute_async(plan, queue))
 
-        Constraints:
-            - NO database access
-            - NO configuration resolution
-            - NO scope decisions
-            - Returns pure data only
+    async def execute_async(
+        self,
+        plan: ExecutionPlan,
+        result_queue: asyncio.Queue,
+    ) -> list[ExecutionResult]:
+        """Async execution entry point. Pushes each result to queue after completion.
 
-        Example:
-            >>> results = engine.execute(plan)
-            >>> for result in results:
-            ...     print(f"Item {result.item_id}: {result.status}")
+        Args:
+            plan: Immutable execution plan from Planner
+            result_queue: Shared queue to push results to
+
+        Returns:
+            List of ExecutionResult (one per item)
         """
         all_results: list[ExecutionResult] = []
 
@@ -281,7 +279,7 @@ class ExecutionEngine:
         )
 
         for run in plan.runs:
-            run_results = self._execute_run(run)
+            run_results = await self._execute_run_async(run, result_queue)
             all_results.extend(run_results)
 
         # Calculate summary statistics
@@ -294,11 +292,16 @@ class ExecutionEngine:
 
         return all_results
 
-    def _execute_run(self, run: PlanRun) -> list[ExecutionResult]:
-        """Execute all items in a single run.
+    async def _execute_run_async(
+        self,
+        run: PlanRun,
+        result_queue: asyncio.Queue,
+    ) -> list[ExecutionResult]:
+        """Execute all items in a single run asynchronously.
 
         Args:
             run: Plan run to execute
+            result_queue: Shared queue to push results to
 
         Returns:
             List of ExecutionResult for this run
@@ -328,7 +331,7 @@ class ExecutionEngine:
         milestone_interval = max(1, total_items // 4)
 
         for i, item in enumerate(run.items):
-            result = self._execute_item(item, run, run_retry_handler)
+            result = await self._execute_item_async(item, run, run_retry_handler, result_queue)
             results.append(result)
             completed = i + 1
 
@@ -346,6 +349,7 @@ class ExecutionEngine:
         item: PlanItem,
         run: PlanRun,
         retry_handler: Optional[RetryHandler] = None,
+        result_queue: Optional[asyncio.Queue] = None,
     ) -> ExecutionResult:
         """Execute a single item asynchronously with retry policy.
 
@@ -353,6 +357,7 @@ class ExecutionEngine:
             item: Plan item to execute
             run: Parent run containing retry policy
             retry_handler: Optional retry handler. If not provided, uses self._retry_handler.
+            result_queue: Optional shared queue to push result to after completion.
 
         Returns:
             ExecutionResult for this item
@@ -381,7 +386,7 @@ class ExecutionEngine:
             self._logger.error(
                 f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type=config_error | error={error_msg}"
             )
-            return ExecutionResult(
+            result = ExecutionResult(
                 item_id=item.item_id,
                 run_id=item.run_id,
                 variant_id=item.variant_id,
@@ -402,6 +407,12 @@ class ExecutionEngine:
                 finished_at=finished_at,
                 finish_reason=None,
             )
+
+            # Push result to shared queue (non-blocking: queue has unlimited size)
+            if result_queue is not None:
+                await result_queue.put(result)
+
+            return result
 
         # Retry wrapper for API call
         # Mutable container to capture request_json even on exception
@@ -692,7 +703,7 @@ class ExecutionEngine:
                 f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens} | cost={cost}"
             )
 
-            return ExecutionResult(
+            result = ExecutionResult(
                 item_id=item.item_id,
                 run_id=item.run_id,
                 variant_id=item.variant_id,
@@ -725,6 +736,12 @@ class ExecutionEngine:
                 option_letter_map=option_letter_map,
             )
 
+            # Push result to shared queue (non-blocking: queue has unlimited size)
+            if result_queue is not None:
+                await result_queue.put(result)
+
+            return result
+
         except Exception as e:
             # Retry exhausted or non-retryable error
             last_error_type = self._classify_error(e)
@@ -739,7 +756,7 @@ class ExecutionEngine:
                 f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type={last_error_type} | error={last_error_message}"
             )
 
-            return ExecutionResult(
+            result = ExecutionResult(
                 item_id=item.item_id,
                 run_id=item.run_id,
                 variant_id=item.variant_id,
@@ -762,41 +779,11 @@ class ExecutionEngine:
                 request_json=execution_context.get("request_json"),
             )
 
-    def _execute_item(
-        self,
-        item: PlanItem,
-        run: PlanRun,
-        retry_handler: Optional[RetryHandler] = None,
-    ) -> ExecutionResult:
-        """Execute a single item (synchronous wrapper for async execution).
+            # Push result to shared queue (non-blocking: queue has unlimited size)
+            if result_queue is not None:
+                await result_queue.put(result)
 
-        Args:
-            item: Plan item to execute
-            run: Parent run containing retry policy
-            retry_handler: Optional retry handler. If not provided, uses self._retry_handler.
-
-        Returns:
-            ExecutionResult for this item
-        """
-        import asyncio
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context - run in a new thread
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run,
-                        self._execute_item_async(item, run, retry_handler),
-                    )
-                    return future.result()
-            else:
-                # No running loop - use asyncio.run directly
-                return asyncio.run(self._execute_item_async(item, run, retry_handler))
-        except RuntimeError:
-            # No event loop exists - create new one
-            return asyncio.run(self._execute_item_async(item, run, retry_handler))
+            return result
 
     def _call_api_sync(
         self,
