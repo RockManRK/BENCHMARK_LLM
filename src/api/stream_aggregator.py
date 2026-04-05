@@ -162,130 +162,87 @@ def aggregate_streaming_response(chunks: list[dict[str, Any]]) -> AggregatedResp
 
 
 def consolidate_streaming_response(aggregated: AggregatedResponse) -> dict[str, Any]:
-    """Produce a clean, human-readable representation of a streaming response.
+    """Produce a lossy, human-readable debug view of a streaming response.
 
-    The raw SSE chunks contain valuable data spread across multiple fragments:
-    - reasoning text accumulated across many chunks
-    - content text accumulated across many chunks
-    - metadata (id, provider, model) repeated identically in every chunk
-    - finish_reason, native_finish_reason, usage only in final chunks
+    This is a DERIVED convenience layer for human readability ONLY.
+    It is NOT authoritative — raw_response holds the canonical data.
 
-    This function produces a single dict that:
-    - Keeps all unique metadata once (from first chunk)
-    - Concatenates ALL delta.content across chunks
-    - Concatenates ALL delta.reasoning across chunks
-    - Concatenates ALL delta.reasoning_details text entries across chunks
-    - Preserves final finish_reason, native_finish_reason, usage
-    - Preserves debug info from first chunk
-    - NO data is lost — only deduplicated where identically repeated
-
-    This is NOT used for API parsing — it is purely for observability,
-    stored in the responses.raw_response column for human inspection.
+    Design goals:
+    - Readability: concatenate text into single strings
+    - Structure trace: keep reasoning blocks as a list
+    - Transparency: clearly mark this as a derived view
+    - Robustness: work regardless of provider format changes
 
     Args:
         aggregated: AggregatedResponse from aggregate_streaming_response()
 
     Returns:
-        A clean dict preserving ALL meaningful data from the stream.
+        A dict optimized for human reading, with minimal structural trace.
     """
     chunks = aggregated.raw_response
     if not chunks:
         return {
-            "content": "",
-            "finish_reason": None,
-            "usage": None,
-            "debug": None,
-            "streaming": True,
-            "chunk_count": 0,
+            "note": "Human-readable derived view. Full fidelity in raw_response.",
+            "reasoning_text": "",
+            "reasoning_blocks": [],
+            "content_text": "",
+            "metadata": {"chunk_count": 0, "streaming": True},
         }
 
-    # Extract metadata once from first chunk (repeated identically in all)
+    # --- Extract metadata once from first chunk ---
     first = chunks[0]
-    metadata = {}
-    for key in ("id", "object", "created", "model", "provider"):
+    metadata: dict[str, Any] = {}
+    for key in ("model", "provider"):
         if key in first:
             metadata[key] = first[key]
+    metadata["streaming"] = True
+    metadata["chunk_count"] = len(chunks)
 
-    # Concatenate content and reasoning across ALL chunks
-    concatenated_content: str = ""
-    concatenated_reasoning: str = ""
-    concatenated_reasoning_details: list[dict] = []
-
-    # Track the last non-null finish_reason and native_finish_reason
-    last_finish_reason: str | None = None
-    last_native_finish_reason: str | None = None
+    # --- Scan all chunks, accumulating text and structure ---
+    reasoning_text_parts: list[str] = []
+    reasoning_blocks: list[str] = []
+    content_parts: list[str] = []
 
     for chunk in chunks:
-        choices = chunk.get("choices", [])
-        if not choices:
+        choices = chunk.get("choices")
+        if not choices or not isinstance(choices, list):
             continue
 
         choice = choices[0]
-        delta = choice.get("delta", {})
-        finish = choice.get("finish_reason")
-        native_finish = choice.get("native_finish_reason")
+        if not isinstance(choice, dict):
+            continue
 
-        # Accumulate content
+        delta = choice.get("delta")
+        if not isinstance(delta, dict):
+            continue
+
+        # Content: accumulate non-empty text
         content = delta.get("content")
         if content:
-            concatenated_content += content
+            content_parts.append(content)
 
-        # Accumulate reasoning text
+        # Reasoning: accumulate text AND keep block list
         reasoning = delta.get("reasoning")
         if reasoning:
-            concatenated_reasoning += reasoning
+            reasoning_text_parts.append(reasoning)
+            reasoning_blocks.append(reasoning)
 
-        # Accumulate reasoning_details
-        details = delta.get("reasoning_details")
-        if details:
-            for detail in details:
-                if isinstance(detail, dict):
-                    detail_text = detail.get("text", "")
-                    if detail_text:
-                        concatenated_reasoning_details.append({
-                            "text": detail_text,
-                            "type": detail.get("type"),
-                            "format": detail.get("format"),
-                            "index": detail.get("index"),
-                        })
+    reasoning_text = "".join(reasoning_text_parts)
+    content_text = "".join(content_parts)
 
-        # Track final finish reasons (search all chunks, not just reversed)
-        if finish is not None:
-            last_finish_reason = finish
-        if native_finish is not None:
-            last_native_finish_reason = native_finish
+    result: dict[str, Any] = {
+        # Explicit disclaimer — this view is derived, not canonical
+        "note": "Human-readable derived view. Full fidelity in raw_response.",
 
-    # Build consolidated response
-    result: dict[str, Any] = {}
+        # Reasoning: both as readable text AND as block list for structure trace
+        "reasoning_text": reasoning_text,
+        "reasoning_blocks": reasoning_blocks,
 
-    # Metadata (only once, not repeated per chunk)
-    if metadata:
-        result.update(metadata)
+        # Final visible content
+        "content_text": content_text,
 
-    # Concatenated content — the final visible text
-    result["content"] = concatenated_content
-
-    # Concatenated reasoning — the full thinking process across all chunks
-    if concatenated_reasoning:
-        result["reasoning"] = concatenated_reasoning
-
-    # Concatenated reasoning details — structured reasoning entries
-    if concatenated_reasoning_details:
-        result["reasoning_details"] = concatenated_reasoning_details
-
-    # Final state
-    result["finish_reason"] = last_finish_reason
-    if last_native_finish_reason is not None:
-        result["native_finish_reason"] = last_native_finish_reason
-
-    # Usage from the last chunk that had it
-    result["usage"] = aggregated.usage if aggregated.usage else None
-
-    # Debug info from first chunk
-    result["debug"] = aggregated.debug_info
-
-    # Streaming marker
-    result["streaming"] = True
-    result["chunk_count"] = len(chunks)
+        # Minimal metadata
+        "metadata": metadata,
+    }
 
     return result
