@@ -162,50 +162,52 @@ def aggregate_streaming_response(chunks: list[dict[str, Any]]) -> AggregatedResp
 
 
 def consolidate_streaming_response(aggregated: AggregatedResponse) -> dict[str, Any]:
-    """Produce a lossy, human-readable debug view of a streaming response.
+    """Produce a human-readable consolidated view of a streaming response.
 
     This is a DERIVED convenience layer for human readability ONLY.
     It is NOT authoritative — raw_response holds the canonical data.
 
     Design goals:
-    - Readability: concatenate text into single strings
-    - Structure trace: keep reasoning blocks as a list
-    - Transparency: clearly mark this as a derived view
-    - Robustness: work regardless of provider format changes
+    - Preserve ALL information from raw chunks (usage, debug, etc.)
+    - Concatenate content and reasoning into single readable strings
+    - Keep reasoning_details as a structured array
+    - Schema-agnostic pass-through for any provider-specific fields
+    - Clearly mark this as a derived view
 
     Args:
         aggregated: AggregatedResponse from aggregate_streaming_response()
 
     Returns:
-        A dict optimized for human reading, with minimal structural trace.
+        A dict optimized for human reading, with maximal data preservation.
     """
     chunks = aggregated.raw_response
     if not chunks:
         return {
             "note": "Human-readable derived view. Full fidelity in raw_response.",
-            "reasoning_text": "",
-            "reasoning_blocks": [],
-            "content_text": "",
-            "metadata": {"chunk_count": 0, "streaming": True},
+            "streaming": True,
+            "chunk_count": 0,
         }
 
-    # --- Extract metadata once from first chunk ---
-    first = chunks[0]
-    metadata: dict[str, Any] = {}
-    for key in ("model", "provider"):
-        if key in first:
-            metadata[key] = first[key]
-    metadata["streaming"] = True
-    metadata["chunk_count"] = len(chunks)
+    # ================================================================
+    # 1. Extract identity fields from first chunk
+    # ================================================================
+    first_chunk = chunks[0]
+    result: dict[str, Any] = {}
 
-    # --- Scan all chunks, accumulating text and structure ---
-    reasoning_text_parts: list[str] = []
-    reasoning_blocks: list[str] = []
+    for key in ("id", "object", "created", "model", "provider"):
+        if key in first_chunk:
+            result[key] = first_chunk[key]
+
+    # ================================================================
+    # 2. Collect content, reasoning, and reasoning_details across chunks
+    # ================================================================
     content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    all_reasoning_details: list[dict[str, Any]] = []
 
     for chunk in chunks:
         choices = chunk.get("choices")
-        if not choices or not isinstance(choices, list):
+        if not choices or not isinstance(choices, list) or len(choices) == 0:
             continue
 
         choice = choices[0]
@@ -216,33 +218,123 @@ def consolidate_streaming_response(aggregated: AggregatedResponse) -> dict[str, 
         if not isinstance(delta, dict):
             continue
 
-        # Content: accumulate non-empty text
+        # Content: concatenate non-empty text
         content = delta.get("content")
         if content:
             content_parts.append(content)
 
-        # Reasoning: accumulate text AND keep block list
+        # Reasoning: concatenate text
         reasoning = delta.get("reasoning")
         if reasoning:
-            reasoning_text_parts.append(reasoning)
-            reasoning_blocks.append(reasoning)
+            reasoning_parts.append(reasoning)
 
-    reasoning_text = "".join(reasoning_text_parts)
-    content_text = "".join(content_parts)
+        # Reasoning details: merge arrays from all chunks
+        rd = delta.get("reasoning_details")
+        if rd and isinstance(rd, list):
+            all_reasoning_details.extend(rd)
 
-    result: dict[str, Any] = {
-        # Explicit disclaimer — this view is derived, not canonical
-        "note": "Human-readable derived view. Full fidelity in raw_response.",
+        # Also check top-level reasoning_details on the chunk itself
+        # (some providers may place it outside delta)
+        chunk_rd = chunk.get("reasoning_details")
+        if chunk_rd and isinstance(chunk_rd, list):
+            all_reasoning_details.extend(chunk_rd)
 
-        # Reasoning: both as readable text AND as block list for structure trace
-        "reasoning_text": reasoning_text,
-        "reasoning_blocks": reasoning_blocks,
+    # ================================================================
+    # 3. Extract finish_reason and native_finish_reason from last chunk
+    #    (scan reversed, take first non-null found)
+    # ================================================================
+    last_finish_reason: str | None = None
+    last_native_finish_reason: str | None = None
 
-        # Final visible content
-        "content_text": content_text,
+    for chunk in reversed(chunks):
+        choices = chunk.get("choices")
+        if not choices or not isinstance(choices, list) or len(choices) == 0:
+            continue
 
-        # Minimal metadata
-        "metadata": metadata,
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            continue
+
+        if last_finish_reason is None:
+            fr = choice.get("finish_reason")
+            if fr is not None:
+                last_finish_reason = fr
+
+        if last_native_finish_reason is None:
+            nfr = choice.get("native_finish_reason")
+            if nfr is not None:
+                last_native_finish_reason = nfr
+
+        if last_finish_reason is not None and last_native_finish_reason is not None:
+            break
+
+    # ================================================================
+    # 4. Extract usage from the chunk where it appears
+    #    (scan reversed, take last non-null/non-empty — consistent
+    #     with finish_reason extraction; providers emit usage in the
+    #     final chunk, so this is the most complete)
+    # ================================================================
+    usage: dict[str, Any] | None = None
+    for chunk in reversed(chunks):
+        u = chunk.get("usage")
+        if u and isinstance(u, dict) and len(u) > 0:
+            usage = u
+            break
+
+    # ================================================================
+    # 5. Extract debug from first chunk (if present)
+    # ================================================================
+    debug: dict[str, Any] | None = None
+    if "debug" in first_chunk:
+        debug = first_chunk["debug"]
+
+    # ================================================================
+    # 6. Schema-agnostic pass-through: collect any other field that
+    #    appears in any chunk and is not already handled.
+    #    First-write-wins policy: correct for identity/metadata fields
+    #    (system_fingerprint, etc.) which are constant across chunks.
+    # ================================================================
+    handled_keys = {
+        "id", "object", "created", "model", "provider",
+        "choices", "usage", "debug",
+        "reasoning_details",  # top-level, already merged
     }
+
+    for chunk in chunks:
+        for key, value in chunk.items():
+            if key not in handled_keys and key not in result:
+                result[key] = value
+
+    # ================================================================
+    # 7. Assemble final result
+    # ================================================================
+    # Add concatenated text fields
+    result["content"] = "".join(content_parts)
+    result["reasoning"] = "".join(reasoning_parts)
+
+    # Add reasoning_details as structured array (only if non-empty)
+    if all_reasoning_details:
+        result["reasoning_details"] = all_reasoning_details
+
+    # Add finish_reason fields (only if found)
+    if last_finish_reason is not None:
+        result["finish_reason"] = last_finish_reason
+    if last_native_finish_reason is not None:
+        result["native_finish_reason"] = last_native_finish_reason
+
+    # Add usage (only if found)
+    if usage is not None:
+        result["usage"] = usage
+
+    # Add debug (only if found)
+    if debug is not None:
+        result["debug"] = debug
+
+    # Add metadata
+    result["chunk_count"] = len(chunks)
+    result["streaming"] = True
+
+    # Add disclaimer note
+    result["note"] = "Human-readable derived view. Full fidelity in raw_response."
 
     return result

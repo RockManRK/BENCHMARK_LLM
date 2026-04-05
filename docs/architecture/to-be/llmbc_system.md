@@ -38,7 +38,7 @@ Requisitos e Essência:
   - Processarei apenas os modelos X, Y e Z nesse momento. A, B e C ficarão de fora.
   - Apenas o RUN X será processado agora.
   - Etc.
-  - E quando o usuário for executar novamente aquele experimento, o sitema precisa ser inteligênte para saber quais perguntas, de quais variantes de modelos, de quais runs, já foram executadas para serem puladas, e quais não foram.
+  - E quando o usuário for executar novamente aquele experimento, o sistema precisa ser inteligênte para saber quais perguntas, de quais variantes de modelos, de quais runs, já foram executadas para serem puladas, e quais não foram.
   - Execuções devem ser idempotentes: o sistema nunca deve gerar dados duplicados para a mesma combinação de experimento, run, modelo e questão.
 - O sistema deve gravar os dados de cada solicitação após a solicitação. E não apenas quando terminar a execução completa. O objetivo é garantir que os dados até aquele ponto estejam gravados caso ocorra alguma falha no meio do processo.
 - Futuramente o sistema deverá permitir processar mais de uma requisição por vez, para acelerar o processo. Devido a quantidade de solicitações individuais, fazelas de forma apenas sequêncial poderá acarretar em horas para executar um experimento inteiro. Permitir requisições paralelas pode dar um ganho enorme de velocidade.
