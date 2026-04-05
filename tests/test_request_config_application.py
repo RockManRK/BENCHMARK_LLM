@@ -134,8 +134,8 @@ class TestModelConfigApplication:
         assert "reasoning" not in request_payload
 
     @pytest.mark.asyncio
-    async def test_request_json_serialization_deterministic(self):
-        """Verify request_json is serialized deterministically with sort_keys."""
+    async def test_request_json_serialization_preserves_logical_order(self):
+        """Verify request_json is serialized with logical field order (insertion order)."""
         model_config = ModelConfig(
             temperature=0.9,
             top_k=50,
@@ -153,8 +153,8 @@ class TestModelConfigApplication:
 
         request_payload["stream"] = True
 
-        # Serialize deterministically
-        request_json = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
+        # Serialize preserving insertion order (no sort_keys)
+        request_json = json.dumps(request_payload, ensure_ascii=False)
 
         # Parse back and verify structure
         parsed = json.loads(request_json)
@@ -162,9 +162,10 @@ class TestModelConfigApplication:
         assert parsed["top_k"] == 50
         assert parsed["stream"] is True
 
-        # Verify keys are sorted (first key should be "messages", not "model" or "temperature")
+        # Verify insertion order is preserved (model before messages before temperature)
         keys_in_json = list(json.loads(request_json).keys())
-        assert keys_in_json == sorted(keys_in_json)
+        assert keys_in_json.index("model") < keys_in_json.index("messages")
+        assert keys_in_json.index("messages") < keys_in_json.index("temperature")
 
 
 class TestRequestJsonPersistence:
@@ -178,7 +179,7 @@ class TestRequestJsonPersistence:
             "temperature": 0.9,
             "stream": True,
         }
-        request_json = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
+        request_json = json.dumps(request_payload, ensure_ascii=False)
 
         result = ExecutionResult(
             item_id="test-item",

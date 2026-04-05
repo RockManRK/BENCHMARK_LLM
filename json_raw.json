@@ -1,0 +1,297 @@
+[
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [],
+        "debug": {
+            "echo_upstream_body": {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": "Paciente de 30 anos procurou consult\u00f3rio de ginecologia relatando fadiga, dismenorreia progressiva e dispareunia de profundidade. Toque vaginal; \u00fatero de volume normal, retroversofletido, dor \u00e0 mobiliza\u00e7\u00e3o do colo. Com base nessas informa\u00e7\u00f5es, a principal hip\u00f3tese diagn\u00f3stica \u00e9:\n\nA) doen\u00e7a inflamat\u00f3ria p\u00e9lvica.\nB) miomatose uterina.\nC) cisto hemorr\u00e1gico.\nD) endometriose.\n\nDigite APENAS UMA LETRA, A, B, C ou D para confirmar a resposta certa da quest\u00e3o:"
+                            }
+                        ]
+                    }
+                ],
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "OFF"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+                        "threshold": "OFF"
+                    }
+                ],
+                "labels": "<included to upstream but not in debug info>",
+                "generationConfig": {
+                    "thinkingConfig": {
+                        "includeThoughts": true,
+                        "thinkingBudget": 2000
+                    },
+                    "candidateCount": 1,
+                    "maxOutputTokens": 10000,
+                    "topP": 1,
+                    "temperature": 0.9
+                }
+            }
+        }
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": "**Analyzing Diagnostic Probabilities**\n\nMy focus is on synthesizing the presented clinical data\u2014a 30-year-old female experiencing fatigue and progressively worsening dysmenorrhea\u2014to pinpoint the most probable diagnosis. This involves weighing differential diagnoses against the specific symptom constellation and patient demographic.\n\n",
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "**Analyzing Diagnostic Probabilities**\n\nMy focus is on synthesizing the presented clinical data\u2014a 30-year-old female experiencing fatigue and progressively worsening dysmenorrhea\u2014to pinpoint the most probable diagnosis. This involves weighing differential diagnoses against the specific symptom constellation and patient demographic.\n\n",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": "**Evaluating Diagnostic Candidates**\n\nI am currently cross-referencing the presented symptoms\u2014fatigue, progressive dysmenorrhea, and deep dyspareunia, alongside findings like cervical motion tenderness and a retroverted uterus\u2014against potential diagnoses. My analysis is leaning towards conditions that account for both the menstrual and sexual pain components.\n\n",
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "**Evaluating Diagnostic Candidates**\n\nI am currently cross-referencing the presented symptoms\u2014fatigue, progressive dysmenorrhea, and deep dyspareunia, alongside findings like cervical motion tenderness and a retroverted uterus\u2014against potential diagnoses. My analysis is leaning towards conditions that account for both the menstrual and sexual pain components.\n\n",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": "**Synthesizing Symptom Data**\n\nI'm focusing on integrating the presented symptoms of progressive dysmenorrhea and deep dyspareunia, along with cervical motion tenderness and a retroverted uterus in a 30-year-old female, to refine my diagnostic hypothesis. My current analysis strongly favors conditions that explain this specific pattern of pelvic pain.\n\n",
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "**Synthesizing Symptom Data**\n\nI'm focusing on integrating the presented symptoms of progressive dysmenorrhea and deep dyspareunia, along with cervical motion tenderness and a retroverted uterus in a 30-year-old female, to refine my diagnostic hypothesis. My current analysis strongly favors conditions that explain this specific pattern of pelvic pain.\n\n",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": "**Identifying Endometriosis**\n\nI'm meticulously reviewing the presented symptoms of progressive dysmenorrhea, deep dyspareunia, and cervical motion tenderness, alongside a retroverted uterus in a 30-year-old female. My analysis strongly indicates endometriosis as the most probable diagnosis, aligning with its characteristic presentation.\n\n",
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "**Identifying Endometriosis**\n\nI'm meticulously reviewing the presented symptoms of progressive dysmenorrhea, deep dyspareunia, and cervical motion tenderness, alongside a retroverted uterus in a 30-year-old female. My analysis strongly indicates endometriosis as the most probable diagnosis, aligning with its characteristic presentation.\n\n",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": "**Confirming Endometriosis**\n\nI'm now confident in my assessment. The combination of progressive dysmenorrhea, deep dyspareunia, and cervical motion tenderness, especially with a retroverted uterus, aligns perfectly with the diagnostic criteria for endometriosis.\n\n",
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "**Confirming Endometriosis**\n\nI'm now confident in my assessment. The combination of progressive dysmenorrhea, deep dyspareunia, and cervical motion tenderness, especially with a retroverted uterus, aligns perfectly with the diagnostic criteria for endometriosis.\n\n",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": "**Formulating Differential Diagnoses**\n\nI'm currently sifting through the presented symptoms\u2014fatigue, progressive dysmenorrhea, and deep dyspareunia\u2014along with the pelvic exam findings of a retroverted uterus and cervical motion tenderness. My analysis is actively differentiating between pelvic inflammatory disease, uterine myomatosis, hemorrhagic cysts, and endometriosis to isolate the most fitting cause.\n\n**Analyzing Symptom Clusters**\n\nI'm meticulously examining the constellation of symptoms: progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus in a 30-year-old female with fatigue. This cluster strongly suggests a specific gynecological pathology that I am working to definitively identify.\n\n**Differentiating Between Conditions**\n\nMy current focus is on distinguishing between potential diagnoses based on the provided clinical picture. I'm weighing the typical presentations of PID, fibroids, hemorrhagic cysts, and endometriosis against the specific symptoms of progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus.\n\n**Refining Diagnostic Likelihoods**\n\nI am refining my diagnostic hypothesis by evaluating how well each potential condition explains the combination of progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus. My analysis is narrowing in on the most probable etiology.\n\n**Confirming Endometriosis Likelihood**\n\nI'm now strongly suspecting endometriosis. The combination of progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus in a 30-year-old female experiencing fatigue aligns exceptionally well with this diagnosis.\n\n**Pinpointing Endometriosis**\n\nI am confident in my assessment. The progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and retroverted uterus are highly indicative of endometriosis in this patient.\n\n",
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "**Formulating Differential Diagnoses**\n\nI'm currently sifting through the presented symptoms\u2014fatigue, progressive dysmenorrhea, and deep dyspareunia\u2014along with the pelvic exam findings of a retroverted uterus and cervical motion tenderness. My analysis is actively differentiating between pelvic inflammatory disease, uterine myomatosis, hemorrhagic cysts, and endometriosis to isolate the most fitting cause.\n\n**Analyzing Symptom Clusters**\n\nI'm meticulously examining the constellation of symptoms: progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus in a 30-year-old female with fatigue. This cluster strongly suggests a specific gynecological pathology that I am working to definitively identify.\n\n**Differentiating Between Conditions**\n\nMy current focus is on distinguishing between potential diagnoses based on the provided clinical picture. I'm weighing the typical presentations of PID, fibroids, hemorrhagic cysts, and endometriosis against the specific symptoms of progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus.\n\n**Refining Diagnostic Likelihoods**\n\nI am refining my diagnostic hypothesis by evaluating how well each potential condition explains the combination of progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus. My analysis is narrowing in on the most probable etiology.\n\n**Confirming Endometriosis Likelihood**\n\nI'm now strongly suspecting endometriosis. The combination of progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and a retroverted uterus in a 30-year-old female experiencing fatigue aligns exceptionally well with this diagnosis.\n\n**Pinpointing Endometriosis**\n\nI am confident in my assessment. The progressive dysmenorrhea, deep dyspareunia, cervical motion tenderness, and retroverted uterus are highly indicative of endometriosis in this patient.\n\n",
+                            "format": "google-gemini-v1",
+                            "index": 0
+                        }
+                    ]
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "D",
+                    "role": "assistant"
+                },
+                "finish_reason": null,
+                "native_finish_reason": null
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant",
+                    "reasoning": null
+                },
+                "finish_reason": "stop",
+                "native_finish_reason": "STOP"
+            }
+        ]
+    },
+    {
+        "id": "gen-1775352460-Mv7grFK035wLc2tim7l1",
+        "object": "chat.completion.chunk",
+        "created": 1775352460,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": "",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop",
+                "native_finish_reason": "STOP"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 132,
+            "completion_tokens": 1138,
+            "total_tokens": 1270,
+            "cost": 0.000463716,
+            "is_byok": false,
+            "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+            },
+            "cost_details": {
+                "upstream_inference_cost": 0.0004684,
+                "upstream_inference_prompt_cost": 1.32e-05,
+                "upstream_inference_completions_cost": 0.0004552
+            },
+            "completion_tokens_details": {
+                "reasoning_tokens": 1137,
+                "image_tokens": 0,
+                "audio_tokens": 0
+            }
+        }
+    }
+]

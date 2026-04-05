@@ -302,6 +302,9 @@ class ResultWriter:
         # Serialize raw_response to JSON (supports dict and list)
         raw_response_json = json.dumps(result.raw_response) if result.raw_response else None
 
+        # raw_response_consolidated is already JSON (serialized dict from consolidation)
+        raw_response_consolidated_json = result.raw_response_consolidated
+
         # Serialize timestamps to ISO format
         started_at_str = result.started_at.isoformat() if result.started_at else None
         finished_at_str = result.finished_at.isoformat() if result.finished_at else None
@@ -314,10 +317,10 @@ class ResultWriter:
                 response_text, selected_answer, is_correct,
                 parse_confidence, review_status, latency_ms,
                 input_tokens, response_tokens, reasoning_tokens, cost, effective_tokens,
-                raw_response, request_json, started_at, finished_at,
+                raw_response, raw_response_consolidated, request_json, started_at, finished_at,
                 randomization_enabled, randomization_seed,
                 options_presented, correct_option_presented, option_letter_map
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             response_id,
             result.run_id,
@@ -340,6 +343,7 @@ class ResultWriter:
             result.cost,
             result.effective_tokens,
             raw_response_json,
+            raw_response_consolidated_json,
             result.request_json,
             started_at_str,
             finished_at_str,

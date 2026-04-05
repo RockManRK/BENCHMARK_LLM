@@ -105,6 +105,11 @@ def parse_to_completion_response(
         if reasoning_tokens is not None:
             reasoning_tokens = reasoning_tokens or 0
 
+    # raw_response: always the RAW, original, unmodified list of SSE chunks.
+    # This is the canonical record of what the provider sent.
+    # A consolidated/debug version is saved separately (raw_response_consolidated).
+    raw_chunks = aggregated.raw_response
+
     return CompletionResponse(
         content=aggregated.content,
         model_id=model_id,
@@ -113,5 +118,5 @@ def parse_to_completion_response(
         reasoning_tokens=reasoning_tokens,
         cost=cost,
         latency_ms=latency_ms,
-        raw_response=aggregated.raw_response,
+        raw_response=raw_chunks,
     )

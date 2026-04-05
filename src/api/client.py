@@ -242,12 +242,43 @@ class OpenRouterClient(CompletionProvider):
 
         try:
             # Build request payload
+            # Fields are inserted in a logical order for human readability
+            # (consistent with execution_engine.py payload construction):
+            # 1. Identification & Content  → model, messages
+            # 2. Output Control            → response_format, stream, max_tokens
+            # 3. Generation Parameters     → temperature, top_p, top_k, repetition_penalty, stop
+            # 4. Special Features          → reasoning
+            # 5. Debug                     → debug (if enabled)
             payload: dict[str, Any] = {
+                # --- 1. Identification & Content ---
                 "model": model_id,
                 "messages": messages,
+
+                # --- 2. Output Control ---
+                # response_format added conditionally below
+                # stream added below
+                # max_tokens added conditionally below
+
+                # --- 3. Generation Parameters ---
+                # All added conditionally below
+
+                # --- 4. Special Features ---
+                # reasoning added conditionally below
+
+                # --- 5. Debug ---
+                # debug added conditionally below
             }
 
-            # Add optional sampling parameters (only if not None)
+            # --- 2. Output Control ---
+            if response_format is not None:
+                payload["response_format"] = response_format
+
+            payload["stream"] = True
+
+            if max_tokens is not None:
+                payload["max_tokens"] = max_tokens
+
+            # --- 3. Generation Parameters ---
             if temperature is not None:
                 payload["temperature"] = temperature
             if top_p is not None:
@@ -257,12 +288,10 @@ class OpenRouterClient(CompletionProvider):
             if repeat_penalty is not None:
                 # OpenRouter API uses 'repetition_penalty' as field name
                 payload["repetition_penalty"] = repeat_penalty
-            if max_tokens is not None:
-                payload["max_tokens"] = max_tokens
             if stop is not None:
                 payload["stop"] = stop
 
-            # Add reasoning configuration (if either effort or max_tokens is specified)
+            # --- 4. Special Features: Reasoning ---
             # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
             # If both are defined, prioritize effort and log a warning.
             reasoning_config: dict[str, Any] = {}
@@ -282,18 +311,11 @@ class OpenRouterClient(CompletionProvider):
                 # Only max_tokens defined - use it normally
                 reasoning_config["max_tokens"] = max_reasoning_tokens
             # else: neither defined - no reasoning config at all
-            
+
             if reasoning_config:
                 payload["reasoning"] = reasoning_config
 
-            # Add response format for structured outputs
-            if response_format is not None:
-                payload["response_format"] = response_format
-
-            # Enable streaming mode
-            payload["stream"] = True
-
-            # Add debug payload if enabled (per OpenRouter docs)
+            # --- 5. Debug ---
             if self._debug_enabled:
                 payload["debug"] = {"echo_upstream_body": True}
                 self._logger.info(f"DEBUG_ENABLED | adding debug payload to request for model={model_id}")

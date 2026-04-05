@@ -159,6 +159,7 @@ class ExecutionResult:
     finish_reason: str | None = None
     error_details: str | None = None
     request_json: str | None = None
+    raw_response_consolidated: str | None = None
 
     # Experimental context (randomization tracking)
     randomization_enabled: bool = False
@@ -521,14 +522,44 @@ class ExecutionEngine:
             if model_config.structured_output:
                 response_format = {"type": "json_object"}
 
-            # Build the complete request payload for audit/capture
-            # This is the EXACT payload that will be sent to the API
+            # Build the complete request payload for audit/capture.
+            # This is the EXACT payload that will be sent to the API.
+            #
+            # Fields are inserted in a logical order for human readability:
+            # 1. Identification & Content  → model, messages
+            # 2. Output Control            → response_format, stream, max_tokens
+            # 3. Generation Parameters     → temperature, top_p, top_k, repetition_penalty
+            # 4. Special Features          → reasoning
+            #
+            # Python ≥3.7 preserves insertion order — we use this to produce
+            # a consistently readable request_json in the database.
             request_payload: dict[str, Any] = {
+                # --- 1. Identification & Content ---
                 "model": variant.model_id,
                 "messages": messages,
+
+                # --- 2. Output Control ---
+                # response_format added conditionally below
+                # stream added below
+                # max_tokens added conditionally below
+
+                # --- 3. Generation Parameters ---
+                # All added conditionally below
+
+                # --- 4. Special Features ---
+                # reasoning added conditionally below
             }
 
-            # Add optional sampling parameters (only if not None)
+            # --- 2. Output Control ---
+            if response_format is not None:
+                request_payload["response_format"] = response_format
+
+            request_payload["stream"] = True
+
+            if model_config.max_output_tokens is not None:
+                request_payload["max_tokens"] = model_config.max_output_tokens
+
+            # --- 3. Generation Parameters ---
             if model_config.temperature is not None:
                 request_payload["temperature"] = model_config.temperature
             if model_config.top_p is not None:
@@ -538,14 +569,12 @@ class ExecutionEngine:
             if model_config.repeat_penalty is not None:
                 # OpenRouter API uses 'repetition_penalty' as field name
                 request_payload["repetition_penalty"] = model_config.repeat_penalty
-            if model_config.max_output_tokens is not None:
-                request_payload["max_tokens"] = model_config.max_output_tokens
 
-            # Add reasoning configuration (if either effort or max_tokens is specified)
+            # --- 4. Special Features: Reasoning ---
             # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
             # If both are defined, prioritize effort and log a warning.
             reasoning_config: dict[str, Any] = {}
-            
+
             if model_config.reasoning_effort is not None and model_config.max_reasoning_tokens is not None:
                 # Conflict: both defined - prioritize effort per OpenRouter contract
                 self._logger.warning(
@@ -563,22 +592,16 @@ class ExecutionEngine:
                 # Only max_tokens defined - use it normally
                 reasoning_config["max_tokens"] = model_config.max_reasoning_tokens
             # else: neither defined - no reasoning config at all
-            
+
             if reasoning_config:
                 request_payload["reasoning"] = reasoning_config
-
-            # Add response format for structured outputs
-            if response_format is not None:
-                request_payload["response_format"] = response_format
-
-            # Enable streaming (matching API client behavior)
-            request_payload["stream"] = True
 
             # Capture request_json AFTER all modifications to request_payload are complete.
             # This ensures the persisted JSON represents the EXACT payload that would be sent to the API,
             # including: all non-null fields, merged reasoning object, and streaming flag.
-            # Serialization is deterministic: sort_keys=True, ensure_ascii=False
-            request_json = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
+            # Fields are serialized in insertion order (Python ≥3.7) for human readability.
+            # ensure_ascii=False preserves unicode characters as-is for legibility.
+            request_json = json.dumps(request_payload, ensure_ascii=False)
             
             # Store in context for exception handling
             execution_context["request_json"] = request_json
@@ -608,6 +631,27 @@ class ExecutionEngine:
             cost = response.cost if hasattr(response, 'cost') else None
             finish_reason = self._extract_finish_reason(response)
             raw_response = response.raw_response if hasattr(response, 'raw_response') else None
+
+            # Consolidated version for human-readable debug (separate from raw)
+            raw_response_consolidated: str | None = None
+            if raw_response and isinstance(raw_response, list):
+                try:
+                    from src.api.stream_aggregator import (
+                        AggregatedResponse,
+                        consolidate_streaming_response,
+                    )
+                    agg = AggregatedResponse(
+                        content="",
+                        finish_reason=None,
+                        usage={},
+                        debug_info=None,
+                        raw_response=raw_response,
+                    )
+                    consolidated_dict = consolidate_streaming_response(agg)
+                    raw_response_consolidated = json.dumps(consolidated_dict, ensure_ascii=False)
+                except Exception:
+                    # Consolidation is debug-only — never break execution
+                    pass
 
             # Calculate effective tokens (input + response + reasoning)
             effective_tokens = None
@@ -653,6 +697,7 @@ class ExecutionEngine:
                 "effective_tokens": effective_tokens,
                 "finish_reason": finish_reason,
                 "raw_response": raw_response,
+                "raw_response_consolidated": raw_response_consolidated,
                 "error_details": error_details,
                 "request_json": request_json,
                 # Experimental context
@@ -682,6 +727,7 @@ class ExecutionEngine:
             effective_tokens = result_data.get("effective_tokens")
             finish_reason = result_data["finish_reason"]
             raw_response = result_data["raw_response"]
+            raw_response_consolidated = result_data.get("raw_response_consolidated")
             error_details = result_data.get("error_details")
             request_json = result_data.get("request_json")
 
@@ -723,6 +769,7 @@ class ExecutionEngine:
                 error_message=None,
                 attempt_count=attempt_count,
                 raw_response=raw_response,
+                raw_response_consolidated=raw_response_consolidated,
                 started_at=started_at,
                 finished_at=finished_at,
                 finish_reason=finish_reason,
@@ -773,6 +820,7 @@ class ExecutionEngine:
                 error_message=last_error_message,
                 attempt_count=attempt_count,
                 raw_response=None,
+                raw_response_consolidated=None,
                 started_at=started_at,
                 finished_at=finished_at,
                 finish_reason=None,
