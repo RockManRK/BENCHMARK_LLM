@@ -26,6 +26,7 @@ from logging import Logger
 from typing import Literal, Optional
 
 from src.core.execution_engine import ExecutionResult
+from src.core.json_serializer import serialize_json
 from src.utils.logging_config import get_logger
 
 
@@ -300,10 +301,14 @@ class ResultWriter:
             is_correct = (result.selected_answer.upper() == result.correct_option_presented.upper())
 
         # Serialize raw_response to JSON (supports dict and list)
-        raw_response_json = json.dumps(result.raw_response) if result.raw_response else None
+        raw_response_json = serialize_json(result.raw_response, pretty=True)
 
-        # raw_response_consolidated is already JSON (serialized dict from consolidation)
-        raw_response_consolidated_json = result.raw_response_consolidated
+        # raw_response_consolidated is already JSON (serialized dict from consolidation).
+        # Guard: if a dict/list is accidentally passed, serialize it safely.
+        if result.raw_response_consolidated is not None and not isinstance(result.raw_response_consolidated, str):
+            raw_response_consolidated_json = serialize_json(result.raw_response_consolidated, pretty=True)
+        else:
+            raw_response_consolidated_json = result.raw_response_consolidated
 
         # Serialize timestamps to ISO format
         started_at_str = result.started_at.isoformat() if result.started_at else None

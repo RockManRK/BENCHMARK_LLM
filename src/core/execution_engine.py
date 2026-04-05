@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from src.api.message_builder import MessageBuilder
+from src.core.json_serializer import serialize_json
 from src.core.execution_plan import (
     ExecutionPlan,
     PlanRun,
@@ -601,7 +602,7 @@ class ExecutionEngine:
             # including: all non-null fields, merged reasoning object, and streaming flag.
             # Fields are serialized in insertion order (Python ≥3.7) for human readability.
             # ensure_ascii=False preserves unicode characters as-is for legibility.
-            request_json = json.dumps(request_payload, ensure_ascii=False)
+            request_json = serialize_json(request_payload, pretty=True)
             
             # Store in context for exception handling
             execution_context["request_json"] = request_json
@@ -648,7 +649,7 @@ class ExecutionEngine:
                         raw_response=raw_response,
                     )
                     consolidated_dict = consolidate_streaming_response(agg)
-                    raw_response_consolidated = json.dumps(consolidated_dict, ensure_ascii=False)
+                    raw_response_consolidated = serialize_json(consolidated_dict, pretty=True)
                 except Exception:
                     # Consolidation is debug-only — never break execution
                     pass
