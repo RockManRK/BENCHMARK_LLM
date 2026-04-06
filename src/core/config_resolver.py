@@ -415,11 +415,57 @@ class ConfigResolver:
             ),
         }
 
+    def _resolve_cli_or_experiment(
+        self,
+        cli_value: str | float | int | None,
+        exp_config: dict,
+        exp_key: str,
+        parser=None
+    ) -> str | int | float | bool | None:
+        """Resolve configuration value from CLI or experiment config only.
+
+        This method enforces the post-experiment-creation contract:
+        configuration must inherit from experiment.config_json, NOT from .env.
+
+        Resolution order:
+        1. CLI value (if provided and not FORCE_SYSTEM_DEFAULT)
+        2. Experiment config value (if key exists)
+        3. None (system-default)
+
+        CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly use system-default" - no fallback.
+
+        Args:
+            cli_value: Value from CLI flag, or None.
+            exp_config: Experiment's config_json dictionary.
+            exp_key: Key to look up in experiment config.
+            parser: Optional parser function to apply to the result.
+
+        Returns:
+            Resolved configuration value, or None if not provided anywhere.
+        """
+        if cli_value is FORCE_SYSTEM_DEFAULT:
+            return None
+
+        if cli_value is not None:
+            if parser is not None:
+                return parser(cli_value)
+            if isinstance(cli_value, str):
+                return cli_value.strip()
+            return cli_value
+
+        exp_value = exp_config.get(exp_key)
+        if exp_value is not None and parser is not None:
+            return parser(exp_value)
+        if exp_value is not None and isinstance(exp_value, str):
+            return exp_value.strip()
+        return exp_value
+
     def build_run_config_dict(self, cli_args, experiment) -> dict:
         """Build complete configuration dictionary for run creation.
 
         Includes ALL run-level keys from contract, even if null.
         Seed AUTO is resolved here (at RUN_CREATION).
+        Resolution order: CLI > experiment > NULL (NO .env consultation)
 
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
@@ -435,23 +481,39 @@ class ConfigResolver:
 
         exp_config = json.loads(experiment.config_json) if experiment.config_json else {}
 
-        resolved_seed = self.resolve_seed_for_run(
-            cli_value=getattr(cli_args, 'seed', None),
-            env_key="RUN_RESPONSES_SEED",
-            run_id="",
-            experiment_id=experiment.experiment_id
-        )
+        cli_seed = getattr(cli_args, 'seed', None)
+        if cli_seed == "AUTO":
+            resolved_seed = self._generate_seed_from_run("", experiment.experiment_id)
+        elif cli_seed is not None and cli_seed is not FORCE_SYSTEM_DEFAULT:
+            try:
+                resolved_seed = int(cli_seed)
+            except ValueError:
+                resolved_seed = None
+        elif cli_seed is FORCE_SYSTEM_DEFAULT:
+            # Explicit system-default: no randomization, regardless of experiment config
+            resolved_seed = None
+        else:
+            exp_seed = exp_config.get("RUN_RESPONSES_SEED")
+            if exp_seed is None or exp_seed == "AUTO":
+                resolved_seed = self._generate_seed_from_run("", experiment.experiment_id)
+            elif exp_seed is not None:
+                try:
+                    resolved_seed = int(exp_seed)
+                except ValueError:
+                    resolved_seed = None
+            else:
+                resolved_seed = None
 
-        resolved_system_prompt = self.resolve_prompt(
+        resolved_system_prompt = self._resolve_cli_or_experiment(
             cli_value=getattr(cli_args, 'system_prompt', None),
-            env_key="SYSTEM_PROMPT",
-            default=exp_config.get("SYSTEM_PROMPT")
+            exp_config=exp_config,
+            exp_key="SYSTEM_PROMPT"
         )
 
-        resolved_user_prompt = self.resolve_prompt(
+        resolved_user_prompt = self._resolve_cli_or_experiment(
             cli_value=getattr(cli_args, 'user_prompt', None),
-            env_key="USER_PROMPT",
-            default=exp_config.get("USER_PROMPT")
+            exp_config=exp_config,
+            exp_key="USER_PROMPT"
         )
 
         return {
@@ -464,7 +526,7 @@ class ConfigResolver:
         """Build complete configuration dictionary for model variant creation.
 
         Includes ALL 10 model-level keys from contract, even if null.
-        Resolution order: CLI > .env > experiment > NULL
+        Resolution order: CLI > experiment > NULL (NO .env consultation)
 
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
@@ -487,18 +549,6 @@ class ConfigResolver:
 
         exp_config = json.loads(experiment.config_json) if experiment.config_json else {}
 
-        def resolve_cli_or_env(cli_value: str | float | int | None, env_key: str, default=None):
-            """Resolve value from CLI > .env > default."""
-            if cli_value is not None:
-                if isinstance(cli_value, (float, int)):
-                    return str(cli_value)
-                if cli_value.strip():
-                    return cli_value.strip()
-            env_value = self.env_dict.get(env_key)
-            if env_value is not None and env_value.strip():
-                return env_value.strip()
-            return default
-
         def parse_int(value: str | None) -> int | None:
             """Parse integer from string."""
             if value is None:
@@ -518,40 +568,64 @@ class ConfigResolver:
                 return None
 
         return {
-            "BASE_URL": resolve_cli_or_env(
+            "BASE_URL": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'url', None),
+                exp_config,
                 "BASE_URL"
             ),
-            "MODEL_MAX_TOKENS_REASONING": parse_int(resolve_cli_or_env(
+            "MODEL_MAX_TOKENS_REASONING": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None),
-                "MODEL_MAX_TOKENS_REASONING"
-            )),
-            "MODEL_MAX_TOKENS_TOTAL": parse_int(resolve_cli_or_env(
+                exp_config,
+                "MODEL_MAX_TOKENS_REASONING",
+                parse_int
+            ),
+            "MODEL_MAX_TOKENS_TOTAL": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'max_tokens', None),
-                "MODEL_MAX_TOKENS_TOTAL"
-            )),
-            "MODEL_REASONING_EFFORT": resolve_cli_or_env(
+                exp_config,
+                "MODEL_MAX_TOKENS_TOTAL",
+                parse_int
+            ),
+            "MODEL_REASONING_EFFORT": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'reasoning', None),
+                exp_config,
                 "MODEL_REASONING_EFFORT"
             ),
-            "MODEL_REPEAT_PENALTY": parse_float(resolve_cli_or_env(
+            "MODEL_REPEAT_PENALTY": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'repeat_penalty', None),
-                "MODEL_REPEAT_PENALTY"
-            )),
-            "MODEL_TEMPERATURE": parse_float(resolve_cli_or_env(
+                exp_config,
+                "MODEL_REPEAT_PENALTY",
+                parse_float
+            ),
+            "MODEL_TEMPERATURE": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'temperature', None),
-                "MODEL_TEMPERATURE"
-            )),
-            "MODEL_TOP_K": parse_int(resolve_cli_or_env(
+                exp_config,
+                "MODEL_TEMPERATURE",
+                parse_float
+            ),
+            "MODEL_TOP_K": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'top_k', None),
-                "MODEL_TOP_K"
-            )),
-            "MODEL_TOP_P": parse_float(resolve_cli_or_env(
+                exp_config,
+                "MODEL_TOP_K",
+                parse_int
+            ),
+            "MODEL_TOP_P": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'top_p', None),
-                "MODEL_TOP_P"
-            )),
-            "MODEL_VISION": self._resolve_bool_cli_or_env(getattr(cli_args, 'vision', None), "MODEL_VISION"),
-            "STRUCTURED_OUTPUTS": self._resolve_bool_cli_or_env(getattr(cli_args, 'structured', None), "STRUCTURED_OUTPUTS"),
+                exp_config,
+                "MODEL_TOP_P",
+                parse_float
+            ),
+            "MODEL_VISION": self._resolve_cli_or_experiment(
+                getattr(cli_args, 'vision', None),
+                exp_config,
+                "MODEL_VISION",
+                self._parse_bool_value
+            ),
+            "STRUCTURED_OUTPUTS": self._resolve_cli_or_experiment(
+                getattr(cli_args, 'structured', None),
+                exp_config,
+                "STRUCTURED_OUTPUTS",
+                self._parse_bool_value
+            ),
         }
 
     def _parse_json_env(self, key: str) -> list | None:
