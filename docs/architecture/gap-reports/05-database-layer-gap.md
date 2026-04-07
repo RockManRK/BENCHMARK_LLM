@@ -178,7 +178,6 @@
 | `selected_answer` | ✅ TEXT | ✅ TEXT | Same |
 | `is_correct` | ✅ BOOLEAN | ✅ BOOLEAN | Same |
 | `parse_confidence` | ✅ TEXT DEFAULT 'unknown' | ✅ TEXT DEFAULT 'unknown' | Same |
-| `needs_review` | ✅ BOOLEAN NOT NULL DEFAULT FALSE | ❌ Renamed to `review_status` | Renamed |
 | `review_status` | ❌ Not in V1 | ✅ TEXT | **Added** (more expressive) |
 | `manual_answer` | ✅ TEXT | ✅ TEXT | Same |
 | `raw_response` | ❌ Not in V1 | ✅ TEXT | **Added** (complete API response) |
@@ -197,7 +196,7 @@
 | `finished_at` | ❌ Not in V1 | ✅ TIMESTAMP | **Added** |
 | `created_at` | ✅ TIMESTAMP | ❌ Removed | Replaced by `started_at`/`finished_at` |
 
-**Assessment**: V2 enhanced `responses` with better token tracking and timing fields. Renamed `needs_review` to `review_status` for more expressiveness.
+**Assessment**: V2 enhanced `responses` with better token tracking and timing fields.
 
 **Gap Severity**: **NONE** — Enhancements, not regressions.
 

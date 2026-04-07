@@ -1,18 +1,27 @@
-"""Answer parser module for TO-BE architecture.
+"""Simple, deterministic, contract-based answer parser.
 
-This module provides functionality to parse LLM responses and extract
-the selected answer letter with confidence classification.
+This parser analyzes ONLY the first 20 characters of a response to extract
+the selected answer letter. It does NOT perform semantic inference or scan
+the full text.
 
-The parser uses a hierarchical pattern matching approach:
-1. Explicit patterns (high confidence)
-2. Context patterns (medium confidence)
-3. Structural patterns (medium-low confidence)
-4. Fallback (low confidence → requires manual review)
+Design principles:
+- Deterministic and conservative
+- Prefer false negatives over false positives
+- No NLP libraries
+- No meaning inference
 """
 
 import re
-from dataclasses import dataclass, field
+import unicodedata
+from dataclasses import dataclass
 from typing import Optional
+
+
+# Maximum characters to analyze from the start of the response
+ANALYSIS_WINDOW = 20
+
+# Valid answer letters
+VALID_ANSWERS = {"A", "B", "C", "D", "E"}
 
 
 @dataclass
@@ -20,201 +29,164 @@ class ParsedAnswer:
     """Result of parsing an LLM response.
 
     Attributes:
-        answer: The extracted answer letter (A, B, C, or D), or None if not found.
-        confidence: Confidence level indicating if manual review is needed.
-        raw_matches: List of all letter matches found in the response text.
-        reasoning_text: Extracted reasoning text if present.
+        answer: The extracted answer letter (A-E), or None if not found.
+        confidence: One of 'clear', 'ambiguous', 'no_answer', 'low_confidence'.
 
-    Example:
-        >>> result = ParsedAnswer(
-        ...     answer="B",
-        ...     confidence="clear",
-        ...     raw_matches=["B"],
-        ... )
+    Confidence semantics:
+        clear         – Exactly one valid alternative found in the analyzed segment.
+        ambiguous     – More than one valid alternative found.
+        no_answer     – No valid alternative found.
+        low_confidence – Response is long/verbose; first 20 chars don't contain a clear answer.
     """
 
     answer: Optional[str] = None
     confidence: str = "no_answer"
-    raw_matches: list[str] = field(default_factory=list)
-    reasoning_text: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate confidence level."""
-        valid_confidence = {"clear", "ambiguous", "no_answer", "low_confidence"}
-        if self.confidence not in valid_confidence:
+        valid = {"clear", "ambiguous", "no_answer", "low_confidence"}
+        if self.confidence not in valid:
             raise ValueError(f"Invalid confidence level: {self.confidence}")
 
 
 class AnswerParser:
-    """Parser for extracting answer letters from LLM responses.
+    """Simple, deterministic answer parser.
 
-    This class implements a hierarchical pattern matching strategy
-    to extract answer letters (A, B, C, D) from LLM response text.
-
-    Example:
-        >>> parser = AnswerParser()
-        >>> result = parser.parse("A resposta correta é B)")
-        >>> assert result.answer == "B"
-        >>> assert result.confidence == "clear"
+    Analyzes only the first ANALYSIS_WINDOW characters of the response.
     """
 
-    # Pattern definitions with confidence levels
-    EXPLICIT_PATTERNS = [
-        (r"(?:resposta|answer)\s*:\s*([A-D])", True, "clear"),
-        (r"(?:alternativa\s+)?correta\s*(?:é|is)\s*([A-D])", True, "clear"),
-    ]
-
-    CONTEXT_PATTERNS = [
-        (r"a\s+resposta\s+(?:correta\s+)?(?:é|is)\s*([A-D])", True, "clear"),
-        (r"the\s+correct\s+answer\s+(?:is)?\s*([A-D])", True, "clear"),
-        (r"(?:opção|option)\s*([A-D])", True, "clear"),
-        (r"(?:letra|letter)\s*([A-D])", True, "clear"),
-        (r"alternativa\s+([A-D])\b", True, "clear"),
-    ]
-
-    STRUCTURAL_PATTERNS = [
-        (r"^\s*\*\*([A-D])\*\*", True, "clear"),
-        (r"^\s*([A-D])\s*:", True, "clear"),
-        (r"^\s*([A-D])\s*\)", True, "clear"),
-        (r"^\s*\(\s*([A-D])\s*\)", True, "clear"),
-        (r"\b([A-D])\b\s*:", True, "clear"),
-        (r"\b([A-D])\b\s*\)", True, "clear"),
-    ]
-
-    FALLBACK_PATTERN = r"\b([A-D])\b"
+    # Patterns that indicate a verbose/long response (low confidence trigger)
+    VERBOSE_INDICATORS = re.compile(
+        r"^(let me|vou|vamos|okay|well|hmm|so |i think|i believe|"
+        r"deixe|analisando|análise|vamos ver|bom,|então,|ok,)",
+        re.IGNORECASE,
+    )
 
     def __init__(self) -> None:
         """Initialize the AnswerParser."""
-        self._compile_patterns()
-
-    def _compile_patterns(self) -> None:
-        """Compile all regex patterns for efficiency."""
-        self._explicit_regex = [
-            (re.compile(pattern, re.IGNORECASE | re.MULTILINE), has_group, conf)
-            for pattern, has_group, conf in self.EXPLICIT_PATTERNS
-        ]
-        self._context_regex = [
-            (re.compile(pattern, re.IGNORECASE | re.MULTILINE), has_group, conf)
-            for pattern, has_group, conf in self.CONTEXT_PATTERNS
-        ]
-        self._structural_regex = [
-            (re.compile(pattern, re.IGNORECASE | re.MULTILINE), has_group, conf)
-            for pattern, has_group, conf in self.STRUCTURAL_PATTERNS
-        ]
-        self._fallback_regex = re.compile(self.FALLBACK_PATTERN, re.IGNORECASE)
+        pass
 
     def parse(self, response_text: str) -> ParsedAnswer:
         """Parse an LLM response and extract the answer letter.
+
+        Only the first ANALYSIS_WINDOW characters are analyzed.
 
         Args:
             response_text: Full text response from the LLM.
 
         Returns:
-            ParsedAnswer object containing answer, confidence, and raw matches.
-
-        Example:
-            >>> parser = AnswerParser()
-            >>> result = parser.parse("A resposta correta é B)")
-            >>> print(result.answer)
-            B
+            ParsedAnswer with answer and confidence fields.
         """
+        # Empty or whitespace-only
         if not response_text or not response_text.strip():
             return ParsedAnswer(confidence="no_answer")
 
-        response_text = response_text.strip()
+        raw_segment = response_text.strip()
 
-        # Find all letter matches
-        all_matches = self._find_all_matches(response_text)
-        filtered_matches = self._filter_ambiguous_articles(response_text, all_matches)
+        # Check if response is verbose/long – triggers low_confidence
+        if self._is_verbose_response(raw_segment):
+            return ParsedAnswer(answer=None, confidence="low_confidence")
 
-        # Check for ambiguity
-        unique_letters = set(m for m in filtered_matches if m in ("A", "B", "C", "D"))
-        if len(unique_letters) > 1:
-            return ParsedAnswer(
-                answer=None,
-                confidence="ambiguous",
-                raw_matches=filtered_matches,
-            )
+        # Extract the analysis window
+        segment = raw_segment[:ANALYSIS_WINDOW]
 
-        # Try patterns by priority
-        for pattern, has_group, confidence in self._explicit_regex:
-            match = pattern.search(response_text)
-            if match:
-                letter = self._extract_match(match, has_group)
-                if letter and letter in ("A", "B", "C", "D"):
-                    return ParsedAnswer(
-                        answer=letter,
-                        confidence=confidence,
-                        raw_matches=filtered_matches,
-                    )
+        # Normalize: strip, uppercase, unicode normalize, strip simple markdown
+        normalized = self._normalize(segment)
 
-        for pattern, has_group, confidence in self._context_regex:
-            match = pattern.search(response_text)
-            if match:
-                letter = self._extract_match(match, has_group)
-                if letter and letter in ("A", "B", "C", "D"):
-                    return ParsedAnswer(
-                        answer=letter,
-                        confidence=confidence,
-                        raw_matches=filtered_matches,
-                    )
+        # Find all valid answer letters in the normalized segment
+        found = self._find_valid_answers(normalized)
 
-        for pattern, has_group, confidence in self._structural_regex:
-            match = pattern.search(response_text)
-            if match:
-                letter = self._extract_match(match, has_group)
-                if letter and letter in ("A", "B", "C", "D"):
-                    return ParsedAnswer(
-                        answer=letter,
-                        confidence=confidence,
-                        raw_matches=filtered_matches,
-                    )
+        if len(found) == 0:
+            return ParsedAnswer(answer=None, confidence="no_answer")
 
-        # Fallback
-        if filtered_matches:
-            letter = filtered_matches[0]
-            if letter in ("A", "B", "C", "D"):
-                return ParsedAnswer(
-                    answer=letter,
-                    confidence="low_confidence",
-                    raw_matches=filtered_matches,
-                )
+        if len(found) > 1:
+            # Ambiguous: multiple different letters
+            return ParsedAnswer(answer=found[0], confidence="ambiguous")
 
-        return ParsedAnswer(
-            answer=None,
-            confidence="no_answer",
-            raw_matches=filtered_matches,
-        )
+        # Exactly one valid alternative
+        return ParsedAnswer(answer=found[0], confidence="clear")
 
-    def _find_all_matches(self, text: str) -> list[str]:
-        """Find all letter matches in the text."""
-        matches = self._fallback_regex.findall(text)
-        return [m.upper() for m in matches if m.upper() in ("A", "B", "C", "D")]
+    def _normalize(self, text: str) -> str:
+        """Normalize text for pattern matching.
 
-    def _filter_ambiguous_articles(self, text: str, matches: list[str]) -> list[str]:
-        """Filter out false positive matches from articles."""
-        if not matches:
-            return []
+        Steps:
+        1. Strip whitespace
+        2. Uppercase
+        3. Unicode NFKD normalization (strips accents)
+        4. Remove simple markdown markers (*, _, ~, #, `, **)
+        """
+        text = text.strip()
+        text = text.upper()
+        text = unicodedata.normalize("NFKD", text)
+        # Remove combining characters (accents)
+        text = "".join(c for c in text if not unicodedata.combining(c))
+        # Remove simple markdown: *, _, ~, #, `, **
+        text = re.sub(r"[\*\_~#`]", "", text)
+        return text
 
-        article_pattern = re.compile(
-            r'\b[Aa]\s+(?:alternativa|opção|opcoes|resposta|letra|questão|questao|correct|correcta|correta|melhor|mais|única|unica|primeira|segunda|terceira|última|ultima|explicação|explicacao|capital|cidade|pais|país|regiao|região|parte|maioria)\b',
-            re.IGNORECASE
-        )
+    def _find_valid_answers(self, text: str) -> list[str]:
+        """Find valid answer letters in the normalized text.
 
-        article_matches = list(article_pattern.finditer(text))
-        article_positions = set(match.start() for match in article_matches)
+        Recognized patterns:
+        - Single isolated letter: A, B, C, D, E
+        - Quoted letter: "A"
+        - Explicit markers: ANSWER: A, \\boxed{A}
+        - Simple JSON: { "ANSWER": "A" }
+        - Letter followed by ) or . or :
+        """
+        found: list[str] = []
 
-        filtered = []
-        for match in self._fallback_regex.finditer(text):
-            letter = match.group(1).upper()
-            if letter == "A" and match.start() in article_positions:
-                continue
-            filtered.append(letter)
+        # Pattern 1: \boxed{X}
+        boxed = re.findall(r"\\BOXED\{([A-E])\}", text)
+        found.extend(boxed)
 
-        return filtered
+        # Pattern 2: "ANSWER": "X" or "ANSWER":"X" (JSON-style)
+        json_match = re.search(r'"ANSWER"\s*:\s*"([A-E])"', text)
+        if json_match:
+            found.append(json_match.group(1))
 
-    def _extract_match(self, match: re.Match, has_group: bool) -> Optional[str]:
-        """Extract the letter from a regex match."""
-        if has_group:
-            return match.group(1).upper()
-        return match.group(0).upper()
+        # Pattern 3: ANSWER: X or ANSWER: "X"
+        answer_marker = re.findall(r'''ANSWER\s*:\s*"?([A-E])"?''', text)
+        found.extend(answer_marker)
+
+        # Pattern 4: Quoted letter "X"
+        quoted = re.findall(r'"([A-E])"', text)
+        found.extend(quoted)
+
+        # Pattern 5: Isolated letter with common delimiters: X, X), X., X:, (X)
+        # Use word boundaries to find standalone A-E letters
+        isolated = re.findall(r"\b([A-E])\b", text)
+        found.extend(isolated)
+
+        # Deduplicate while preserving order of first occurrence
+        seen: set[str] = set()
+        result: list[str] = []
+        for letter in found:
+            if letter not in seen:
+                seen.add(letter)
+                result.append(letter)
+
+        return result
+
+    def _is_verbose_response(self, text: str) -> bool:
+        """Check if the response starts with verbose/filler language.
+
+        Returns True if the response begins with common verbose markers,
+        indicating the model is reasoning rather than giving a direct answer.
+        """
+        if len(text) > 200:
+            return True
+        return bool(self.VERBOSE_INDICATORS.match(text))
+
+
+def parse_answer(response_text: str) -> ParsedAnswer:
+    """Convenience function to parse an LLM response.
+
+    Args:
+        response_text: Full text response from the LLM.
+
+    Returns:
+        ParsedAnswer with answer and confidence fields.
+    """
+    parser = AnswerParser()
+    return parser.parse(response_text)

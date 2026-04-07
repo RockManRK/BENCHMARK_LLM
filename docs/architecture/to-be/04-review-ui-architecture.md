@@ -138,7 +138,7 @@ def calculate_needs_review(parse_confidence: str, selected_answer: Optional[str]
     return False
 ```
 
-### 3.2 review_status Field (NOT USED)
+### 3.2 review_status Field
 
 **Note:** Per `docs/architecture/contracts/domain-review-contract.md`, the `review_status` field is **NOT** part of the simplified schema.
 
