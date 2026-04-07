@@ -35,19 +35,28 @@ SIGNATURE_FIELD_ORDER = [
 
 
 def normalize_float(value: float | int | str | bool) -> str:
-    """Normalize float to 3 decimal places.
-    
+    """Normalize numeric value to minimal canonical representation.
+
     Args:
         value: Float, int, string, or bool value.
-    
+
     Returns:
-        String representation with 3 decimal places for floats,
-        lowercase string for booleans, or string for other types.
+        String representation with no trailing zeros.
+        Integers are rendered without decimal point.
+        Booleans are rendered as lowercase strings.
+        Other types are rendered via str().
+
+    Examples:
+        0.4    -> "0.4"
+        0.400  -> "0.4"
+        40.0   -> "40"
+        1000.0 -> "1000"
+        0.95   -> "0.95"
     """
     if isinstance(value, bool):
         return str(value).lower()
     elif isinstance(value, (int, float)):
-        return f"{float(value):.3f}"
+        return f"{float(value):g}"
     return str(value)
 
 
@@ -77,8 +86,11 @@ def generate_variant_signature(model_id: str, config: dict | str) -> str:
     
     config_parts = []
     for config_key, sig_key in SIGNATURE_FIELD_ORDER:
-        if config_key in config and config[config_key] is not None:
+        if config_key in config:
             value = config[config_key]
+            # Treat empty strings as unset (same as None)
+            if value is None or value == "":
+                continue
             config_parts.append(f"{sig_key}={normalize_float(value)}")
     
     if config_parts:

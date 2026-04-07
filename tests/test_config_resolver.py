@@ -636,6 +636,61 @@ class TestBuildExperimentConfigDict:
         for key in result.keys():
             assert key == key.upper() or key in ("SYSTEM_PROMPT", "USER_PROMPT", "BASE_URL")
 
+    def test_empty_string_env_values_resolved_as_none(self) -> None:
+        """Test that empty string values in .env are treated as None.
+
+        This ensures that fields like MODEL_REASONING_EFFORT= in .env
+        produce null in config_json, not empty strings.
+        """
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "QUESTIONS_DATASET_PATH": "/path/to/questions",
+            "MODEL_REASONING_EFFORT": "",
+            "MODEL_TEMPERATURE": "",
+            "MODEL_TOP_P": "",
+            "MODEL_TOP_K": "",
+            "MODEL_MAX_TOKENS_TOTAL": "",
+            "MODEL_MAX_TOKENS_REASONING": "",
+            "MODEL_REPEAT_PENALTY": "",
+            "MODEL_VISION": "",
+            "STRUCTURED_OUTPUTS": "",
+            "BASE_URL": "",
+            "RUN_RESPONSES_SEED": "",
+            "SYSTEM_PROMPT": "",
+            "USER_PROMPT": "",
+        }
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+            url = None
+            reasoning_tokens = None
+            max_reasoning = None
+            max_tokens = None
+            reasoning = None
+            repeat_penalty = None
+            temperature = None
+            top_k = None
+            top_p = None
+            vision = None
+            structured = None
+            experiment_name = "test_exp"
+
+        result = resolver.build_experiment_config_dict(MockArgs())
+
+        # All empty string fields should resolve to None
+        assert result["MODEL_REASONING_EFFORT"] is None
+        assert result["MODEL_TEMPERATURE"] is None
+        assert result["MODEL_TOP_P"] is None
+        assert result["MODEL_TOP_K"] is None
+        assert result["MODEL_MAX_TOKENS_TOTAL"] is None
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+        assert result["MODEL_REPEAT_PENALTY"] is None
+        assert result["BASE_URL"] is None
+        assert result["SYSTEM_PROMPT"] is None
+        assert result["USER_PROMPT"] is None
+
 
 class TestBuildModelConfigDict:
     """Test cases for build_model_config_dict method."""

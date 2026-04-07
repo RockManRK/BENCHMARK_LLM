@@ -1,68 +1,67 @@
 # Testes de criação de experimento:
 
-## CE1
-python bcllm.py --create-experiment ce01 --add-questions 1,3
+## TESTE_CE1
+python bcllm.py --create-experiment teste_ce01 --add-questions 1,3
 
-## CE2
-python bcllm.py --create-experiment ce02 --questions 1,3
-O comando usando "--add-questions 1,3" funciona perfeitamente, porém ai usar o comando "--questions 1,3", ele ignora. E adiciona todas as perguntas ou basedo na config do .env. Ou seja, ele não está aceitando o comando --questions como um alias do --add-questions, mas também não aponta como erro, ele simplesmente ignora. O que é o pior dos cenários.
+## TESTE_CE2
+python bcllm.py --create-experiment teste_ce02 --questions 1,3
 
-## CE3
-python bcllm.py --create-experiment ce03 --add-questions 1,5-20
+## TESTE_CE3
+python bcllm.py --create-experiment teste_ce03 --add-questions 1,5-20
 
-## CE4
-python bcllm.py --create-experiment ce04 --add-questions 1-50 --where status=valid
+## TESTE_CE4
+python bcllm.py --create-experiment teste_ce04 --add-questions 1-50 --where status=valid
 
-## CE5
-python bcllm.py --create-experiment ce05 --seed 55
+## TESTE_CE5
+python bcllm.py --create-experiment teste_ce05 --seed 55
 
-## CE5.2
-python bcllm.py --create-experiment ce05.2 --seed 57 --seed auto
+## TESTE_CE5.2
+python bcllm.py --create-experiment teste_ce05.2 --seed 57 --seed auto
 
-## CE6
-python bcllm.py --create-experiment ce06 --reasoning none
+## TESTE_CE6
+python bcllm.py --create-experiment teste_ce06 --reasoning none
 
-## CE7
-python bcllm.py --create-experiment ce07 --reasoning xhigh
+## TESTE_CE7
+python bcllm.py --create-experiment teste_ce07 --reasoning xhigh
 
-## CE8
-python bcllm.py --create-experiment ce08 --max-tokens 3333
+## TESTE_CE8
+python bcllm.py --create-experiment teste_ce08 --max-tokens 3333
 
-## CE9
-python bcllm.py --create-experiment ce09 --reasoning-tokens 4444
+## TESTE_CE9
+python bcllm.py --create-experiment teste_ce09 --reasoning-tokens 4444
 
-## CE10
-python bcllm.py --create-experiment ce10 --temperature 2
+## TESTE_CE10
+python bcllm.py --create-experiment teste_ce10 --temperature 2
 
-## CE11
-python bcllm.py --create-experiment ce11 --top-p 1.1 --top-k 30
+## TESTE_CE11
+python bcllm.py --create-experiment teste_ce11 --top-p 1.1 --top-k 30
 
-## CE12
-python bcllm.py --create-experiment ce12 --repeat-penalty 4
+## TESTE_CE12
+python bcllm.py --create-experiment teste_ce12 --repeat-penalty 4
 
-## CE13
-python bcllm.py --create-experiment ce13 --vision true
+## TESTE_CE13
+python bcllm.py --create-experiment teste_ce13 --vision true
 
-## CE14
-python bcllm.py --create-experiment ce14 --vision false
+## TESTE_CE14
+python bcllm.py --create-experiment teste_ce14 --vision false
 
-## CE15
-python bcllm.py --create-experiment ce15 --structured true
+## TESTE_CE15
+python bcllm.py --create-experiment teste_ce15 --structured true
 
-## CE16
-python bcllm.py --create-experiment ce16 --url 192.198.0.1:8000
+## TESTE_CE16
+python bcllm.py --create-experiment teste_ce16 --url 192.198.0.1:8000
 
-## CE17
-python bcllm.py --create-experiment ce17 --system-prompt "system teste"
+## TESTE_CE17
+python bcllm.py --create-experiment teste_ce17 --system-prompt "system teste"
 
-## CE18
-python bcllm.py --create-experiment ce18 --user-prompt "user teste"
+## TESTE_CE18
+python bcllm.py --create-experiment teste_ce18 --user-prompt "user teste"
 
-## CE19
-python bcllm.py --create-experiment ce19 --user-prompt null
+## TESTE_CE19
+python bcllm.py --create-experiment teste_ce19 --user-prompt null
 
-## CE20
-python bcllm.py --create-experiment ce20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal
+## TESTE_CE20
+python bcllm.py --create-experiment teste_ce20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal
 
 ---
 
@@ -162,12 +161,12 @@ Eu coloquei valores em todos os campos do .env para ver quais ele está puxando 
 
 # Testes de criação de experimento com foco no NULL:
 
-## CE_NULL1
-python bcllm.py --create-experiment cenull01 --add-questions null
+## TESTE_CE_NULL1
+python bcllm.py --create-experiment teste_cenull01 --add-questions null
 Não funcionou.
 Para piorar o resultado foi o seguinte:
 """
-python bcllm.py --create-experiment cenull01 --add-questions null
+python bcllm.py --create-experiment teste_cenull01 --add-questions null
 ✓ Experiment 'cenull01' created (ID: exp_30f27137)
 Error: Invalid question specification: Invalid question spec format: null
 Valid formats:
@@ -177,66 +176,66 @@ Valid formats:
 """
 Ou seja, ele não aceita o null, retorna erro, MAS cria o experimento. Quando o correto é: Se não reconhece o comando, cancela tudo. Mas teria que reconhecer null e adicionar todas as perguntas disponíveis.
 
-## CE_NULL2
-python bcllm.py --create-experiment cenull02 --questions 1,3
+## TESTE_CE_NULL2
+python bcllm.py --create-experiment teste_cenull02 --questions 1,3
 O comando usando "--add-questions 1,3" funciona perfeitamente, porém ai usar o comando "--questions 1,3", ele ignora. E adiciona todas as perguntas ou basedo na config do .env. Ou seja, ele não está aceitando o comando --questions como um alias do --add-questions, mas também não aponta como erro, ele simplesmente ignora. O que é o pior dos cenários.
 
-## CE_NULL3
-python bcllm.py --create-experiment cenull03 --add-questions 1,5-20
+## TESTE_CE_NULL3
+python bcllm.py --create-experiment teste_cenull03 --add-questions 1,5-20
 
-## CE_NULL4
-python bcllm.py --create-experiment cenull04 --add-questions 1-50 --where status=valid
+## TESTE_CE_NULL4
+python bcllm.py --create-experiment teste_cenull04 --add-questions 1-50 --where status=valid
 
-## CE_NULL5
-python bcllm.py --create-experiment cenull05 --seed 55
+## TESTE_CE_NULL5
+python bcllm.py --create-experiment teste_cenull05 --seed 55
 
-## CE_NULL5.2
-python bcllm.py --create-experiment cenull05.2 --seed 57 --seed auto
+## TESTE_CE_NULL5.2
+python bcllm.py --create-experiment teste_cenull05.2 --seed 57 --seed auto
 
-## CE_NULL6
-python bcllm.py --create-experiment cenull06 --reasoning none
+## TESTE_CE_NULL6
+python bcllm.py --create-experiment teste_cenull06 --reasoning none
 
-## CE_NULL7
-python bcllm.py --create-experiment cenull07 --reasoning xhigh
+## TESTE_CE_NULL7
+python bcllm.py --create-experiment teste_cenull07 --reasoning xhigh
 
-## CE_NULL8
-python bcllm.py --create-experiment cenull08 --max-tokens 3333
+## TESTE_CE_NULL8
+python bcllm.py --create-experiment teste_cenull08 --max-tokens 3333
 
-## CE_NULL9
-python bcllm.py --create-experiment cenull09 --reasoning-tokens 4444
+## TESTE_CE_NULL9
+python bcllm.py --create-experiment teste_cenull09 --reasoning-tokens 4444
 
-## CE_NULL10
-python bcllm.py --create-experiment cenull10 --temperature 2
+## TESTE_CE_NULL10
+python bcllm.py --create-experiment teste_cenull10 --temperature 2
 
-## CE_NULL11
-python bcllm.py --create-experiment cenull11 --top-p 1.1 --top-k 30
+## TESTE_CE_NULL11
+python bcllm.py --create-experiment teste_cenull11 --top-p 1.1 --top-k 30
 
-## CE_NULL12
-python bcllm.py --create-experiment cenull12 --repeat-penalty 4
+## TESTE_CE_NULL12
+python bcllm.py --create-experiment teste_cenull12 --repeat-penalty 4
 
-## CE_NULL13
-python bcllm.py --create-experiment cenull13 --vision true
+## TESTE_CE_NULL13
+python bcllm.py --create-experiment teste_cenull13 --vision true
 
-## CE_NULL14
-python bcllm.py --create-experiment cenull14 --vision false
+## TESTE_CE_NULL14
+python bcllm.py --create-experiment teste_cenull14 --vision false
 
-## CE_NULL15
-python bcllm.py --create-experiment cenull15 --structured true
+## TESTE_CE_NULL15
+python bcllm.py --create-experiment teste_cenull15 --structured true
 
-## CE_NULL16
-python bcllm.py --create-experiment cenull16 --url 192.198.0.1:8000
+## TESTE_CE_NULL16
+python bcllm.py --create-experiment teste_cenull16 --url 192.198.0.1:8000
 
-## CE_NULL17
-python bcllm.py --create-experiment cenull17 --system-prompt "system teste"
+## TESTE_CE_NULL17
+python bcllm.py --create-experiment teste_cenull17 --system-prompt "system teste"
 
-## CE_NULL18
-python bcllm.py --create-experiment cenull18 --user-prompt "user teste"
+## TESTE_CE_NULL18
+python bcllm.py --create-experiment teste_cenull18 --user-prompt "user teste"
 
-## CE_NULL19
-python bcllm.py --create-experiment cenull19 --user-prompt null
+## TESTE_CE_NULL19
+python bcllm.py --create-experiment teste_cenull19 --user-prompt null
 
-## CE_NULL20
-python bcllm.py --create-experiment cenull20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal
+## TESTE_CE_NULL20
+python bcllm.py --create-experiment teste_cenull20 --system-prompt "system prompt personalizado" --user-prompt "user próprio" --repeat-penalty 2 --reasoning minimal
 
 ---
 

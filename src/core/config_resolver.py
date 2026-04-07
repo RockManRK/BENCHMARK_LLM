@@ -796,7 +796,7 @@ class ConfigResolver:
 
         # CLI was None (not specified) → check .env
         env_value = self.env_dict.get(env_key)
-        if env_value is not None:
+        if env_value is not None and env_value != "":
             if parser_func:
                 return parser_func(env_key)
             return env_value

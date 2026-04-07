@@ -10,23 +10,32 @@ from src.utils.variant_signature import (
 
 class TestNormalizeFloat:
     """Test float normalization."""
-    
-    def test_float_three_decimals(self):
-        """Float values should be normalized to 3 decimal places."""
-        assert normalize_float(0.8) == "0.800"
-    
-    def test_int_to_float(self):
-        """Integer values should be converted to float with 3 decimals."""
-        assert normalize_float(42) == "42.000"
-    
+
+    def test_float_minimal(self):
+        """Float values should be normalized to minimal representation."""
+        assert normalize_float(0.8) == "0.8"
+
+    def test_int_to_string(self):
+        """Integer values should be converted without decimal point."""
+        assert normalize_float(42) == "42"
+
     def test_bool(self):
         """Boolean values should be lowercase strings."""
         assert normalize_float(True) == "true"
         assert normalize_float(False) == "false"
-    
+
     def test_string(self):
         """String values should be returned as-is."""
         assert normalize_float("low") == "low"
+
+    def test_integer_like_float(self):
+        """Float values that are whole numbers should render as integers."""
+        assert normalize_float(1000.0) == "1000"
+
+    def test_trailing_zeros_stripped(self):
+        """Float values should have trailing zeros stripped."""
+        assert normalize_float(0.400) == "0.4"
+        assert normalize_float(0.950) == "0.95"
 
 
 class TestGenerateVariantSignature:
@@ -62,7 +71,7 @@ class TestGenerateVariantSignature:
             "google/gemini-3.1-flash-lite-preview",
             {"MODEL_REASONING_EFFORT": "xhigh", "MODEL_TEMPERATURE": 0.8}
         )
-        assert result == "gemini-3.1-flash-lite-preview|reasoning=xhigh|temp=0.800"
+        assert result == "gemini-3.1-flash-lite-preview|reasoning=xhigh|temp=0.8"
 
     def test_json_string_config(self):
         """JSON string config should be parsed correctly."""
@@ -87,7 +96,7 @@ class TestGenerateVariantSignature:
             "MODEL_VISION": True,
         }
         result = generate_variant_signature("google/gemini-3.1-flash-lite-preview", config)
-        assert result == "gemini-3.1-flash-lite-preview|reasoning=low|vision=true|temp=0.800"
+        assert result == "gemini-3.1-flash-lite-preview|reasoning=low|vision=true|temp=0.8"
 
     def test_none_values_skipped(self):
         """None values in config should be skipped."""
@@ -98,6 +107,18 @@ class TestGenerateVariantSignature:
         }
         result = generate_variant_signature("google/gemini-3.1-flash-lite-preview", config)
         assert result == "gemini-3.1-flash-lite-preview|reasoning=low|vision=true"
+
+    def test_empty_string_values_skipped(self):
+        """Empty string values should be treated as unset and skipped."""
+        config = {
+            "MODEL_REASONING_EFFORT": "",
+            "MODEL_TEMPERATURE": 0.7,
+            "MODEL_VISION": True,
+        }
+        result = generate_variant_signature("google/gemini-3.1-flash-lite-preview", config)
+        # Empty reasoning should be omitted, same as None
+        assert result == "gemini-3.1-flash-lite-preview|vision=true|temp=0.7"
+        assert "reasoning=" not in result
 
     def test_all_fields(self):
         """All fields should appear in correct order."""
@@ -117,11 +138,11 @@ class TestGenerateVariantSignature:
             "reasoning=high|"
             "vision=false|"
             "structured=true|"
-            "temp=0.700|"
-            "top_p=0.950|"
-            "top_k=40.000|"
-            "max_tokens=2048.000|"
-            "reasoning_tokens=1024.000"
+            "temp=0.7|"
+            "top_p=0.95|"
+            "top_k=40|"
+            "max_tokens=2048|"
+            "reasoning_tokens=1024"
         )
         assert result == expected
 
@@ -183,7 +204,7 @@ class TestV8ContractKeysOnly:
         result = generate_variant_signature('openai/gpt-4', config)
         # Should use the config values, not hardcoded defaults
         assert 'reasoning=low' in result
-        assert 'temp=0.700' in result
+        assert 'temp=0.7' in result
         assert 'vision=true' in result
 
     def test_no_hardcoded_defaults(self):
@@ -217,6 +238,19 @@ class TestV8ContractKeysOnly:
         # Only vision should appear (non-None value)
         assert result == 'gpt-4|vision=true'
 
+    def test_empty_string_not_hardcoded(self):
+        """Empty string values should be skipped, not rendered as empty."""
+        config = {
+            'MODEL_REASONING_EFFORT': '',
+            'MODEL_TEMPERATURE': 0.7,
+            'MODEL_VISION': True,
+        }
+        result = generate_variant_signature('openai/gpt-4', config)
+        # Empty reasoning should not appear
+        assert 'reasoning=' not in result
+        assert 'temp=0.7' in result
+        assert 'vision=true' in result
+
     def test_config_from_variant_config_column(self):
         """Simulate real usage: config comes from variant.config JSON.
 
@@ -239,6 +273,6 @@ class TestV8ContractKeysOnly:
         
         # All values should come from config, no hardcoded defaults
         assert 'reasoning=xhigh' in result
-        assert 'temp=0.900' in result
+        assert 'temp=0.9' in result
         assert 'vision=false' in result
-        assert 'max_tokens=4096.000' in result
+        assert 'max_tokens=4096' in result
