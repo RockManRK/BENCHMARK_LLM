@@ -117,7 +117,7 @@ class ResultWriter:
         1. Calculates review_status for each result
         2. Writes success results to responses table (idempotent)
         3. Writes failure results to errors table
-        4. Updates run status based on overall results
+        4. Updates run status and accumulates duration
 
         Args:
             results: List of ExecutionResult from ExecutionEngine
@@ -157,10 +157,15 @@ class ResultWriter:
                 self._write_error(result)
                 report.errors_written += 1
 
-        # Update run statuses
+        # Update run statuses and accumulate duration
         for run_id, run_results in results_by_run.items():
             status = self._determine_run_status(run_results)
-            self._update_run_status(run_id, status)
+            # Calculate total latency for successful responses only
+            latency_ms = sum(
+                r.latency_ms for r in run_results
+                if r.status == 'success' and r.latency_ms is not None
+            )
+            self._update_run_status_and_duration(run_id, status, latency_ms)
             report.runs_updated.append((run_id, status))
 
         # Log write complete
@@ -439,26 +444,42 @@ class ResultWriter:
         else:
             return 'partial_failed'
 
-    def _update_run_status(self, run_id: str, status: str) -> None:
-        """Update run status in database.
+    def _update_run_status_and_duration(
+        self,
+        run_id: str,
+        status: str,
+        latency_ms: int = 0,
+    ) -> None:
+        """Update run status and accumulate duration in database.
+
+        Duration is incremented by the latency_ms of successful responses.
+        This supports incremental execution - duration accumulates across
+        multiple executions.
 
         Args:
             run_id: Run identifier
-            status: New status ('completed', 'failed', 'partial_failed')
+            status: New status ('completed', 'failed', 'partial_failed', 'running')
+            latency_ms: Total latency in milliseconds from successful responses
+                        (0 if updating status only)
 
         Example:
-            >>> writer._update_run_status('run-001', 'completed')
+            >>> writer._update_run_status_and_duration('run-001', 'running', 1500)
+            >>> writer._update_run_status_and_duration('run-001', 'completed', 2000)
+            # duration is now 3500ms (accumulated)
         """
         cursor = self.db_connection.cursor()
 
-        # Update status for terminal states (no finished_at in schema)
-        if status in ('completed', 'failed', 'partial_failed'):
+        if latency_ms > 0:
+            # Accumulate duration: ADD the latency to existing duration
+            # Only for successful responses (latency > 0)
             cursor.execute("""
                 UPDATE runs
-                SET status = ?
+                SET status = ?,
+                    duration = duration + ?
                 WHERE run_id = ?
-            """, (status, run_id))
+            """, (status, latency_ms, run_id))
         else:
+            # Update status only (no latency to accumulate)
             cursor.execute("""
                 UPDATE runs
                 SET status = ?
@@ -466,6 +487,11 @@ class ResultWriter:
             """, (status, run_id))
 
         self.db_connection.commit()
+
+        self._logger.info(
+            f"RUN_UPDATE | run={run_id} | status={status} | "
+            f"latency_added={latency_ms}ms"
+        )
 
     def _get_model_id_from_variant(self, variant_id: str) -> str:
         """Get model_id from variant_id.
