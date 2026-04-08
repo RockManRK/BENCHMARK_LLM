@@ -93,7 +93,7 @@ class Run:
         run_id: Primary key (UUID format recommended)
         experiment_id: Foreign key to experiments
         config: All run configurations (seed, prompts, etc.) as JSON string
-        status: 'pending', 'running', 'completed', 'failed', 'partial_failed'
+        status: 'pending', 'completed', 'failed', 'partial_failed'
         duration: Accumulated execution time in milliseconds (for partial runs)
         created_at: Creation timestamp (auto-set by DB)
     """

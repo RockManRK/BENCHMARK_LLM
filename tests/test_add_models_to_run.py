@@ -20,7 +20,7 @@ class TestRunModelRepository:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-001", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-001", status="pending", is_dev=True))
 
         # Create base model first (FK constraint) - use unique provider/name
         model_repo = ModelRepository(db_manager)
@@ -55,7 +55,7 @@ class TestRunModelRepository:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-002", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-002", status="pending", is_dev=True))
 
         # Create base models first (need unique provider/name for each)
         model_repo = ModelRepository(db_manager)
@@ -75,7 +75,7 @@ class TestRunModelRepository:
 
         # Create multiple run-model associations
         repo.create(RunModel(run_id="run-test-002", variant_id="var-1", status="pending"))
-        repo.create(RunModel(run_id="run-test-002", variant_id="var-2", status="running"))
+        repo.create(RunModel(run_id="run-test-002", variant_id="var-2", status="pending"))
         repo.create(RunModel(run_id="run-test-002", variant_id="var-3", status="completed"))
 
         models = repo.get_by_run("run-test-002")
@@ -90,7 +90,7 @@ class TestRunModelRepository:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-003", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-003", status="pending", is_dev=True))
 
         # Create base model first
         model_repo = ModelRepository(db_manager)
@@ -130,7 +130,7 @@ class TestRunModelRepository:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-004", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-004", status="pending", is_dev=True))
 
         # Create base model first
         model_repo = ModelRepository(db_manager)
@@ -147,12 +147,12 @@ class TestRunModelRepository:
         repo = RunModelRepository(db_manager)
         repo.create(RunModel(run_id="run-test-004", variant_id="var-abc", status="pending"))
 
-        # Update to running
-        success = repo.update_status("run-test-004", "var-abc", "running")
+        # Update to pending
+        success = repo.update_status("run-test-004", "var-abc", "pending")
         assert success is True
 
         model = repo.get_by_run_and_variant("run-test-004", "var-abc")
-        assert model.status == "running"
+        assert model.status == "pending"
 
         # Update to completed (should set completed_at)
         success = repo.update_status("run-test-004", "var-abc", "completed")
@@ -169,7 +169,7 @@ class TestRunModelRepository:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-005", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-005", status="pending", is_dev=True))
 
         # Create base model first
         model_repo = ModelRepository(db_manager)
@@ -203,7 +203,7 @@ class TestAddModelsToRun:
         
         # Create a run
         run_repo = RunRepository(db_manager)
-        run = Run(run_id="run-test-add", status="running", is_dev=True)
+        run = Run(run_id="run-test-add", status="pending", is_dev=True)
         run_repo.create(run)
         
         # Add models
@@ -250,7 +250,7 @@ class TestAddModelsToRun:
         
         # Create a run
         run_repo = RunRepository(db_manager)
-        run = Run(run_id="run-test-dup", status="running", is_dev=True)
+        run = Run(run_id="run-test-dup", status="pending", is_dev=True)
         run_repo.create(run)
         
         # Add same model twice
@@ -309,7 +309,7 @@ class TestGetPendingQuestions:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-partial", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-partial", status="pending", is_dev=True))
 
         # Create experiment (FK constraint for snapshots)
         exp_repo = ExperimentRepository(db_manager)
@@ -387,7 +387,7 @@ class TestGetPendingQuestions:
 
         # Create run first (FK constraint)
         run_repo = RunRepository(db_manager)
-        run_repo.create(Run(run_id="run-test-iter", status="running", is_dev=True))
+        run_repo.create(Run(run_id="run-test-iter", status="pending", is_dev=True))
 
         # Create experiment (FK constraint for snapshots)
         exp_repo = ExperimentRepository(db_manager)
@@ -464,7 +464,7 @@ class TestReexecutionFilter:
 
         # 1. Criar run com 2 modelos
         run_repo = RunRepository(db_manager)
-        run = Run(run_id="run-test-reexec", status="running", is_dev=True)
+        run = Run(run_id="run-test-reexec", status="pending", is_dev=True)
         run_repo.create(run)
 
         # Create base models first (need unique provider/name for each)
@@ -542,7 +542,7 @@ class TestReexecutionFilter:
         
         # Load models from run_models
         run_models = run_model_repo.get_by_run("run-test-reexec")
-        models_to_execute = [rm for rm in run_models if rm.status in ('pending', 'running')]
+        models_to_execute = [rm for rm in run_models if rm.status in ('pending',)]
         skipped_models = [rm for rm in run_models if rm.status in ('completed', 'removed')]
 
         # 6. Verificações
@@ -561,7 +561,7 @@ class TestReexecutionFilter:
 
         # 1. Criar run com modelos [A, B]
         run_repo = RunRepository(db_manager)
-        run = Run(run_id="run-test-ignore", status="running", is_dev=True)
+        run = Run(run_id="run-test-ignore", status="pending", is_dev=True)
         run_repo.create(run)
 
         # Create base models (need unique provider/name for each)
@@ -628,7 +628,7 @@ class TestReexecutionFilter:
 
         # 4. Verificar que apenas [A, B, C] foram executados (D ignorado)
         run_models = run_model_repo.get_by_run("run-test-ignore")
-        models_to_execute = [rm for rm in run_models if rm.status in ('pending', 'running')]
+        models_to_execute = [rm for rm in run_models if rm.status in ('pending',)]
 
         assert len(models_to_execute) == 3, "3 modelos do run devem ser executados"
         assert {rm.variant_id for rm in models_to_execute} == {"var-a", "var-b", "var-c"}
@@ -644,7 +644,7 @@ class TestReexecutionFilter:
 
         # Criar run
         run_repo = RunRepository(db_manager)
-        run = Run(run_id="run-test-db", status="running", is_dev=True)
+        run = Run(run_id="run-test-db", status="pending", is_dev=True)
         run_repo.create(run)
 
         # Create base model and variant

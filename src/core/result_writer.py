@@ -7,58 +7,17 @@ Key Principles:
 - Only DB write component (ExecutionEngine and Planner have NO write access)
 - Calculates needs_review before INSERT
 - Idempotent writes (UNIQUE constraint + INSERT OR IGNORE)
-- Updates run status after all writes complete
-
-Example:
-    >>> import sqlite3
-    >>> from src.core.result_writer import ResultWriter
-    >>>
-    >>> conn = sqlite3.connect(':memory:')
-    >>> writer = ResultWriter(conn)
-    >>> report = writer.write_results(results)
-    >>> print(f"Written: {report.responses_written}, Skipped: {report.responses_skipped}")
+- Each result is written individually via write_result()
 """
 
 import json
 import sqlite3
-from dataclasses import dataclass
 from logging import Logger
-from typing import Literal, Optional
+from typing import Optional
 
 from src.core.execution_engine import ExecutionResult
 from src.core.json_serializer import serialize_json
 from src.utils.logging_config import get_logger
-
-
-@dataclass
-class WriteReport:
-    """Summary of write operations.
-
-    This dataclass is returned by ResultWriter.write_results() and
-    provides a summary of what was persisted to the database.
-
-    Attributes:
-        responses_written: Number of new responses inserted
-        responses_skipped: Number of responses already existed (idempotency)
-        errors_written: Number of errors inserted
-        runs_updated: List of (run_id, new_status) tuples for status updates
-
-    Example:
-        >>> report = writer.write_results(results)
-        >>> print(f"Responses: {report.responses_written}")
-        >>> print(f"Errors: {report.errors_written}")
-        >>> print(f"Runs updated: {report.runs_updated}")
-    """
-
-    responses_written: int = 0
-    responses_skipped: int = 0
-    errors_written: int = 0
-    runs_updated: list[tuple[str, str]] = None
-
-    def __post_init__(self) -> None:
-        """Initialize runs_updated to empty list if None."""
-        if self.runs_updated is None:
-            self.runs_updated = []
 
 
 class ResultWriter:
@@ -69,7 +28,6 @@ class ResultWriter:
 
     - Calculating review_status from parse_confidence and selected_answer
     - Idempotent writes using UNIQUE constraint + INSERT OR IGNORE
-    - Updating run status after all writes complete
     - Writing success results to responses table
     - Writing failure results to errors table
 
@@ -79,7 +37,7 @@ class ResultWriter:
     Example:
         >>> conn = sqlite3.connect('benchmark.db')
         >>> writer = ResultWriter(conn)
-        >>> report = writer.write_results(results)
+        >>> writer.write_result(result)
     """
 
     def __init__(self, db_connection: sqlite3.Connection, logger: Optional[Logger] = None) -> None:
@@ -109,77 +67,6 @@ class ResultWriter:
             self._write_response(result)
         else:
             self._write_error(result)
-
-    def write_results(self, results: list[ExecutionResult]) -> WriteReport:
-        """Persist execution results to database.
-
-        This method processes all ExecutionResult instances and:
-        1. Calculates review_status for each result
-        2. Writes success results to responses table (idempotent)
-        3. Writes failure results to errors table
-        4. Updates run status and accumulates duration
-
-        Args:
-            results: List of ExecutionResult from ExecutionEngine
-
-        Returns:
-            WriteReport with counts and run status updates
-
-        Example:
-            >>> results = engine.execute(plan)
-            >>> report = writer.write_results(results)
-            >>> print(f"Written: {report.responses_written}")
-        """
-        report = WriteReport()
-
-        # Extract run_id for logging (use first result if available)
-        run_id = results[0].run_id if results else "unknown"
-
-        # Log write start
-        self._logger.info(f"WRITE_START | run={run_id} | items={len(results)}")
-
-        # Group results by run_id for status updates
-        results_by_run: dict[str, list[ExecutionResult]] = {}
-        for result in results:
-            if result.run_id not in results_by_run:
-                results_by_run[result.run_id] = []
-            results_by_run[result.run_id].append(result)
-
-        # Track which results were actually written (for duration accumulation)
-        # Only newly-written responses should contribute to duration to avoid double-counting
-        # on idempotent re-executions
-        written_latencies: dict[str, list[int]] = {run_id: [] for run_id in results_by_run}
-
-        # Process each result
-        for result in results:
-            if result.status == 'success':
-                written = self._write_response(result)
-                if written:
-                    report.responses_written += 1
-                    # Track latency only for newly-written responses
-                    if result.latency_ms is not None:
-                        written_latencies[result.run_id].append(result.latency_ms)
-                else:
-                    report.responses_skipped += 1
-            else:  # failure
-                self._write_error(result)
-                report.errors_written += 1
-
-        # Update run statuses and accumulate duration
-        # Only accumulate from responses that were ACTUALLY written in this execution
-        for run_id, run_results in results_by_run.items():
-            status = self._determine_run_status(run_results)
-            # Sum latency from newly-written responses only (avoid double-counting)
-            latency_ms = sum(written_latencies.get(run_id, []))
-            self._update_run_status_and_duration(run_id, status, latency_ms)
-            report.runs_updated.append((run_id, status))
-
-        # Log write complete
-        self._logger.info(
-            f"WRITE_COMPLETE | run={run_id} | written={report.responses_written} | skipped={report.responses_skipped}"
-        )
-
-        return report
 
     def _calculate_review_status(
         self,
@@ -418,86 +305,6 @@ class ResultWriter:
         self.db_connection.commit()
 
         self._logger.debug(f"WRITE_COMPLETE | run={result.run_id} | error_id={error_id}")
-
-    def _determine_run_status(self, results: list[ExecutionResult]) -> Literal['completed', 'failed', 'partial_failed']:
-        """Determine run status based on results.
-
-        Rules:
-        - All success → 'completed'
-        - All failure → 'failed'
-        - Mixed → 'partial_failed'
-
-        Args:
-            results: List of ExecutionResult for a single run
-
-        Returns:
-            Run status string
-
-        Example:
-            >>> status = writer._determine_run_status([success_result])
-            >>> assert status == 'completed'
-        """
-        if not results:
-            return 'completed'
-
-        successes = sum(1 for r in results if r.status == 'success')
-        failures = sum(1 for r in results if r.status == 'failure')
-
-        if failures == 0:
-            return 'completed'
-        elif successes == 0:
-            return 'failed'
-        else:
-            return 'partial_failed'
-
-    def _update_run_status_and_duration(
-        self,
-        run_id: str,
-        status: str,
-        latency_ms: int = 0,
-    ) -> None:
-        """Update run status and accumulate duration in database.
-
-        Duration is incremented by the latency_ms of successful responses.
-        This supports incremental execution - duration accumulates across
-        multiple executions.
-
-        Args:
-            run_id: Run identifier
-            status: New status ('completed', 'failed', 'partial_failed', 'running')
-            latency_ms: Total latency in milliseconds from successful responses
-                        (0 if updating status only)
-
-        Example:
-            >>> writer._update_run_status_and_duration('run-001', 'running', 1500)
-            >>> writer._update_run_status_and_duration('run-001', 'completed', 2000)
-            # duration is now 3500ms (accumulated)
-        """
-        cursor = self.db_connection.cursor()
-
-        if latency_ms > 0:
-            # Accumulate duration: ADD the latency to existing duration
-            # Only for successful responses (latency > 0)
-            cursor.execute("""
-                UPDATE runs
-                SET status = ?,
-                    duration = duration + ?
-                WHERE run_id = ?
-            """, (status, latency_ms, run_id))
-        else:
-            # Update status only (no latency to accumulate)
-            cursor.execute("""
-                UPDATE runs
-                SET status = ?
-                WHERE run_id = ?
-            """, (status, run_id))
-
-        self.db_connection.commit()
-
-        self._logger.info(
-            f"RUN_UPDATE | run={run_id} | status={status} | "
-            f"latency_added={latency_ms}ms"
-        )
 
     def _get_model_id_from_variant(self, variant_id: str) -> str:
         """Get model_id from variant_id.

@@ -128,7 +128,7 @@ def setup_test_data(in_memory_db: sqlite3.Connection) -> dict:
     - 1 experiment
     - 1 model variant
     - 1 question snapshot
-    - 1 run (status='running')
+    - 1 run (status='pending')
 
     Returns:
         dict: IDs of created entities
@@ -156,7 +156,7 @@ def setup_test_data(in_memory_db: sqlite3.Connection) -> dict:
     # Insert run
     cursor.execute("""
         INSERT INTO runs (run_id, experiment_id, seed, status)
-        VALUES ('run-test-001', 'exp-test-001', 42, 'running')
+        VALUES ('run-test-001', 'exp-test-001', 42, 'pending')
     """)
 
     in_memory_db.commit()
@@ -198,7 +198,7 @@ def test_writer_calculates_review_status_clear(in_memory_db: sqlite3.Connection,
     writer = ResultWriter(in_memory_db)
 
     # Act
-    report = writer.write_results([result])
+    writer.write_result(result)
 
     # Assert: needs_review was calculated as FALSE
     cursor = in_memory_db.cursor()
@@ -233,7 +233,7 @@ def test_writer_calculates_review_status_ambiguous(in_memory_db: sqlite3.Connect
     writer = ResultWriter(in_memory_db)
 
     # Act
-    writer.write_results([result])
+    writer.write_result(result)
 
     # Assert: needs_review was calculated as TRUE
     cursor = in_memory_db.cursor()
@@ -268,7 +268,7 @@ def test_writer_calculates_review_status_no_answer(in_memory_db: sqlite3.Connect
     writer = ResultWriter(in_memory_db)
 
     # Act
-    writer.write_results([result])
+    writer.write_result(result)
 
     # Assert: needs_review was calculated as TRUE
     cursor = in_memory_db.cursor()
@@ -303,7 +303,7 @@ def test_writer_calculates_review_status_low_confidence(in_memory_db: sqlite3.Co
     writer = ResultWriter(in_memory_db)
 
     # Act
-    writer.write_results([result])
+    writer.write_result(result)
 
     # Assert: needs_review was calculated as TRUE
     cursor = in_memory_db.cursor()
@@ -338,7 +338,7 @@ def test_writer_calculates_review_status_null_answer(in_memory_db: sqlite3.Conne
     writer = ResultWriter(in_memory_db)
 
     # Act
-    writer.write_results([result])
+    writer.write_result(result)
 
     # Assert: needs_review was calculated as TRUE (null answer trumps clear confidence)
     cursor = in_memory_db.cursor()
@@ -377,13 +377,12 @@ def test_writer_idempotent_writes(in_memory_db: sqlite3.Connection, setup_test_d
     writer = ResultWriter(in_memory_db)
 
     # Act: Write twice
-    report1 = writer.write_results([result])
-    report2 = writer.write_results([result])  # Duplicate
+    written1 = writer.write_result(result)
+    written2 = writer.write_result(result)  # Duplicate
 
     # Assert: Second write is skipped (idempotency)
-    assert report1.responses_written == 1, "First write should succeed"
-    assert report2.responses_written == 0, "Second write should be skipped"
-    assert report2.responses_skipped == 1, "Second write should report skipped"
+    assert written1 is True, "First write should succeed"
+    assert written2 is False, "Second write should be skipped (idempotency)"
 
     # Verify only one row in DB
     cursor = in_memory_db.cursor()
@@ -420,11 +419,7 @@ def test_writer_persists_success_results(in_memory_db: sqlite3.Connection, setup
     writer = ResultWriter(in_memory_db)
 
     # Act
-    report = writer.write_results([result])
-
-    # Assert
-    assert report.responses_written == 1
-    assert report.errors_written == 0
+    writer.write_result(result)
 
     # Verify response in database
     cursor = in_memory_db.cursor()
@@ -473,11 +468,7 @@ def test_writer_persists_failure_results(in_memory_db: sqlite3.Connection, setup
     writer = ResultWriter(in_memory_db)
 
     # Act
-    report = writer.write_results([result])
-
-    # Assert
-    assert report.responses_written == 0
-    assert report.errors_written == 1
+    writer.write_result(result)
 
     # Verify error in database
     cursor = in_memory_db.cursor()
@@ -500,8 +491,11 @@ def test_writer_persists_failure_results(in_memory_db: sqlite3.Connection, setup
 
 # =============================================================================
 # Run Status Update Tests
+# NOTE: These tests are skipped because run status updates were moved to RunFinalizer.
+# See tests/unit/core/test_run_finalizer.py for run status update tests.
 # =============================================================================
 
+@pytest.mark.skip(reason="Run status updates handled by RunFinalizer, not ResultWriter")
 def test_writer_updates_run_status_completed(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter updates run status to completed when all results succeed."""
     # Arrange
@@ -526,13 +520,9 @@ def test_writer_updates_run_status_completed(in_memory_db: sqlite3.Connection, s
     writer = ResultWriter(in_memory_db)
 
     # Act
-    report = writer.write_results([result])
+    writer.write_result(result)
 
     # Assert
-    assert len(report.runs_updated) == 1
-    assert report.runs_updated[0] == ('run-test-001', 'completed')
-
-    # Verify run status in database
     cursor = in_memory_db.cursor()
     cursor.execute("SELECT status FROM runs WHERE run_id = 'run-test-001'")
     row = cursor.fetchone()
@@ -540,6 +530,7 @@ def test_writer_updates_run_status_completed(in_memory_db: sqlite3.Connection, s
     assert row['status'] == 'completed'
 
 
+@pytest.mark.skip(reason="Run status updates handled by RunFinalizer, not ResultWriter")
 def test_writer_updates_run_status_partial_failed(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter updates run status to partial_failed when some results fail."""
     # Arrange: Add another snapshot for second item
@@ -603,6 +594,7 @@ def test_writer_updates_run_status_partial_failed(in_memory_db: sqlite3.Connecti
     assert row['status'] == 'partial_failed'
 
 
+@pytest.mark.skip(reason="Run status updates handled by RunFinalizer, not ResultWriter")
 def test_writer_updates_run_status_failed(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter updates run status to failed when all results fail."""
     # Arrange
@@ -627,7 +619,7 @@ def test_writer_updates_run_status_failed(in_memory_db: sqlite3.Connection, setu
     writer = ResultWriter(in_memory_db)
 
     # Act
-    report = writer.write_results([result])
+    writer.write_result(result)
 
     # Assert
     assert len(report.runs_updated) == 1
@@ -643,8 +635,10 @@ def test_writer_updates_run_status_failed(in_memory_db: sqlite3.Connection, setu
 
 # =============================================================================
 # WriteReport Tests
+# NOTE: Skipped because WriteReport was removed with write_results().
 # =============================================================================
 
+@pytest.mark.skip(reason="WriteReport removed with write_results()")
 def test_writer_returns_write_report(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """ResultWriter.write_results returns WriteReport with counts and run status updates."""
     # Arrange: Add another snapshot for mixed results test
@@ -710,6 +704,7 @@ def test_writer_returns_write_report(in_memory_db: sqlite3.Connection, setup_tes
     assert report.runs_updated[0] == ('run-test-001', 'partial_failed')
 
 
+@pytest.mark.skip(reason="WriteReport removed with write_results()")
 def test_writer_report_includes_skipped_count(in_memory_db: sqlite3.Connection, setup_test_data: dict) -> None:
     """WriteReport includes count of skipped responses from idempotent writes."""
     # Arrange
@@ -734,8 +729,8 @@ def test_writer_report_includes_skipped_count(in_memory_db: sqlite3.Connection, 
     writer = ResultWriter(in_memory_db)
 
     # Act: Write twice
-    report1 = writer.write_results([result])
-    report2 = writer.write_results([result])
+    report1 = writer.write_result(result)
+    report2 = writer.write_result(result)
 
     # Assert
     assert report1.responses_written == 1

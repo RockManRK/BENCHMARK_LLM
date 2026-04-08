@@ -11,7 +11,7 @@ class Run:
     run_id: str
     experiment_id: str
     seed: Optional[int]
-    status: Literal['pending', 'running', 'completed', 'failed', 'partial_failed'] = 'pending'
+    status: Literal['pending', 'completed', 'failed', 'partial_failed'] = 'pending'
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     created_at: Optional[str] = None
@@ -45,7 +45,7 @@ class RunFactory:
     def create(
         experiment_id: str,
         seed: Optional[int] = None,
-        status: Literal['pending', 'running', 'completed', 'failed', 'partial_failed'] = 'pending',
+        status: Literal['pending', 'completed', 'failed', 'partial_failed'] = 'pending',
         started_at: Optional[str] = None,
         finished_at: Optional[str] = None,
         created_at: Optional[str] = None,

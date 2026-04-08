@@ -505,7 +505,7 @@ class ResponseRepository:
 
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT OR REPLACE INTO responses (
+            INSERT OR IGNORE INTO responses (
                 response_id, run_id, variant_id, snapshot_id,
                 model_id, question_id, status, finish_reason, error_details,
                 response_text, selected_answer, is_correct, parse_confidence,
@@ -679,14 +679,14 @@ class ErrorRepository:
         self.conn = conn
 
     def save(self, error: Error) -> None:
-        """Insert or update error.
+        """Insert or ignore error (idempotent).
 
         Does NOT pass occurred_at - let DB DEFAULT handle it.
         Uses variant_id (not model_id).
         """
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT OR REPLACE INTO errors (
+            INSERT OR IGNORE INTO errors (
                 error_id, run_id, variant_id, snapshot_id,
                 question_id, error_type, error_message,
                 attempt_count, stack_trace

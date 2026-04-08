@@ -33,6 +33,7 @@ from src.core.execution_engine import ExecutionEngine, ExecutionResult
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser
 from src.core.execution_plan import ExecutionPlan
+from src.core.run_finalizer import RunFinalizer
 from src.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -77,6 +78,7 @@ class AsyncOrchestrator:
         randomizer: AnswerRandomizer,
         parser: AnswerParser,
         logger: Optional[Logger] = None,
+        max_concurrency: int = 1,
     ) -> None:
         """Initialize orchestrator with dependencies.
 
@@ -87,6 +89,8 @@ class AsyncOrchestrator:
             parser: Response parser with confidence levels
             logger: Optional logger instance. If not provided, uses
                     get_logger('core.async_orchestrator').
+            max_concurrency: Maximum number of concurrent item executions.
+                    Controls the asyncio.Semaphore limit. Defaults to 1.
 
         Note:
             The api_client is created by the caller (CLI or ConfigResolver)
@@ -98,6 +102,7 @@ class AsyncOrchestrator:
         self.randomizer = randomizer
         self.parser = parser
         self._logger = logger or get_logger('core.async_orchestrator')
+        self._max_concurrency = max_concurrency
 
     def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
         """Execute all items in the plan.
@@ -128,11 +133,12 @@ class AsyncOrchestrator:
         3. Create AsyncWriter(queue, db_connection)
         4. Start writer as asyncio.create_task(writer.consume())
         5. Create ExecutionEngine(api_client, randomizer, parser)
-        6. Run await engine.execute_async(plan)
+        6. Run await engine.execute_async(plan) — items guarded by semaphore
         7. Put sentinel (None) on queue
-        8. Await writer task completion
-        9. Close httpx.AsyncClient via api_client.close()
-        10. Return results
+        8. Await writer task completion (all writes flushed)
+        9. Call RunFinalizer.finalize_run() for each run
+        10. Close httpx.AsyncClient via api_client.close()
+        11. Return results
 
         Args:
             plan: Immutable execution plan from Planner
@@ -163,13 +169,20 @@ class AsyncOrchestrator:
                 logger=self._logger,
             )
 
-            results = await engine.execute_async(plan, result_queue=queue)
+            # Create semaphore inside async context (correct event loop binding)
+            semaphore = asyncio.Semaphore(self._max_concurrency)
 
+            # Execute items with semaphore-based concurrency
+            results = await self._execute_plan_with_semaphore(engine, plan, queue, semaphore)
+
+            # Signal writer completion and wait for all writes to flush
             await queue.put(None)
             await writer_task
 
-            # Update run statuses in DB based on execution results
-            self._update_run_statuses(results)
+            # Finalize each run via RunFinalizer (sole owner of runs.status/duration)
+            for run in plan.runs:
+                finalizer = RunFinalizer(self.db_connection, self._logger)
+                finalizer.finalize_run(run.run_id)
 
             succeeded = sum(1 for r in results if r.status == 'success')
             failed = sum(1 for r in results if r.status == 'failure')
@@ -194,65 +207,112 @@ class AsyncOrchestrator:
         finally:
             await self.api_client.close()
 
-    def _update_run_statuses(self, results: list[ExecutionResult]) -> None:
-        """Update run statuses and accumulate duration in DB based on execution results.
+    async def _execute_plan_with_semaphore(
+        self,
+        engine: ExecutionEngine,
+        plan: ExecutionPlan,
+        queue: asyncio.Queue,
+        semaphore: asyncio.Semaphore,
+    ) -> list[ExecutionResult]:
+        """Execute all plan items with semaphore-based concurrency control.
 
-        Groups results by run_id and determines terminal status:
-        - all success → 'completed'
-        - all failure → 'failed'
-        - mixed → 'partial_failed'
+        Wraps each item execution with async with semaphore to
+        limit concurrent API calls to max_concurrency.
 
-        Duration is accumulated from successful responses only (latency_ms).
+        Args:
+            engine: ExecutionEngine instance to use for item execution
+            plan: Execution plan containing runs and items
+            queue: Shared result queue for writer communication
+            semaphore: Asyncio semaphore for concurrency control (created in async context)
+
+        Returns:
+            List of ExecutionResult (one per item)
         """
-        from collections import defaultdict
+        all_results: list[ExecutionResult] = []
 
-        run_results: dict[str, list[ExecutionResult]] = defaultdict(list)
-        for r in results:
-            run_results[r.run_id].append(r)
+        for run in plan.runs:
+            run_results = await self._execute_run_with_semaphore(engine, run, queue, semaphore)
+            all_results.extend(run_results)
 
-        cursor = self.db_connection.cursor()
-        for run_id, run_items in run_results.items():
-            successes = sum(1 for r in run_items if r.status == 'success')
-            failures = sum(1 for r in run_items if r.status == 'failure')
+        return all_results
 
-            if failures == 0:
-                status = 'completed'
-            elif successes == 0:
-                status = 'failed'
-            else:
-                status = 'partial_failed'
+    async def _execute_run_with_semaphore(
+        self,
+        engine: ExecutionEngine,
+        run,
+        queue: asyncio.Queue,
+        semaphore: asyncio.Semaphore,
+    ) -> list[ExecutionResult]:
+        """Execute all items in a single run with semaphore concurrency control.
 
-            # Calculate total latency from successful responses only
-            latency_ms = sum(
-                r.latency_ms for r in run_items
-                if r.status == 'success' and r.latency_ms is not None
-            )
+        Args:
+            engine: ExecutionEngine instance
+            run: PlanRun to execute
+            queue: Shared result queue
+            semaphore: Asyncio semaphore for concurrency control
 
-            # Update status AND accumulate duration
-            if latency_ms > 0:
-                cursor.execute(
-                    "UPDATE runs SET status = ?, duration = duration + ? WHERE run_id = ?",
-                    (status, latency_ms, run_id),
-                )
-            else:
-                cursor.execute(
-                    "UPDATE runs SET status = ? WHERE run_id = ?",
-                    (status, run_id),
-                )
+        Returns:
+            List of ExecutionResult for this run
+        """
+        from src.core.retry import RetryHandler
 
-        self.db_connection.commit()
+        results: list[ExecutionResult] = []
+        total_items = len(run.items)
+        completed = 0
 
-        # Log duration updates for auditability
-        for run_id, run_items in run_results.items():
-            run_latency = sum(
-                r.latency_ms for r in run_items
-                if r.status == 'success' and r.latency_ms is not None
-            )
-            self._logger.info(
-                f"RUN_UPDATE | run={run_id} | latency_added={run_latency}ms"
-            )
-
-        self._logger.info(
-            f"RUN_STATUS_UPDATED | runs={len(run_results)} | "
-            f"statuses={ {rid: 'completed' if all(r.status == 'success' for r in rs) else 'failed' if all(r.status == 'failure' for r in rs) else 'partial_failed' for rid, rs in run_results.items()} }"
+        run_retry_handler = RetryHandler(
+            policy=run.retry_policy,
+            logger=self._logger,
         )
+
+        milestone_interval = max(1, total_items // 4)
+
+        tasks = []
+        for i, item in enumerate(run.items):
+            task = asyncio.create_task(
+                self._execute_item_with_semaphore(
+                    engine, item, run, run_retry_handler, queue, semaphore, i
+                )
+            )
+            tasks.append(task)
+
+        for task in tasks:
+            result = await task
+            results.append(result)
+            completed += 1
+
+            if completed % milestone_interval == 0 or completed == total_items:
+                percent = int((completed / total_items) * 100)
+                self._logger.info(
+                    f"PROGRESS_MILESTONE | run={run.run_id} | completed={completed}/{total_items} | percent={percent}%"
+                )
+
+        return results
+
+    async def _execute_item_with_semaphore(
+        self,
+        engine: ExecutionEngine,
+        item,
+        run,
+        retry_handler: RetryHandler,
+        queue: asyncio.Queue,
+        semaphore: asyncio.Semaphore,
+        item_index: int,
+    ) -> ExecutionResult:
+        """Execute a single item with semaphore concurrency control.
+
+        Args:
+            engine: ExecutionEngine instance
+            item: PlanItem to execute
+            run: Parent PlanRun
+            retry_handler: RetryHandler for this run
+            queue: Shared result queue
+            semaphore: Asyncio semaphore for concurrency control
+            item_index: Zero-based index of item within the run (for deterministic seeding)
+
+        Returns:
+            ExecutionResult for this item
+        """
+        async with semaphore:
+            return await engine._execute_item_async(item, run, retry_handler, queue, item_index)
+

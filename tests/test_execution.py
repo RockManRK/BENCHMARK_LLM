@@ -66,7 +66,7 @@ class TestRunManager:
 
         assert run.run_id.startswith("run-")
         assert len(run.run_id) > 4  # Should have timestamp component
-        assert run.status == "running"
+        assert run.status == "pending"
         # In TEST mode: experiment_id is None (no persistence)
         assert run.experiment_id is None
         assert run.is_dev is False  # Test mode
@@ -94,7 +94,7 @@ class TestRunManager:
         config = {"models": ["gpt-4"]}
         run = run_manager.initialize_run(config)
 
-        assert run.status == "running"
+        assert run.status == "pending"
 
     def test_initialize_run_saves_to_database(
         self, run_manager: RunManager, mock_run_repository: MagicMock
@@ -1175,7 +1175,7 @@ class TestExecutionIntegration:
         mock_run = MagicMock()
         mock_run.run_id = "run-test-123"
         mock_run.config = '{"models": ["gpt-4"], "iterations": 1}'
-        mock_run.status = "running"
+        mock_run.status = "pending"
         mock_run_repository.create.return_value = mock_run
         run_manager.current_run = mock_run
 
@@ -1260,7 +1260,7 @@ class TestExecutionIntegration:
         mock_run = MagicMock()
         mock_run.run_id = "run-test-123"
         mock_run.config = '{"models": ["gpt-4"], "iterations": 1}'
-        mock_run.status = "running"
+        mock_run.status = "pending"
         mock_run_repository.create.return_value = mock_run
         run_manager.current_run = mock_run
 

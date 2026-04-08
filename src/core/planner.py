@@ -349,8 +349,11 @@ class Planner:
             for variant in variants
         ]
 
-        # Build items (deduplicated per run by construction)
-        items = self._build_items(run_row, variants, snapshots)
+        # Get already-executed items to exclude (idempotency filter)
+        executed_items = self._get_executed_items(run_row["run_id"])
+
+        # Build items (deduplicated per run by construction, excluding already-executed)
+        items = self._build_items(run_row, variants, snapshots, executed_items)
 
         # Create plan run with specified retry policy
         plan_run = PlanRun(
@@ -363,6 +366,30 @@ class Planner:
         )
 
         return plan_run
+
+    def _get_executed_items(self, run_id: str) -> set[tuple[str, str]]:
+        """Query DB for already-executed items in a run.
+
+        Returns a set of (variant_id, snapshot_id) tuples where raw_response IS NOT NULL,
+        meaning the item has actual response data and should NOT be re-executed.
+
+        Items that only have errors (transient failures) are NOT excluded,
+        so they can be retried.
+
+        Args:
+            run_id: Run identifier to query for
+
+        Returns:
+            Set of (variant_id, snapshot_id) tuples to exclude from the plan
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT variant_id, snapshot_id FROM responses
+            WHERE run_id = ? AND raw_response IS NOT NULL
+            """,
+            (run_id,),
+        )
+        return {(row["variant_id"], row["snapshot_id"]) for row in cursor.fetchall()}
 
     def _resolve_prompts_effective(
         self,
@@ -545,24 +572,41 @@ class Planner:
         run_row: sqlite3.Row,
         variants: list[sqlite3.Row],
         snapshots: list[sqlite3.Row],
+        executed_items: set[tuple[str, str]] | None = None,
     ) -> list[PlanItem]:
         """Build execution items for run.
 
         Creates one item per (variant, snapshot) combination.
         Items are naturally deduplicated by construction.
+        Already-executed items are excluded for idempotent re-execution.
 
         Args:
             run_row: Run database row
             variants: List of variant rows
             snapshots: List of snapshot rows
+            executed_items: Set of (variant_id, snapshot_id) tuples to exclude
+                           (items that already have raw_response in DB)
 
         Returns:
-            List of PlanItem (one per variant × snapshot)
+            List of PlanItem (one per variant × snapshot, excluding executed)
         """
         items = []
 
+        # Ensure executed_items is a set (empty if not provided)
+        exclude = executed_items if executed_items is not None else set()
+
         for variant in variants:
             for snapshot in snapshots:
+                # Skip already-executed items (idempotency filter)
+                variant_id = variant["variant_id"]
+                snapshot_id = snapshot["snapshot_id"]
+                if (variant_id, snapshot_id) in exclude:
+                    self._logger.debug(
+                        f"PLAN_SKIP_EXECUTED | run={run_row['run_id']} | "
+                        f"variant={variant_id} | snapshot={snapshot_id}"
+                    )
+                    continue
+
                 # Parse question payload
                 payload_data = json.loads(snapshot["question_payload"])
 

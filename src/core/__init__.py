@@ -31,7 +31,6 @@ from src.core.answer_parser import (
 
 from src.core.result_writer import (
     ResultWriter,
-    WriteReport,
 )
 
 from src.core.planner import (
@@ -72,7 +71,6 @@ __all__ = [
     'ParsedAnswer',
     # Result Writer
     'ResultWriter',
-    'WriteReport',
     # Planner
     'Planner',
     'PlannerValidationError',

@@ -337,12 +337,7 @@ class TestRunRepository:
         assert retrieved.status == "pending"
         assert retrieved.seed == 42
 
-        # STATUS TRANSITION: pending -> running
-        run_repo.update_status("run_001", "running")
-        updated = run_repo.get_by_id("run_001")
-        assert updated.status == "running"
-
-        # STATUS TRANSITION: running -> completed
+        # STATUS TRANSITION: pending -> completed
         run_repo.update_status("run_001", "completed")
         completed = run_repo.get_by_id("run_001")
         assert completed.status == "completed"
@@ -373,7 +368,7 @@ class TestRunRepository:
         exp_repo.save(experiment)
 
         # Create runs with different statuses
-        for i, status in enumerate(["pending", "running", "completed"]):
+        for i, status in enumerate(["pending", "completed", "failed"]):
             run = Run(
                 run_id=f"run_{status}",
                 experiment_id="exp_status",
@@ -436,7 +431,7 @@ class TestResponseRepository:
         run = Run(
             run_id="run_resp",
             experiment_id="exp_resp",
-            status="running",
+            status="pending",
         )
         run_repo.save(run)
 
@@ -533,7 +528,7 @@ class TestResponseRepository:
         run = Run(
             run_id="run_review",
             experiment_id="exp_review",
-            status="running",
+            status="pending",
         )
         run_repo.save(run)
 
@@ -614,7 +609,7 @@ class TestErrorRepository:
         run = Run(
             run_id="run_err",
             experiment_id="exp_err",
-            status="running",
+            status="pending",
         )
         run_repo.save(run)
 

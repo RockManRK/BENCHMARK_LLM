@@ -76,9 +76,9 @@ def mock_api_client():
         MagicMock: Mocked API client
 
     Example:
-        def test_execution_engine_calls_api(mock_api_client):
+        async def test_execution_engine_calls_api(mock_api_client):
             engine = ExecutionEngine(mock_api_client, randomizer, parser)
-            results = engine.execute(plan)
+            results = await engine.execute_async(plan, queue)
             mock_api_client.chat_completion.assert_called_once()
     """
     # Import the real classes for spec (will exist in Phase 5)

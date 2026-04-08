@@ -243,18 +243,6 @@ class ExecutionEngine:
             logger=self._logger
         )
 
-    def execute(self, plan: ExecutionPlan) -> list[ExecutionResult]:
-        """Backward-compatible sync wrapper. Deprecated — use execute_async().
-
-        Args:
-            plan: Immutable execution plan from Planner
-
-        Returns:
-            List of ExecutionResult (one per item)
-        """
-        queue: asyncio.Queue = asyncio.Queue()
-        return asyncio.run(self.execute_async(plan, queue))
-
     async def execute_async(
         self,
         plan: ExecutionPlan,
@@ -352,6 +340,7 @@ class ExecutionEngine:
         run: PlanRun,
         retry_handler: Optional[RetryHandler] = None,
         result_queue: Optional[asyncio.Queue] = None,
+        item_index: Optional[int] = None,
     ) -> ExecutionResult:
         """Execute a single item asynchronously with retry policy.
 
@@ -360,6 +349,9 @@ class ExecutionEngine:
             run: Parent run containing retry policy
             retry_handler: Optional retry handler. If not provided, uses self._retry_handler.
             result_queue: Optional shared queue to push result to after completion.
+            item_index: Optional zero-based index of item within the run.
+                       When provided (concurrency > 1), used to create a per-item
+                       isolated randomizer for deterministic seeding.
 
         Returns:
             ExecutionResult for this item
@@ -444,10 +436,23 @@ class ExecutionEngine:
 
             # Apply randomization ONLY if seed is explicitly set (not None)
             if randomization_enabled:
-                randomized = self.randomizer.randomize_options(
-                    original_options,
-                    seed=run.seed_effective,
-                )
+                # When item_index is provided (concurrency > 1), use a per-item isolated
+                # randomizer seeded deterministically. This prevents race conditions on
+                # the shared RNG state when concurrent tasks call randomize_options().
+                # When item_index is None (sequential execution), use the shared randomizer
+                # for backward compatibility.
+                if item_index is not None:
+                    item_randomizer = AnswerRandomizer()
+                    item_randomizer.set_seed(run.seed_effective + item_index)
+                    randomized = item_randomizer.randomize_options(
+                        original_options,
+                        seed=run.seed_effective + item_index,
+                    )
+                else:
+                    randomized = self.randomizer.randomize_options(
+                        original_options,
+                        seed=run.seed_effective,
+                    )
                 options = randomized["options"]
 
                 # Build mapping from presented letter to original letter
@@ -833,71 +838,6 @@ class ExecutionEngine:
                 await result_queue.put(result)
 
             return result
-
-    def _call_api_sync(
-        self,
-        model_id: str,
-        messages: list[dict],
-        model_config: ModelConfig,
-    ) -> Any:
-        """Call the API synchronously.
-
-        This method handles the async/sync boundary properly:
-        - If already in async context: runs in thread pool
-        - If not: creates new event loop
-        - The HTTP client lifecycle is managed by the api_client instance,
-          NOT by individual item execution. Client is shared across all items
-          and only closed when the entire execution completes.
-
-        Args:
-            model_id: Model identifier for API call
-            messages: Chat messages
-            model_config: Model configuration
-
-        Returns:
-            API response
-        """
-        import asyncio
-        import concurrent.futures
-
-        # Build response_format if structured_output is enabled
-        response_format: dict[str, Any] | None = None
-        if model_config.structured_output:
-            response_format = {"type": "json_object"}
-
-        async def _api_call():
-            return await self.api_client.chat_completion(
-                model_id=model_id,
-                messages=messages,
-                temperature=model_config.temperature,
-                top_p=model_config.top_p,
-                top_k=model_config.top_k,
-                repeat_penalty=model_config.repeat_penalty,
-                max_tokens=model_config.max_output_tokens,
-                reasoning_effort=model_config.reasoning_effort,
-                max_reasoning_tokens=model_config.max_reasoning_tokens,
-                response_format=response_format,
-            )
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context - run in a new thread
-                # IMPORTANT: asyncio.run() creates a NEW event loop in the thread,
-                # which is independent of the caller's loop. This prevents
-                # "Event loop is closed" errors from affecting the caller.
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run,
-                        _api_call()
-                    )
-                    return future.result()
-            else:
-                # No running loop - use asyncio.run directly
-                return asyncio.run(_api_call())
-        except RuntimeError:
-            # No event loop exists - create new one
-            return asyncio.run(_api_call())
 
     def _get_variant_for_item(
         self,

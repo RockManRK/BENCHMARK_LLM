@@ -77,7 +77,7 @@ def get_schema_sql() -> str:
         status            TEXT NOT NULL DEFAULT 'pending',
         duration          INTEGER DEFAULT 0,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CHECK(status IN ('pending', 'running', 'completed', 'failed', 'partial_failed'))
+        CHECK(status IN ('pending', 'completed', 'failed', 'partial_failed'))
     );
 
     -- Index for listing runs by experiment

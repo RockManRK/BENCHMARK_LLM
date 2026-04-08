@@ -301,7 +301,7 @@ def verify_runs(experiment_name: str, expected_count: int = None) -> bool:
     
     for i, run in enumerate(results):
         # Verify status is valid
-        if run['status'] not in ('pending', 'running', 'completed', 'failed', 'partial_failed'):
+        if run['status'] not in ('pending', 'completed', 'failed', 'partial_failed'):
             print(f"  ❌ Run {i+1} has invalid status: {run['status']}")
             return False
     

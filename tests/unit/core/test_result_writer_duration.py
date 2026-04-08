@@ -5,14 +5,20 @@ This module tests that:
 2. Failed responses do NOT contribute to duration
 3. Duration accumulates across multiple executions (incremental runs)
 4. Duration is correctly persisted in the database
+
+NOTE: All tests in this file are SKIPPED because write_results() has been removed.
+Duration accumulation is now handled by RunFinalizer.
+See tests/unit/core/test_run_finalizer.py.
 """
 
 import pytest
 import sqlite3
 from unittest.mock import MagicMock
 
-from src.core.result_writer import ResultWriter, WriteReport
+from src.core.result_writer import ResultWriter
 from src.core.execution_engine import ExecutionResult
+
+pytestmark = pytest.mark.skip(reason="write_results() removed; duration handled by RunFinalizer")
 
 
 @pytest.fixture
@@ -221,8 +227,14 @@ def create_failure_result(
 
 
 class TestDurationAccumulation:
-    """Test that runs.duration is correctly accumulated from successful responses."""
+    """Test that runs.duration is correctly accumulated from successful responses.
 
+    NOTE: Skipped because write_results() (which handled duration accumulation)
+    has been removed. Duration is now handled by RunFinalizer.
+    See tests/unit/core/test_run_finalizer.py.
+    """
+
+    @pytest.mark.skip(reason="write_results() removed; duration handled by RunFinalizer")
     def test_single_success_response_adds_latency(self, writer: ResultWriter, db_connection):
         """Test that a single successful response adds its latency to run duration."""
         result = create_success_result(latency_ms=1500)

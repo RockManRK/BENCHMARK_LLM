@@ -365,6 +365,7 @@ def handle_execute(args, conn) -> int:
             randomizer=randomizer,
             parser=parser,
             logger=logger,
+            max_concurrency=int(os.environ.get("BCLLM_MAX_CONCURRENCY", "1")),
         )
 
         results = orchestrator.execute(plan)

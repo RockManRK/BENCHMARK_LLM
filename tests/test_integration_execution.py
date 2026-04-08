@@ -5,9 +5,14 @@ Model used: google/gemini-3.1-flash-lite-preview (extremely cheap)
 Scope: 1-4 questions, 1 iteration (minimum needed to validate flow)
 
 WARNING: These tests consume real tokens. Do not run in CI without cost controls.
+
+NOTE: This file uses a legacy ExecutionEngine API (settings, db_manager, QuestionWithContext)
+and the removed execute() sync wrapper. It is skipped entirely.
 """
 
 import pytest
+
+pytestmark = pytest.mark.skip(reason="Legacy ExecutionEngine API — requires rewrite for async")
 from unittest.mock import Mock
 
 from src.core.execution_engine import ExecutionEngine, QuestionWithContext

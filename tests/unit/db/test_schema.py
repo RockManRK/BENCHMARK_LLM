@@ -215,7 +215,6 @@ class TestConstraints:
 
         assert "CHECK(status IN (" in sql
         assert "'pending'" in sql
-        assert "'running'" in sql
         assert "'completed'" in sql
         assert "'failed'" in sql
         assert "'partial_failed'" in sql

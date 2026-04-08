@@ -199,10 +199,10 @@ class TestModels:
             run_id="test-run-001",
             created_at=datetime.now(),
             config='{"models": ["gpt-4"], "iterations": 3}',
-            status="running",
+            status="pending",
         )
         assert run.run_id == "test-run-001"
-        assert run.status == "running"
+        assert run.status == "pending"
 
     def test_run_dataclass_defaults(self) -> None:
         """Test Run dataclass default values."""
@@ -288,7 +288,7 @@ class TestRunRepository:
             run_id="test-run-002",
             created_at=datetime.now(),
             config='{}',
-            status="running",
+            status="pending",
         )
         repo.create(run)
         

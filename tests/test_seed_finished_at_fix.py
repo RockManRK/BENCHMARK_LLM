@@ -83,7 +83,7 @@ class TestUpdateRunStatusFinishedAt:
         # Create a mock run
         mock_run = MagicMock()
         mock_run.run_id = "run-test-1"
-        mock_run.status = "running"
+        mock_run.status = "pending"
         mock_run.finished_at = None
         
         run_manager._run_repository.get_by_id.return_value = mock_run
@@ -101,7 +101,7 @@ class TestUpdateRunStatusFinishedAt:
         """Test that status='failed' sets finished_at."""
         mock_run = MagicMock()
         mock_run.run_id = "run-test-2"
-        mock_run.status = "running"
+        mock_run.status = "pending"
         mock_run.finished_at = None
         
         run_manager._run_repository.get_by_id.return_value = mock_run
@@ -111,6 +111,7 @@ class TestUpdateRunStatusFinishedAt:
         assert mock_run.finished_at is not None
         assert isinstance(mock_run.finished_at, datetime)
 
+    @pytest.mark.skip(reason="'running' status removed from schema")
     def test_running_status_does_not_set_finished_at(self, run_manager):
         """Test that status='running' does NOT set finished_at."""
         mock_run = MagicMock()
@@ -131,7 +132,7 @@ class TestUpdateRunStatusFinishedAt:
         
         mock_run = MagicMock()
         mock_run.run_id = "run-test-4"
-        mock_run.status = "running"
+        mock_run.status = "pending"
         mock_run.finished_at = existing_time
         
         run_manager._run_repository.get_by_id.return_value = mock_run

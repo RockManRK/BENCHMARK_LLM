@@ -302,7 +302,7 @@ class TestDatabaseIntegration:
             run_id="run-test-001",
             created_at=datetime.now(),
             config=json.dumps({"models": ["gpt-4"], "iterations": 1}),
-            status="running",
+            status="pending",
         )
         created = repo.create(run)
         assert created.run_id == "run-test-001"
@@ -311,7 +311,7 @@ class TestDatabaseIntegration:
         retrieved = repo.get_by_id("run-test-001")
         assert retrieved is not None
         assert retrieved.run_id == "run-test-001"
-        assert retrieved.status == "running"
+        assert retrieved.status == "pending"
 
         # Update
         retrieved.status = "completed"
@@ -345,7 +345,7 @@ class TestDatabaseIntegration:
             run_id="run-test-002",
             created_at=datetime.now(),
             config=json.dumps({}),
-            status="running",
+            status="pending",
         )
         run_repo.create(run)
 
@@ -361,7 +361,7 @@ class TestDatabaseIntegration:
             run_id=run.run_id,
             model_id="gpt-4",
             iteration_number=1,
-            status="running",
+            status="pending",
         )
         iteration_repo.create(iteration)
 
@@ -413,7 +413,7 @@ class TestDatabaseIntegration:
             run_id="run-test-003",
             created_at=datetime.now(),
             config=json.dumps({}),
-            status="running",
+            status="pending",
         )
         run_repo.create(run)
 
@@ -428,7 +428,7 @@ class TestDatabaseIntegration:
             run_id=run.run_id,
             model_id="gpt-4",
             iteration_number=1,
-            status="running",
+            status="pending",
         )
         iteration_repo.create(iteration)
 
@@ -747,7 +747,7 @@ class TestRunManagerIntegration:
         run = run_manager.initialize_run(config)
 
         assert run.run_id.startswith("run-")
-        assert run.status == "running"
+        assert run.status == "pending"
 
         # Verify config was stored
         stored_config = run_manager.get_run_config(run.run_id)
@@ -767,7 +767,7 @@ class TestRunManagerIntegration:
         config = {"models": ["gpt-4"], "iterations": 1}
 
         run = run_manager.initialize_run(config)
-        assert run.status == "running"
+        assert run.status == "pending"
 
         # Complete the run
         completed = run_manager.complete_run(run.run_id)
@@ -957,7 +957,7 @@ class TestFullWorkflowIntegration:
             run_id=run.run_id,
             model_id="openai/gpt-4",
             iteration_number=1,
-            status="running",
+            status="pending",
         )
         iteration_repo.create(iteration)
 
@@ -1055,7 +1055,7 @@ class TestFullWorkflowIntegration:
             run_id=run.run_id,
             model_id="gpt-4",
             iteration_number=1,
-            status="running",
+            status="pending",
         )
         iteration_repo.create(iteration)
 

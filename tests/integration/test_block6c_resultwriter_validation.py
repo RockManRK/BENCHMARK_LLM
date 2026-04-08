@@ -274,7 +274,7 @@ class TestCriticalFieldPopulation:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -307,7 +307,7 @@ class TestCriticalFieldPopulation:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -339,7 +339,7 @@ class TestCriticalFieldPopulation:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -371,7 +371,7 @@ class TestCriticalFieldPopulation:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -400,7 +400,7 @@ class TestCriticalFieldPopulation:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -441,7 +441,8 @@ class TestCriticalFieldPopulation:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result_clear, result_ambiguous])
+        writer.write_result(result_clear)
+        writer.write_result(result_ambiguous)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -494,7 +495,7 @@ class TestNullFieldAnalysis:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -522,7 +523,7 @@ class TestNullFieldAnalysis:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -549,7 +550,7 @@ class TestNullFieldAnalysis:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results([result])
+        writer.write_result(result)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -570,8 +571,14 @@ class TestNullFieldAnalysis:
 # =============================================================================
 
 class TestRunStatusUpdates:
-    """Validate run status transitions."""
+    """Validate run status transitions.
 
+    NOTE: These tests are skipped because write_results() (batch method with run
+    status updates) has been removed. Run status updates are now handled by
+    RunFinalizer — see tests/unit/core/test_run_finalizer.py.
+    """
+
+    @pytest.mark.skip(reason="write_results() removed; run status handled RunFinalizer")
     def test_run_status_completed_all_success(self, fresh_db: sqlite3.Connection, setup_validation_experiment: dict) -> None:
         """Run status MUST be 'completed' when all results succeed."""
         # Arrange
@@ -593,7 +600,8 @@ class TestRunStatusUpdates:
         writer = ResultWriter(fresh_db)
 
         # Act
-        writer.write_results(results)
+        for r in results:
+            writer.write_result(r)
 
         # Assert
         cursor = fresh_db.cursor()
@@ -602,6 +610,7 @@ class TestRunStatusUpdates:
         assert row is not None
         assert row['status'] == 'completed', "Run status MUST be 'completed' when all succeed"
 
+    @pytest.mark.skip(reason="write_results() removed; run status handled by RunFinalizer")
     def test_run_status_partial_failed_mixed_results(self, fresh_db: sqlite3.Connection, setup_validation_experiment: dict) -> None:
         """Run status MUST be 'partial_failed' when some results fail."""
         # Arrange
@@ -645,8 +654,12 @@ class TestRunStatusUpdates:
 # =============================================================================
 
 class TestComprehensiveValidationReport:
-    """Generate comprehensive validation report for Block 6c."""
+    """Generate comprehensive validation report for Block 6c.
 
+    NOTE: Skipped because WriteReport was removed with write_results().
+    """
+
+    @pytest.mark.skip(reason="WriteReport removed with write_results()")
     def test_full_validation_report(self, fresh_db: sqlite3.Connection, setup_validation_experiment: dict, caplog) -> None:
         """Generate complete validation report for Block 6c."""
         # Arrange: Create mixed results (success + failure + review-needed)
