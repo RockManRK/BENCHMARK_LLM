@@ -83,3 +83,5 @@ Nao_Apagar-Temporarios_do_Usuario/
 
 .qwen/
 gha-creds-*.json
+data/bcllm.db
+.gitignore

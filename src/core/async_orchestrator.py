@@ -195,12 +195,14 @@ class AsyncOrchestrator:
             await self.api_client.close()
 
     def _update_run_statuses(self, results: list[ExecutionResult]) -> None:
-        """Update run statuses in DB based on execution results.
+        """Update run statuses and accumulate duration in DB based on execution results.
 
         Groups results by run_id and determines terminal status:
         - all success → 'completed'
         - all failure → 'failed'
         - mixed → 'partial_failed'
+
+        Duration is accumulated from successful responses only (latency_ms).
         """
         from collections import defaultdict
 
@@ -220,12 +222,36 @@ class AsyncOrchestrator:
             else:
                 status = 'partial_failed'
 
-            cursor.execute(
-                "UPDATE runs SET status = ? WHERE run_id = ?",
-                (status, run_id),
+            # Calculate total latency from successful responses only
+            latency_ms = sum(
+                r.latency_ms for r in run_items
+                if r.status == 'success' and r.latency_ms is not None
             )
 
+            # Update status AND accumulate duration
+            if latency_ms > 0:
+                cursor.execute(
+                    "UPDATE runs SET status = ?, duration = duration + ? WHERE run_id = ?",
+                    (status, latency_ms, run_id),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE runs SET status = ? WHERE run_id = ?",
+                    (status, run_id),
+                )
+
         self.db_connection.commit()
+
+        # Log duration updates for auditability
+        for run_id, run_items in run_results.items():
+            run_latency = sum(
+                r.latency_ms for r in run_items
+                if r.status == 'success' and r.latency_ms is not None
+            )
+            self._logger.info(
+                f"RUN_UPDATE | run={run_id} | latency_added={run_latency}ms"
+            )
+
         self._logger.info(
             f"RUN_STATUS_UPDATED | runs={len(run_results)} | "
             f"statuses={ {rid: 'completed' if all(r.status == 'success' for r in rs) else 'failed' if all(r.status == 'failure' for r in rs) else 'partial_failed' for rid, rs in run_results.items()} }"

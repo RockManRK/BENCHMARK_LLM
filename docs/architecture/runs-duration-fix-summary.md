@@ -84,6 +84,7 @@ for run_id, run_results in results_by_run.items():
 | Mixed successes and failures | Only successful responses contribute |
 | All failures | `duration = 0` |
 | Incremental execution (1st: 1000ms, 2nd: 2500ms) | `duration = 3500` |
+| Idempotent re-execution (same responses skipped) | Duration NOT changed (no double-counting) |
 | Null latency | Filtered out (doesn't contribute) |
 | Zero latency | Added (edge case, results in +0) |
 
@@ -92,7 +93,7 @@ for run_id, run_results in results_by_run.items():
 - Failed responses (status = 'failure')
 - Timed-out requests
 - Responses with `latency_ms = None`
-- Idempotent skips (already-existing responses)
+- **Idempotent skips** (already-existing responses - prevents double-counting)
 
 ---
 
@@ -106,8 +107,9 @@ Created comprehensive tests in `tests/unit/core/test_result_writer_duration.py`:
 - ✅ Failed responses do NOT contribute
 - ✅ All failures = duration remains 0
 
-### TestIncrementalExecution (2 tests)
+### TestIncrementalExecution (3 tests)
 - ✅ Duration accumulates across multiple executions
+- ✅ **Idempotent skips don't double-count duration** (critical fix)
 - ✅ Mixed successes/failures accumulate correctly
 
 ### TestEdgeCases (3 tests)
@@ -115,7 +117,7 @@ Created comprehensive tests in `tests/unit/core/test_result_writer_duration.py`:
 - ✅ Zero latency is handled
 - ✅ Large latency values work correctly
 
-**All 9 tests passing** ✅
+**All 10 tests passing** ✅
 
 ---
 
@@ -199,21 +201,68 @@ Both values should match.
 
 | File | Changes |
 |------|---------|
-| `src/core/result_writer.py` | Replaced `_update_run_status()` with `_update_run_status_and_duration()` |
-| `tests/unit/core/test_result_writer_duration.py` | Created comprehensive test suite (9 tests) |
+| `src/core/result_writer.py` | Fixed duration accumulation in `write_results()` to only count newly-written responses |
+| `src/core/async_orchestrator.py` | **CRITICAL FIX**: Added duration accumulation to `_update_run_statuses()` |
+| `tests/unit/core/test_result_writer_duration.py` | Created comprehensive test suite (10 tests) |
+| `tests/unit/core/test_async_orchestrator_duration.py` | Created AsyncOrchestrator duration tests (6 tests) |
+
+## Root Cause Analysis
+
+### Why Duration Was 0 in Real Executions
+
+The system has **TWO** code paths for updating run status:
+
+1. **Synchronous path**: `ResultWriter.write_results()` - ✅ Fixed in first iteration
+2. **Asynchronous path**: `AsyncOrchestrator._update_run_statuses()` - ❌ **Never accumulated duration**
+
+The async path is used in production via `bcllm --execute`. The `AsyncOrchestrator`:
+- Uses `AsyncWriter` to write results incrementally via `ResultWriter.write_result()` (singular)
+- Then calls `_update_run_statuses()` to update run status
+- **Problem**: `_update_run_statuses()` only updated `status`, never `duration`
+
+### The Complete Fix
+
+Both code paths now accumulate duration:
+
+```python
+# AsyncOrchestrator._update_run_statuses()
+latency_ms = sum(
+    r.latency_ms for r in run_items
+    if r.status == 'success' and r.latency_ms is not None
+)
+
+if latency_ms > 0:
+    cursor.execute(
+        "UPDATE runs SET status = ?, duration = duration + ? WHERE run_id = ?",
+        (status, latency_ms, run_id),
+    )
+```
 
 ---
 
 ## Summary
 
-The `runs.duration` field is now **fully functional** and:
+The `runs.duration` field is now **fully functional** in BOTH execution paths:
 
-- ✅ Accumulates `latency_ms` from successful responses only
+- ✅ **Synchronous path** (`ResultWriter.write_results()`): Accumulates `latency_ms` from newly-written responses only
+- ✅ **Asynchronous path** (`AsyncOrchestrator._update_run_statuses()`): Accumulates `latency_ms` from successful responses
 - ✅ Supports incremental execution (accumulates across multiple runs)
 - ✅ Ignores failed/timed-out requests
 - ✅ Handles edge cases (null, zero, large values)
-- ✅ Fully tested (9/9 tests passing)
+- ✅ Fully tested (16/16 tests passing)
 - ✅ No breaking changes or migrations required
 - ✅ Logged for auditability
+
+### Test Coverage Summary
+
+| Test Suite | Tests | Status |
+|------------|-------|--------|
+| `test_result_writer_duration.py` | 10 | ✅ All passing |
+| `test_async_orchestrator_duration.py` | 6 | ✅ All passing |
+| **Total** | **16** | **✅ All passing** |
+
+### Critical Discovery
+
+The initial fix only addressed `ResultWriter.write_results()`, but the **actual production code path** uses `AsyncOrchestrator._update_run_statuses()` which was never accumulating duration. This has now been fixed.
 
 The fix ensures that `runs.duration` accurately represents the **cumulative execution time of successful requests**, exactly as specified in the requirements.

@@ -145,12 +145,20 @@ class ResultWriter:
                 results_by_run[result.run_id] = []
             results_by_run[result.run_id].append(result)
 
+        # Track which results were actually written (for duration accumulation)
+        # Only newly-written responses should contribute to duration to avoid double-counting
+        # on idempotent re-executions
+        written_latencies: dict[str, list[int]] = {run_id: [] for run_id in results_by_run}
+
         # Process each result
         for result in results:
             if result.status == 'success':
                 written = self._write_response(result)
                 if written:
                     report.responses_written += 1
+                    # Track latency only for newly-written responses
+                    if result.latency_ms is not None:
+                        written_latencies[result.run_id].append(result.latency_ms)
                 else:
                     report.responses_skipped += 1
             else:  # failure
@@ -158,13 +166,11 @@ class ResultWriter:
                 report.errors_written += 1
 
         # Update run statuses and accumulate duration
+        # Only accumulate from responses that were ACTUALLY written in this execution
         for run_id, run_results in results_by_run.items():
             status = self._determine_run_status(run_results)
-            # Calculate total latency for successful responses only
-            latency_ms = sum(
-                r.latency_ms for r in run_results
-                if r.status == 'success' and r.latency_ms is not None
-            )
+            # Sum latency from newly-written responses only (avoid double-counting)
+            latency_ms = sum(written_latencies.get(run_id, []))
             self._update_run_status_and_duration(run_id, status, latency_ms)
             report.runs_updated.append((run_id, status))
 

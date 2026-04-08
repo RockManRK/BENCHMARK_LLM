@@ -339,15 +339,8 @@ class TestIncrementalExecution:
         ).fetchone()
         assert row["duration"] == 1000
 
-        # Second execution: 1 more successful response
-        # Note: In real scenario, these would have different snapshot_id
-        # For testing, we'll manually reset the run status to allow re-execution
-        db_connection.execute(
-            "UPDATE runs SET status = 'pending' WHERE run_id = ?",
-            ("run-001",),
-        )
-        db_connection.commit()
-
+        # Second execution: 1 more successful response with different snapshot
+        # This tests incremental execution
         second_results = [
             create_success_result(
                 snapshot_id="snap-002",
@@ -364,6 +357,44 @@ class TestIncrementalExecution:
         ).fetchone()
 
         assert row["duration"] == 3500  # 1000 + 2500
+
+    def test_idempotent_skip_does_not_double_count_duration(
+        self, writer: ResultWriter, db_connection
+    ):
+        """Test that re-executing the same responses doesn't double-count duration."""
+        # First execution
+        first_results = [
+            create_success_result(
+                snapshot_id="snap-001",
+                question_id="q-001",
+                latency_ms=1500,
+            ),
+        ]
+        writer.write_results(first_results)
+
+        row = db_connection.execute(
+            "SELECT duration FROM runs WHERE run_id = ?",
+            ("run-001",),
+        ).fetchone()
+        assert row["duration"] == 1500
+
+        # Second execution: SAME response (idempotent skip)
+        second_results = [
+            create_success_result(
+                snapshot_id="snap-001",
+                question_id="q-001",
+                latency_ms=1500,  # Same latency (would cause double-counting if not filtered)
+            ),
+        ]
+        writer.write_results(second_results)
+
+        # Duration should NOT change (response was skipped, not written)
+        row = db_connection.execute(
+            "SELECT duration FROM runs WHERE run_id = ?",
+            ("run-001",),
+        ).fetchone()
+
+        assert row["duration"] == 1500  # Still 1500, not 3000
 
     def test_mixed_successes_and_failures_accumulate_correctly(
         self, writer: ResultWriter, db_connection
@@ -389,14 +420,7 @@ class TestIncrementalExecution:
         ).fetchone()
         assert row["duration"] == 1200
 
-        # Second execution: 1 success
-        db_connection.execute(
-            "UPDATE runs SET status = 'pending' WHERE run_id = ?",
-            ("run-001",),
-        )
-        db_connection.commit()
-
-        # Need to use different snapshot to avoid idempotency skip
+        # Second execution: 1 success (different snapshot)
         second_results = [
             create_success_result(
                 snapshot_id="snap-002",
