@@ -212,6 +212,17 @@ class ResultWriter:
         started_at_str = result.started_at.isoformat() if result.started_at else None
         finished_at_str = result.finished_at.isoformat() if result.finished_at else None
 
+        # Error versioning: prepend error history to response_text if there are
+        # previous errors for this item. This provides observability into retry
+        # attempts while maintaining a single response row per item.
+        response_text = result.response_text
+        if result.status == "success" and response_text:
+            error_history = self._get_error_history(
+                result.run_id, result.variant_id, result.snapshot_id
+            )
+            if error_history:
+                response_text = self._prepend_error_history(response_text, error_history)
+
         # INSERT OR IGNORE (idempotency via UNIQUE constraint)
         cursor.execute("""
             INSERT OR IGNORE INTO responses (
@@ -234,7 +245,7 @@ class ResultWriter:
             result.status,
             result.finish_reason,
             result.error_details,
-            result.response_text,
+            response_text,
             result.selected_answer,
             is_correct,
             result.parse_confidence,
@@ -271,6 +282,10 @@ class ResultWriter:
     def _write_error(self, result: ExecutionResult) -> None:
         """Write error result to errors table.
 
+        Appends a new error row with incremented attempt_number to support
+        error versioning. Multiple error rows per item are allowed,
+        distinguished by attempt_number.
+
         Args:
             result: ExecutionResult with status='failure'
 
@@ -279,18 +294,25 @@ class ResultWriter:
         """
         cursor = self.db_connection.cursor()
 
-        # Generate error_id
+        # Generate error_id (deterministic per item)
         error_id = self._generate_error_id(
             result.run_id,
             result.variant_id,
             result.snapshot_id,
         )
 
+        # Compute next attempt_number for this item
+        cursor.execute(
+            "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM errors WHERE error_id = ?",
+            (error_id,)
+        )
+        next_attempt = cursor.fetchone()[0]
+
         cursor.execute("""
-            INSERT OR IGNORE INTO errors (
+            INSERT INTO errors (
                 error_id, run_id, variant_id, snapshot_id,
-                question_id, error_type, error_message, attempt_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                question_id, error_type, error_message, attempt_number, attempt_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             error_id,
             result.run_id,
@@ -299,12 +321,76 @@ class ResultWriter:
             result.question_id,
             result.error_type,
             result.error_message,
+            next_attempt,
             result.attempt_count,
         ))
 
         self.db_connection.commit()
 
-        self._logger.debug(f"WRITE_COMPLETE | run={result.run_id} | error_id={error_id}")
+        self._logger.debug(
+            f"WRITE_COMPLETE | run={result.run_id} | error_id={error_id} | "
+            f"attempt_number={next_attempt}"
+        )
+
+    def _get_error_history(
+        self, run_id: str, variant_id: str, snapshot_id: str
+    ) -> list[dict]:
+        """Retrieve error history for a specific item.
+
+        Args:
+            run_id: Run identifier
+            variant_id: Variant identifier
+            snapshot_id: Snapshot identifier
+
+        Returns:
+            List of error dicts sorted by attempt_number ascending.
+        """
+        cursor = self.db_connection.cursor()
+        cursor.execute("""
+            SELECT error_type, error_message, attempt_number, occurred_at
+            FROM errors
+            WHERE run_id = ? AND variant_id = ? AND snapshot_id = ?
+            ORDER BY attempt_number ASC
+        """, (run_id, variant_id, snapshot_id))
+
+        rows = cursor.fetchall()
+        return [
+            {
+                "error_type": row[0],
+                "error_message": row[1],
+                "attempt_number": row[2],
+                "occurred_at": row[3],
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _prepend_error_history(response_text: str, error_history: list[dict]) -> str:
+        """Prepend error history to response text in reverse chronological order.
+
+        Args:
+            response_text: Original successful response text
+            error_history: List of previous error dicts
+
+        Returns:
+            Response text with error history prepended.
+        """
+        # Reverse for chronological order (newest first)
+        chronological = list(reversed(error_history))
+        total_attempts = len(chronological)
+
+        lines = [
+            f"[ERROR HISTORY - {total_attempts} attempt(s) before success]"
+        ]
+        for error in chronological:
+            lines.append(
+                f"Attempt {error['attempt_number']}: {error['error_type']} - "
+                f"{error['error_message']} (at {error['occurred_at']})"
+            )
+        lines.append("")  # Blank line before actual response
+        lines.append("[SUCCESSFUL RESPONSE]")
+
+        return "\n".join(lines) + "\n" + response_text
 
     def _get_model_id_from_variant(self, variant_id: str) -> str:
         """Get model_id from variant_id.

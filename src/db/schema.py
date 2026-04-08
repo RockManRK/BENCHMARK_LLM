@@ -140,20 +140,25 @@ def get_schema_sql() -> str:
     -- errors table
     -- ============================================================================
     CREATE TABLE IF NOT EXISTS errors (
-        error_id          TEXT PRIMARY KEY,
+        error_id          TEXT NOT NULL,
         run_id            TEXT NOT NULL REFERENCES runs(run_id),
         variant_id        TEXT NOT NULL REFERENCES model_variants(variant_id),
         snapshot_id       TEXT NOT NULL REFERENCES question_snapshots(snapshot_id),
         question_id       TEXT NOT NULL,
         error_type        TEXT NOT NULL,
         error_message     TEXT NOT NULL,
+        attempt_number    INTEGER NOT NULL DEFAULT 1,
         attempt_count     INTEGER NOT NULL DEFAULT 1,
         stack_trace       TEXT,
-        occurred_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        occurred_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (error_id, attempt_number)
     );
 
     -- Index for listing errors by run
     CREATE INDEX IF NOT EXISTS idx_errors_by_run ON errors(run_id);
+
+    -- Index for error history per item
+    CREATE INDEX IF NOT EXISTS idx_errors_by_item ON errors(run_id, variant_id, snapshot_id);
     """
 
 

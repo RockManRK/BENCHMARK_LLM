@@ -93,7 +93,35 @@ The execution pipeline had duplicated logic, silent metric corruption (`runs.dur
 
 ## Known Gaps
 
-**Write failure resilience:** If `AsyncWriter` fails to persist a result, the response is lost and the item will be re-executed on next run. This is a known gap to be addressed in a future iteration.
+_No open gaps. All previously identified issues have been resolved._
+
+### Resolved Gaps
+- ~~Write failure resilience~~: **RESOLVED** — AsyncWriter now retries 3x with exponential backoff, then aborts the run with clear logging. RunFinalizer still runs on abort to persist whatever was collected.
+
+---
+
+## Hardening Additions (Phase 2)
+
+### Hardening 1: Randomizer Determinism
+- **What**: `option_letter_map` generated ONCE per run, shared by all items.
+- **Where**: `AsyncOrchestrator._execute_run_with_semaphore()` generates the map before spawning tasks.
+- **Why**: Ensures all questions in a run see identical option shuffling regardless of execution order or concurrency level. Eliminates per-item RNG race conditions.
+
+### Hardening 2: Sliding Window Concurrency
+- **What**: Dynamic task creation using `asyncio.wait(FIRST_COMPLETED)`.
+- **How**: Initial batch of `max_concurrency` tasks created, then each completion triggers creation of the next pending task.
+- **Why**: Memory-efficient for large plans (no 10,000+ pre-created tasks). True sliding window — as soon as one slot frees, the next item starts.
+
+### Hardening 3: AsyncWriter Retry + Fail-Fast Abort
+- **What**: 3 retries with exponential backoff (0.5s, 1.0s, 1.5s), then abort.
+- **How**: `AsyncWriter._write_result_with_retry()` loops up to `MAX_RETRIES`. On final failure: sets `abort_event`, logs `WRITE_ABORT`, returns.
+- **Orchestrator response**: Detects `abort_event`, cancels pending tasks, still calls `RunFinalizer` to persist collected data.
+
+### Hardening 4: Error Versioning
+- **What**: Multiple error rows per item with `attempt_number`, error history prepended to `response_text` on success.
+- **Schema**: `errors` table now has composite PRIMARY KEY `(error_id, attempt_number)`.
+- **Behavior**: Each error write queries `MAX(attempt_number)` and increments. On eventual success, `ResultWriter._get_error_history()` prepends chronological error log to response text.
+- **Why**: Full observability into retry attempts while maintaining single response row per item.
 
 ---
 
@@ -104,21 +132,28 @@ The execution pipeline had duplicated logic, silent metric corruption (`runs.dur
 - Duration is always accurate (derived from DB, not accumulated in memory)
 - Idempotent planning prevents accidental API costs on re-execution
 - Dead code removal reduces maintenance surface
+- Write failures no longer silently lose data — they retry then abort cleanly
+- Error versioning provides full retry observability in the response record
+- Sliding window scales efficiently regardless of plan size
+- Randomizer determinism is provable: same seed = same map for all questions
 
 ### Risks
 - Planner now depends on DB state (intentional, but couples planning to persistence layer)
-- Write failure gap: lost responses require re-execution
 
 ---
 
 ## Source Files
 
 This ADR documents changes to:
-- `src/core/async_orchestrator.py`
-- `src/core/planner.py`
-- `src/core/run_finalizer.py`
-- `src/core/result_writer.py`
-- `src/core/execution_engine.py`
-- `src/db/repositories/response_repository.py`
-- `src/db/repositories/error_repository.py`
-- `src/db/schema/` (migration removing `running` status)
+- `src/core/async_orchestrator.py` — sliding window, randomizer determinism, abort handling
+- `src/core/async_writer.py` — retry logic, fail-fast abort
+- `src/core/planner.py` — idempotent planning
+- `src/core/run_finalizer.py` — single owner of runs updates
+- `src/core/result_writer.py` — error versioning, error history prepending
+- `src/core/execution_engine.py` — removed dead code, run-level option map support
+- `src/db/schema.py` — `attempt_number` in errors table, removed `running` status
+- `src/cli/bcllm_execute.py` — `BCLLM_MAX_CONCURRENCY` env var
+- `tests/integration/test_execution_contract.py` — contract validation tests
+- `tests/integration/test_execution_concurrency.py` — concurrency tests
+- `tests/integration/test_execution_hardening.py` — hardening tests (Issues 1-4)
+- `tests/unit/core/test_run_finalizer.py` — RunFinalizer unit tests

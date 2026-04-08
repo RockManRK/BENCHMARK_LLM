@@ -307,21 +307,39 @@ class ExecutionEngine:
         )
 
         # Apply randomization seed if set
-        # Contract: run.seed_effective is guaranteed to be int | None by the Planner.
-        # This layer does NOT normalize — it only verifies and executes.
+        # Contract: Generate option_letter_map ONCE per run for determinism.
+        # All items in the same run share the exact same mapping.
         seed = run.seed_effective
+        run_option_map: Optional[dict[str, str]] = None
         if seed is not None:
             assert isinstance(seed, int), (
                 f"seed_effective must be int, got {type(seed).__name__}. "
                 f"Seed normalization must happen in Planner._resolve_seed_effective()."
             )
+            # Generate the option map once using the run seed
+            # Use the first item's options as the reference for shuffling
+            # (the shuffle order is the same regardless of content)
             self.randomizer.set_seed(seed)
+            if run.items:
+                ref_options = list(run.items[0].question_payload.options)
+                randomized = self.randomizer.randomize_options(ref_options, seed=seed)
+                shuffled = randomized["options"]
+                # Build the map from the shuffle result
+                run_option_map = {}
+                for presented_idx, shuffled_option in enumerate(shuffled):
+                    presented_letter = chr(65 + presented_idx)
+                    original_idx = ref_options.index(shuffled_option)
+                    original_letter = chr(65 + original_idx)
+                    run_option_map[presented_letter] = original_letter
 
         # Calculate milestone interval (25%, 50%, 75%, 100%)
         milestone_interval = max(1, total_items // 4)
 
         for i, item in enumerate(run.items):
-            result = await self._execute_item_async(item, run, run_retry_handler, result_queue)
+            result = await self._execute_item_async(
+                item, run, run_retry_handler, result_queue,
+                item_index=i, run_option_map=run_option_map,
+            )
             results.append(result)
             completed = i + 1
 
@@ -341,6 +359,7 @@ class ExecutionEngine:
         retry_handler: Optional[RetryHandler] = None,
         result_queue: Optional[asyncio.Queue] = None,
         item_index: Optional[int] = None,
+        run_option_map: Optional[dict[str, str]] = None,
     ) -> ExecutionResult:
         """Execute a single item asynchronously with retry policy.
 
@@ -350,8 +369,9 @@ class ExecutionEngine:
             retry_handler: Optional retry handler. If not provided, uses self._retry_handler.
             result_queue: Optional shared queue to push result to after completion.
             item_index: Optional zero-based index of item within the run.
-                       When provided (concurrency > 1), used to create a per-item
-                       isolated randomizer for deterministic seeding.
+            run_option_map: Pre-computed option_letter_map for the entire run.
+                           When provided, used for all items (ensures determinism).
+                           When None, falls back to per-item generation (legacy).
 
         Returns:
             ExecutionResult for this item
@@ -436,39 +456,34 @@ class ExecutionEngine:
 
             # Apply randomization ONLY if seed is explicitly set (not None)
             if randomization_enabled:
-                # When item_index is provided (concurrency > 1), use a per-item isolated
-                # randomizer seeded deterministically. This prevents race conditions on
-                # the shared RNG state when concurrent tasks call randomize_options().
-                # When item_index is None (sequential execution), use the shared randomizer
-                # for backward compatibility.
-                if item_index is not None:
-                    item_randomizer = AnswerRandomizer()
-                    item_randomizer.set_seed(run.seed_effective + item_index)
-                    randomized = item_randomizer.randomize_options(
-                        original_options,
-                        seed=run.seed_effective + item_index,
-                    )
+                # Use the pre-computed run-level option map if provided.
+                # This ensures all items in the same run share the SAME mapping,
+                # regardless of execution order or concurrency.
+                if run_option_map is not None:
+                    option_letter_map = run_option_map
+                    # Apply the same shuffle to this item's options
+                    # We need to reorder original_options to match the run's shuffled order
+                    run_shuffled_order = [None] * len(original_options)
+                    for presented_letter, original_letter in run_option_map.items():
+                        presented_idx = ord(presented_letter) - 65
+                        original_idx = ord(original_letter) - 65
+                        if 0 <= original_idx < len(original_options):
+                            run_shuffled_order[presented_idx] = original_options[original_idx]
+                    options = [o for o in run_shuffled_order if o is not None]
                 else:
+                    # Fallback: per-item randomization (legacy path, should not be reached
+                    # in normal operation after Issue 1 fix)
                     randomized = self.randomizer.randomize_options(
                         original_options,
                         seed=run.seed_effective,
                     )
-                options = randomized["options"]
-
-                # Build mapping from presented letter to original letter
-                # e.g., if original was [A_text, B_text, C_text, D_text]
-                # and shuffled is [C_text, A_text, D_text, B_text]:
-                #   A (presented) -> C (original position)
-                #   B (presented) -> A (original position)
-                #   C (presented) -> D (original position)
-                #   D (presented) -> B (original position)
-                option_letter_map = {}
-                for presented_idx, shuffled_option in enumerate(options):
-                    presented_letter = chr(65 + presented_idx)
-                    # Find where this option was in the original list
-                    original_idx = original_options.index(shuffled_option)
-                    original_letter = chr(65 + original_idx)
-                    option_letter_map[presented_letter] = original_letter
+                    options = randomized["options"]
+                    option_letter_map = {}
+                    for presented_idx, shuffled_option in enumerate(options):
+                        presented_letter = chr(65 + presented_idx)
+                        original_idx = original_options.index(shuffled_option)
+                        original_letter = chr(65 + original_idx)
+                        option_letter_map[presented_letter] = original_letter
 
             # Determine correct answer in the presented space
             # If options were shuffled, the correct answer letter changes
