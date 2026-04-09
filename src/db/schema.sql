@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS experiments (
     created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_experiments_created_at
+ON experiments(created_at);
+
 -- ============================================================================
 -- model_variants table
 -- ============================================================================
@@ -63,6 +66,9 @@ CREATE TABLE IF NOT EXISTS model_variants (
 -- Index for variants by experiment (common query pattern)
 CREATE INDEX IF NOT EXISTS idx_variants_by_experiment ON model_variants(experiment_id);
 
+CREATE INDEX IF NOT EXISTS idx_model_variants_created_at
+ON model_variants(created_at);
+
 -- ============================================================================
 -- question_snapshots table
 -- ============================================================================
@@ -91,6 +97,9 @@ CREATE TABLE IF NOT EXISTS question_snapshots (
 
 -- Index for snapshots by experiment (common query pattern)
 CREATE INDEX IF NOT EXISTS idx_snapshots_by_experiment ON question_snapshots(experiment_id);
+
+CREATE INDEX IF NOT EXISTS idx_question_snapshots_created_at
+ON question_snapshots(created_at);
 
 -- ============================================================================
 -- runs table
@@ -123,6 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_runs_by_experiment ON runs(experiment_id);
 
 -- Partial index for pending runs (optimizes execution queue queries)
 CREATE INDEX IF NOT EXISTS idx_runs_pending ON runs(status) WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_runs_created_at
+ON runs(created_at);
 
 -- ============================================================================
 -- responses table
@@ -220,6 +232,12 @@ CREATE INDEX IF NOT EXISTS idx_responses_by_run ON responses(run_id);
 -- Partial index for responses needing review (optimizes review queue queries)
 CREATE INDEX IF NOT EXISTS idx_responses_needs_review ON responses(review_status) WHERE review_status = 'needs_review';
 
+CREATE INDEX IF NOT EXISTS idx_responses_started_at
+ON responses(started_at);
+
+CREATE INDEX IF NOT EXISTS idx_responses_finished_at
+ON responses(finished_at);
+
 -- ============================================================================
 -- errors table
 -- ============================================================================
@@ -252,3 +270,6 @@ CREATE TABLE IF NOT EXISTS errors (
 
 -- Index for listing errors by run (common query pattern)
 CREATE INDEX IF NOT EXISTS idx_errors_by_run ON errors(run_id);
+
+CREATE INDEX IF NOT EXISTS idx_errors_occurred_at
+ON errors(occurred_at);

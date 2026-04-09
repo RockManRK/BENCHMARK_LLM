@@ -91,7 +91,7 @@ def parse_to_completion_response(
 
     # Extrair tokens básicos
     input_tokens = usage.get("prompt_tokens", 0) or 0
-    response_tokens = usage.get("completion_tokens", 0) or 0
+    output_tokens = usage.get("completion_tokens", 0) or 0
 
     # Extrair campos opcionais/nested
     cost = usage.get("cost")
@@ -105,6 +105,20 @@ def parse_to_completion_response(
         if reasoning_tokens is not None:
             reasoning_tokens = reasoning_tokens or 0
 
+    # CORRECT CONTRACT: response_tokens MUST represent ONLY the final answer tokens
+    # (excluding reasoning). reasoning_tokens MUST represent ONLY the reasoning tokens.
+    # Calculation order is mandatory:
+    # 1) response_tokens = output_tokens - reasoning_tokens
+    # 2) effective_tokens = input_tokens + response_tokens + reasoning_tokens
+    if reasoning_tokens is not None and reasoning_tokens > 0:
+        response_tokens = output_tokens - reasoning_tokens
+    else:
+        response_tokens = output_tokens
+        reasoning_tokens = None  # Ensure None when not provided
+
+    # Compute effective_tokens: true total cost
+    effective_tokens = input_tokens + response_tokens + (reasoning_tokens or 0)
+
     # raw_response: always the RAW, original, unmodified list of SSE chunks.
     # This is the canonical record of what the provider sent.
     # A consolidated/debug version is saved separately (raw_response_consolidated).
@@ -116,6 +130,7 @@ def parse_to_completion_response(
         input_tokens=input_tokens,
         response_tokens=response_tokens,
         reasoning_tokens=reasoning_tokens,
+        effective_tokens=effective_tokens,
         cost=cost,
         latency_ms=latency_ms,
         raw_response=raw_chunks,

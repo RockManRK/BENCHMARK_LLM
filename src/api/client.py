@@ -61,8 +61,9 @@ class CompletionResponse:
         content: The generated text content
         model_id: Model identifier that generated the response
         input_tokens: Number of input tokens used
-        response_tokens: Number of output tokens generated
+        response_tokens: Number of output tokens generated (excludes reasoning)
         reasoning_tokens: Number of tokens used for reasoning (if available)
+        effective_tokens: Total tokens consumed (input + response + reasoning)
         cost: Cost of the API call in USD (if available)
         latency_ms: API call latency in milliseconds
         raw_response: Optional provider-specific raw response data (dict for non-streaming, list for streaming)
@@ -75,6 +76,7 @@ class CompletionResponse:
         ...     response_tokens=10,
         ...     latency_ms=500,
         ...     reasoning_tokens=5,
+        ...     effective_tokens=65,
         ...     cost=0.0001,
         ... )
     """
@@ -85,6 +87,7 @@ class CompletionResponse:
     response_tokens: int
     latency_ms: int
     reasoning_tokens: int | None = None
+    effective_tokens: int | None = None
     cost: float | None = None
     raw_response: list[dict] | dict | None = None
 
