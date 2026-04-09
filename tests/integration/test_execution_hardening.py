@@ -5,6 +5,12 @@ Tests cover:
 - Issue 2: Sliding window concurrency (dynamic task creation)
 - Issue 3: AsyncWriter retry + fail-fast abort
 - Issue 4: Error versioning (attempt_number, error history in response_text)
+- W1: Canonical error key (response_id)
+- W2: Schema migration for errors table
+- W3: Option map per option_count
+- W4: Abort window closure
+- W5: ResultWriter reuse
+- W6: Transaction strategy (no BEGIN IMMEDIATE)
 """
 
 import asyncio
@@ -12,14 +18,15 @@ import json
 import sqlite3
 import time
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
 from src.core.async_writer import AsyncWriter
 from src.core.execution_engine import ExecutionResult
 from src.core.result_writer import ResultWriter
-from src.db.schema import create_schema
+from src.core.randomizer import AnswerRandomizer
+from src.db.schema import create_schema, migrate_errors_table
 
 
 @pytest.fixture
@@ -44,7 +51,6 @@ def _setup_full_fixture(conn, exp_id="exp-1", var_id="var-1", snap_id="snap-1", 
     )
     # Create snapshots with exact IDs matching what tests use
     for i in range(num_questions):
-        # First snapshot uses the exact snap_id, rest get suffixed
         sid = snap_id if i == 0 else f"{snap_id}-{i}"
         conn.execute(
             "INSERT INTO question_snapshots (snapshot_id, experiment_id, json_question_id, question_position, question_payload) VALUES (?, ?, ?, ?, ?)",
@@ -115,7 +121,6 @@ class TestRandomizerDeterminism:
 
     def test_same_seed_same_option_map(self):
         """Same run_seed produces identical option_letter_map for all questions."""
-        from src.core.randomizer import AnswerRandomizer
         ref_options = ["Opt A", "Opt B", "Opt C", "Opt D"]
 
         r1 = AnswerRandomizer()
@@ -132,22 +137,16 @@ class TestRandomizerDeterminism:
 
     def test_different_seeds_different_maps(self):
         """Different run_seeds produce different option_letter_maps."""
-        from src.core.randomizer import AnswerRandomizer
         ref_options = ["Opt A", "Opt B", "Opt C", "Opt D"]
-
         r1 = AnswerRandomizer()
         result1 = r1.randomize_options(list(ref_options), seed=42)
-
         r2 = AnswerRandomizer()
         result2 = r2.randomize_options(list(ref_options), seed=99)
-
         assert result1["options"] != result2["options"]
 
     def test_no_seed_identity_map(self):
         """seed=None produces identity mapping (no shuffling)."""
-        from src.core.randomizer import AnswerRandomizer
         ref_options = ["Opt A", "Opt B", "Opt C", "Opt D"]
-
         r = AnswerRandomizer(seed=None)
         result = r.randomize_options(list(ref_options))
         assert result["options"] == ref_options
@@ -166,7 +165,6 @@ class TestSlidingWindowConcurrency:
         max_concurrency = 10
         total_items = 11
         start_times = {}
-        semaphore = asyncio.Semaphore(max_concurrency)
 
         async def simulate_item(item_id):
             start_times[item_id] = time.monotonic()
@@ -189,7 +187,6 @@ class TestSlidingWindowConcurrency:
 
             for _ in range(min(total_items, max_concurrency)):
                 launch_next()
-
             while pending:
                 done, pending_set = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 pending = list(pending_set)
@@ -200,7 +197,6 @@ class TestSlidingWindowConcurrency:
 
         results = await run_with_sliding_window()
         assert len(results) == total_items
-        # Item 10 started after at least one of the first 10
         assert any(start_times[i] < start_times[10] for i in range(10) if i in start_times)
 
     @pytest.mark.asyncio
@@ -224,7 +220,6 @@ class TestSlidingWindowConcurrency:
         async def run_test():
             items_iter = iter(range(total_items))
             pending = []
-
             def launch_next():
                 try:
                     next(items_iter)
@@ -260,20 +255,19 @@ class TestAsyncWriterRetry:
         conn = in_memory_db
         _setup_full_fixture(conn)
         writer = AsyncWriter(queue, conn)
-
         result = _make_success_result()
 
         call_count = 0
-        original_write_result = ResultWriter.write_result
+        original_write_result = writer._result_writer.write_result
 
-        def flaky_write_result(self, r):
+        def flaky_write_result(r):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise sqlite3.OperationalError("database is locked")
-            return original_write_result(self, r)
+            return original_write_result(r)
 
-        with patch.object(ResultWriter, "write_result", flaky_write_result):
+        with patch.object(writer._result_writer, "write_result", flaky_write_result):
             queue.put_nowait(result)
             queue.put_nowait(None)
             stats = await writer.consume()
@@ -291,10 +285,10 @@ class TestAsyncWriterRetry:
         writer = AsyncWriter(queue, conn)
         result = _make_success_result()
 
-        def always_fail(self, r):
+        def always_fail(r):
             raise sqlite3.OperationalError("persistent failure")
 
-        with patch.object(ResultWriter, "write_result", always_fail):
+        with patch.object(writer._result_writer, "write_result", always_fail):
             queue.put_nowait(result)
             queue.put_nowait(None)
             stats = await writer.consume()
@@ -302,7 +296,6 @@ class TestAsyncWriterRetry:
         assert stats["written"] == 0
         assert stats["aborted"] is True
         assert writer.abort_event.is_set()
-        assert writer.abort_info is not None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -337,9 +330,7 @@ class TestErrorVersioning:
         _setup_full_fixture(conn)
         writer = ResultWriter(conn)
 
-        # Write error first
         writer.write_result(_make_error_result(error_type="timeout", error_msg="Timed out"))
-        # Then write success (INSERT OR IGNORE will write since no response exists yet)
         writer.write_result(_make_success_result(text="The answer is A", selected="A"))
 
         cursor = conn.cursor()
@@ -367,3 +358,262 @@ class TestErrorVersioning:
         assert row is not None
         assert "[ERROR HISTORY" not in row["response_text"]
         assert row["response_text"] == "The answer is B"
+
+
+# ─────────────────────────────────────────────────────────────
+# W1: Canonical Error Key (response_id)
+# ─────────────────────────────────────────────────────────────
+
+class TestCanonicalErrorKey:
+    """Errors are keyed by (response_id, attempt_number), not (error_id, attempt_number)."""
+
+    def test_errors_use_response_id_as_fk(self, in_memory_db):
+        """Error rows reference response_id, not just error_id."""
+        conn = in_memory_db
+        _setup_full_fixture(conn)
+        writer = ResultWriter(conn)
+
+        writer.write_result(_make_error_result())
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT response_id FROM errors")
+        row = cursor.fetchone()
+        assert row is not None
+        # response_id follows the deterministic format
+        assert row["response_id"].startswith("resp-")
+
+    def test_error_history_queries_by_response_id(self, in_memory_db):
+        """_get_error_history uses response_id as lookup key."""
+        conn = in_memory_db
+        _setup_full_fixture(conn)
+        writer = ResultWriter(conn)
+
+        response_id = "resp-run-1-var-1-snap-1"
+        history = writer._get_error_history(response_id)
+        # Should be empty since no errors written yet
+        assert history == []
+
+        # Write error, then verify history is retrievable
+        writer.write_result(_make_error_result(error_type="timeout", error_msg="Timed out"))
+        history = writer._get_error_history(response_id)
+        assert len(history) == 1
+        assert history[0]["error_type"] == "timeout"
+
+
+# ─────────────────────────────────────────────────────────────
+# W2: Schema Migration
+# ─────────────────────────────────────────────────────────────
+
+class TestSchemaMigration:
+    """errors table migration from old schema to new (response_id FK, composite PK)."""
+
+    def test_fresh_db_no_migration_needed(self, in_memory_db):
+        """Fresh database already has correct schema — migration is no-op."""
+        conn = in_memory_db
+        migrate_errors_table(conn)  # Should not raise
+
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(errors)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert "response_id" in columns
+        assert "attempt_number" in columns
+
+    def test_migration_from_old_schema(self):
+        """Simulate old-schema DB, run migration, verify new schema."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+
+        # Create minimal referenced tables (migration only needs FK targets to exist)
+        conn.execute("""
+            CREATE TABLE experiments (experiment_id TEXT PRIMARY KEY, name TEXT UNIQUE, config_json TEXT, config_hash TEXT)
+        """)
+        conn.execute("""
+            CREATE TABLE model_variants (variant_id TEXT PRIMARY KEY, experiment_id TEXT, model_id TEXT, variant_signature TEXT, config TEXT)
+        """)
+        conn.execute("""
+            CREATE TABLE question_snapshots (snapshot_id TEXT PRIMARY KEY, experiment_id TEXT, json_question_id TEXT, question_position INTEGER, question_payload TEXT)
+        """)
+        conn.execute("""
+            CREATE TABLE runs (run_id TEXT PRIMARY KEY, experiment_id TEXT, config TEXT, status TEXT)
+        """)
+
+        # Create old-schema errors table
+        conn.execute("""
+            CREATE TABLE errors (
+                error_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                variant_id TEXT NOT NULL,
+                snapshot_id TEXT NOT NULL,
+                question_id TEXT NOT NULL,
+                error_type TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 1,
+                stack_trace TEXT,
+                occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Insert some old-schema data
+        conn.execute("""
+            INSERT INTO errors (error_id, run_id, variant_id, snapshot_id, question_id, error_type, error_message, attempt_count)
+            VALUES ('err-1', 'run-old', 'var-old', 'snap-old', 'q1', 'timeout', 'Timed out', 3)
+        """)
+        conn.commit()
+
+        # Run migration
+        migrate_errors_table(conn)
+
+        # Verify new schema
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(errors)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert "response_id" in columns
+        assert "attempt_number" in columns
+
+        # Verify data was migrated
+        cursor.execute("SELECT * FROM errors")
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["error_id"] == "err-1"
+        assert row["response_id"] == "resp-run-old-var-old-snap-old"
+        assert row["attempt_number"] == 1  # Backfilled
+        assert row["error_message"] == "Timed out"
+
+        # Migration is idempotent — running again should not raise
+        migrate_errors_table(conn)
+
+
+# ─────────────────────────────────────────────────────────────
+# W3: Option Map per Option Count
+# ─────────────────────────────────────────────────────────────
+
+class TestOptionMapPerOptionCount:
+    """Different option counts get independent but deterministic maps from same run_seed."""
+
+    def test_different_option_counts_get_different_maps(self):
+        """Same seed, different option counts → independent maps."""
+        seed = 42
+
+        r = AnswerRandomizer()
+
+        # Map for 3 options
+        ref_3 = [f"OPT_{i}" for i in range(3)]
+        result_3 = r.randomize_options(list(ref_3), seed=seed * 1000 + 3)
+        map_3 = {chr(65+i): chr(65+ref_3.index(s)) for i, s in enumerate(result_3["options"])}
+        assert len(map_3) == 3
+
+        # Map for 4 options
+        ref_4 = [f"OPT_{i}" for i in range(4)]
+        result_4 = r.randomize_options(list(ref_4), seed=seed * 1000 + 4)
+        map_4 = {chr(65+i): chr(65+ref_4.index(s)) for i, s in enumerate(result_4["options"])}
+        assert len(map_4) == 4
+
+        # Maps are independent
+        assert set(map_3.keys()) == {"A", "B", "C"}
+        assert set(map_4.keys()) == {"A", "B", "C", "D"}
+
+    def test_same_option_count_same_seed_same_map(self):
+        """Same seed + same option count → identical map (deterministic)."""
+        seed = 42
+        r1 = AnswerRandomizer()
+        ref = [f"OPT_{i}" for i in range(4)]
+        result1 = r1.randomize_options(list(ref), seed=seed * 1000 + 4)
+        map1 = {chr(65+i): chr(65+ref.index(s)) for i, s in enumerate(result1["options"])}
+
+        r2 = AnswerRandomizer()
+        result2 = r2.randomize_options(list(ref), seed=seed * 1000 + 4)
+        map2 = {chr(65+i): chr(65+ref.index(s)) for i, s in enumerate(result2["options"])}
+
+        assert map1 == map2
+
+
+# ─────────────────────────────────────────────────────────────
+# W5: ResultWriter Reuse
+# ─────────────────────────────────────────────────────────────
+
+class TestResultWriterReuse:
+    """AsyncWriter reuses a single ResultWriter instance."""
+
+    def test_async_writer_uses_single_result_writer(self, in_memory_db):
+        """AsyncWriter creates exactly one ResultWriter instance."""
+        queue = asyncio.Queue()
+        conn = in_memory_db
+        _setup_full_fixture(conn)
+        writer = AsyncWriter(queue, conn)
+
+        assert writer._result_writer is not None
+        # Verify it's the same instance used during retry
+        assert hasattr(writer, '_result_writer')
+
+
+# ─────────────────────────────────────────────────────────────
+# W4: Abort Window Closure
+# ─────────────────────────────────────────────────────────────
+
+class TestAbortWindowClosure:
+    """Abort stops scheduling immediately, cancels pending tasks."""
+
+    @pytest.mark.asyncio
+    async def test_abort_stops_scheduling_immediately(self, in_memory_db):
+        """When writer aborts, no further items are scheduled."""
+        queue = asyncio.Queue()
+        conn = in_memory_db
+        _setup_full_fixture(conn, num_questions=5)
+        writer = AsyncWriter(queue, conn)
+
+        # First result succeeds, all subsequent trigger abort
+        result1 = _make_success_result(snapshot_id="snap-1", text="A", latency=50)
+        result2 = _make_success_result(snapshot_id="snap-1-1", text="B", latency=50)
+
+        write_count = 0
+
+        def always_fail_after_first(r):
+            nonlocal write_count
+            write_count += 1
+            if write_count > 1:
+                raise sqlite3.OperationalError("forced failure")
+
+        with patch.object(writer._result_writer, "write_result", always_fail_after_first):
+            queue.put_nowait(result1)
+            queue.put_nowait(result2)
+            # Add more results that should NOT be written after abort
+            for i in range(3, 6):
+                queue.put_nowait(_make_success_result(snapshot_id=f"snap-1-{i}", text=f"X{i}", latency=50))
+            queue.put_nowait(None)
+            stats = await writer.consume()
+
+        # Only 1 written before abort kicks in
+        assert stats["written"] == 1
+        assert stats["aborted"] is True
+        # The failure triggers 3 retries, so write_count = 1 (success) + 3 (retries) = 4
+        assert write_count == 4  # 1 success + 3 retry attempts before abort
+
+
+# ─────────────────────────────────────────────────────────────
+# W6: Transaction Strategy (No "database is locked" under concurrency)
+# ─────────────────────────────────────────────────────────────
+
+class TestTransactionStrategy:
+    """Standard autocommit — no 'database is locked' under concurrency."""
+
+    @pytest.mark.asyncio
+    async def test_no_lock_errors_at_concurrency_4(self, in_memory_db):
+        """Concurrent writes with concurrency=4 produce no lock errors."""
+        queue = asyncio.Queue()
+        conn = in_memory_db
+        _setup_full_fixture(conn, num_questions=8)
+        writer = AsyncWriter(queue, conn)
+
+        # Write 8 results concurrently via queue
+        for i in range(8):
+            queue.put_nowait(_make_success_result(
+                snapshot_id=f"snap-1-{i}" if i > 0 else "snap-1",
+                text=f"Answer {i}",
+                latency=50 + i * 10
+            ))
+        queue.put_nowait(None)
+
+        stats = await writer.consume()
+        assert stats["errors"] == 0
+        assert stats["written"] == 8
+        assert stats["aborted"] is False

@@ -80,8 +80,8 @@ class RunFinalizer:
         """
         cursor = self.conn.cursor()
 
-        # Use a single transaction for consistency
-        cursor.execute("BEGIN IMMEDIATE")
+        # Use standard autocommit — all reads and the final write are atomic
+        # since this runs after the writer has fully drained (no concurrent writes).
 
         try:
             # Duration: sum latency from successful responses only

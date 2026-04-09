@@ -132,21 +132,24 @@ def _seed_error_response(
 ) -> None:
     """Insert an error row for testing (goes to errors table, not responses)."""
     error_id = f"err-{run_id}-{variant_id}-{snapshot_id}"
+    response_id = f"resp-{run_id}-{variant_id}-{snapshot_id}"
     conn.execute(
         """
         INSERT INTO errors (
-            error_id, run_id, variant_id, snapshot_id,
-            question_id, error_type, error_message, attempt_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            error_id, response_id, run_id, variant_id, snapshot_id,
+            question_id, error_type, error_message, attempt_count, attempt_number
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             error_id,
+            response_id,
             run_id,
             variant_id,
             snapshot_id,
             "q-1",
             "api_error",
             error_message,
+            1,
             1,
         ),
     )

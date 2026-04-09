@@ -284,20 +284,33 @@ class AsyncOrchestrator:
             logger=self._logger,
         )
 
-        # Generate option_letter_map ONCE per run for determinism.
-        # All items in the same run share the exact same mapping.
-        run_option_map: dict[str, str] | None = None
+        # Generate option_letter_maps per option_count for determinism.
+        # All items with the same option_count share the same mapping.
+        # Maps are derived from run_seed so that re-execution is consistent.
+        run_option_maps: dict[int, dict[str, str]] = {}
         seed = run.seed_effective
-        if seed is not None and run.items:
-            ref_options = list(run.items[0].question_payload.options)
-            randomized = engine.randomizer.randomize_options(ref_options, seed=seed)
+
+        def _get_option_map(option_count: int) -> dict[str, str] | None:
+            """Get or create the option map for a given option count."""
+            if seed is None:
+                return None  # No randomization
+            if option_count in run_option_maps:
+                return run_option_maps[option_count]
+            # Generate deterministically from (seed, option_count)
+            # Use a deterministic seed derived from run_seed + option_count
+            # so that different option_counts get independent but reproducible maps.
+            map_seed = seed * 1000 + option_count
+            ref_options = [f"OPT_{i}" for i in range(option_count)]
+            randomized = engine.randomizer.randomize_options(ref_options, seed=map_seed)
             shuffled = randomized["options"]
-            run_option_map = {}
+            option_map = {}
             for presented_idx, shuffled_option in enumerate(shuffled):
                 presented_letter = chr(65 + presented_idx)
                 original_idx = ref_options.index(shuffled_option)
                 original_letter = chr(65 + original_idx)
-                run_option_map[presented_letter] = original_letter
+                option_map[presented_letter] = original_letter
+            run_option_maps[option_count] = option_map
+            return option_map
 
         milestone_interval = max(1, total_items // 4)
 
@@ -310,25 +323,35 @@ class AsyncOrchestrator:
 
         def _launch_next() -> bool:
             """Launch the next item if available. Returns True if launched."""
+            # Check abort BEFORE scheduling — stop immediately on write failure
+            if abort_event is not None and abort_event.is_set():
+                return False
             pair = next(items_iter, None)
             if pair is None:
                 return False
             i, item = pair
+            option_count = len(item.question_payload.options)
+            option_map = _get_option_map(option_count)
             task = asyncio.create_task(
                 self._execute_item_with_semaphore(
-                    engine, item, run, run_retry_handler, queue, semaphore, i, run_option_map
+                    engine, item, run, run_retry_handler, queue, semaphore, i, option_map
                 )
             )
             pending.append(task)
             return True
 
-        # Seed initial batch
+        # Seed initial batch (check abort before each launch)
         for _ in range(min(total_items, max_concurrency)):
+            if abort_event is not None and abort_event.is_set():
+                break
             _launch_next()
 
         # Process completions dynamically — as each task finishes, launch the next
         while pending:
-            # Check for abort between task completions
+            done, pending_set = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            pending = list(pending_set)
+
+            # Check abort IMMEDIATELY after wait() — before processing more results
             if abort_event is not None and abort_event.is_set():
                 self._logger.warning(
                     f"Abort detected in run {run.run_id} — cancelling pending tasks"
@@ -336,17 +359,18 @@ class AsyncOrchestrator:
                 for t in pending:
                     if not t.done():
                         t.cancel()
+                # Also cancel any tasks in 'done' that haven't been awaited yet
+                for t in done:
+                    if not t.done():
+                        t.cancel()
                 break
-
-            done, pending_set = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            pending = list(pending_set)
 
             for task in done:
                 result = await task
                 results.append(result)
                 completed += 1
 
-                # Launch next item to fill the freed slot
+                # Launch next item to fill the freed slot (checks abort internally)
                 _launch_next()
 
                 if completed % milestone_interval == 0 or completed == total_items:

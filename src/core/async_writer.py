@@ -91,6 +91,8 @@ class AsyncWriter:
         self._error_count: int = 0
         self._abort_event = asyncio.Event()
         self._abort_info: dict | None = None
+        # Single ResultWriter instance reused for all writes (avoids per-retry allocation)
+        self._result_writer = ResultWriter(self._db, logger=self._logger)
 
     @property
     def abort_event(self) -> asyncio.Event:
@@ -167,21 +169,19 @@ class AsyncWriter:
     async def _write_result_with_retry(self, result: ExecutionResult) -> bool:
         """Write a single result with retry logic.
 
+        Uses a single reusable ResultWriter instance to avoid per-retry allocation.
+
         Args:
             result: ExecutionResult to persist
 
         Returns:
             True if write succeeded, False if all retries exhausted.
         """
-        last_error: Exception | None = None
-
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
-                writer = ResultWriter(self._db, logger=self._logger)
-                writer.write_result(result)
+                self._result_writer.write_result(result)
                 return True
             except Exception as e:
-                last_error = e
                 if attempt < self.MAX_RETRIES:
                     backoff = self.RETRY_BACKOFF_BASE * attempt
                     self._logger.warning(
@@ -208,18 +208,6 @@ class AsyncWriter:
                     return False
 
         return False
-
-    def _write_result(self, result: ExecutionResult) -> None:
-        """Write a single ExecutionResult to DB using existing ResultWriter logic.
-
-        Args:
-            result: ExecutionResult to persist
-
-        Raises:
-            Exception: Any exception from ResultWriter.write_result()
-        """
-        writer = ResultWriter(self._db, logger=self._logger)
-        writer.write_result(result)
 
     @property
     def results_written(self) -> list[ExecutionResult]:

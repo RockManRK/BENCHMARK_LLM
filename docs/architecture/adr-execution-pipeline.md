@@ -102,26 +102,52 @@ _No open gaps. All previously identified issues have been resolved._
 
 ## Hardening Additions (Phase 2)
 
-### Hardening 1: Randomizer Determinism
-- **What**: `option_letter_map` generated ONCE per run, shared by all items.
-- **Where**: `AsyncOrchestrator._execute_run_with_semaphore()` generates the map before spawning tasks.
-- **Why**: Ensures all questions in a run see identical option shuffling regardless of execution order or concurrency level. Eliminates per-item RNG race conditions.
+### Hardening 1: Randomizer Determinism per Option Count
+- **What**: `option_letter_map` generated ONCE per run, per option count (e.g., 3-option questions get map_3, 4-option get map_4).
+- **Where**: `AsyncOrchestrator._execute_run_with_semaphore()` generates maps lazily via `_get_option_map(option_count)`.
+- **Why**: Ensures all questions with the same option count share identical option shuffling, while supporting variable option counts (A–C, A–D, A–E) in the future. Each option_count gets an independent seed derived from `run_seed * 1000 + option_count`.
+- **Test**: `TestOptionMapPerOptionCount` proves determinism for same and different counts.
 
 ### Hardening 2: Sliding Window Concurrency
 - **What**: Dynamic task creation using `asyncio.wait(FIRST_COMPLETED)`.
 - **How**: Initial batch of `max_concurrency` tasks created, then each completion triggers creation of the next pending task.
 - **Why**: Memory-efficient for large plans (no 10,000+ pre-created tasks). True sliding window — as soon as one slot frees, the next item starts.
+- **Test**: `TestSlidingWindowConcurrency` proves 11 items with concurrency=10 starts 11th after any of first 10 complete.
 
 ### Hardening 3: AsyncWriter Retry + Fail-Fast Abort
 - **What**: 3 retries with exponential backoff (0.5s, 1.0s, 1.5s), then abort.
-- **How**: `AsyncWriter._write_result_with_retry()` loops up to `MAX_RETRIES`. On final failure: sets `abort_event`, logs `WRITE_ABORT`, returns.
-- **Orchestrator response**: Detects `abort_event`, cancels pending tasks, still calls `RunFinalizer` to persist collected data.
+- **How**: `AsyncWriter._write_result_with_retry()` reuses a single `ResultWriter` instance. On final failure: sets `abort_event`, logs `WRITE_ABORT`.
+- **Orchestrator response**: Checks `abort_event` before scheduling, immediately after `wait()`, cancels pending tasks, still calls `RunFinalizer`.
+- **Abort semantics**: No new tasks scheduled after abort; in-flight tasks cancelled promptly.
+- **Test**: `TestAsyncWriterRetry` proves retry succeeds on 2nd attempt and aborts after max retries.
 
-### Hardening 4: Error Versioning
+### Hardening 4: Error Versioning with Canonical Key
 - **What**: Multiple error rows per item with `attempt_number`, error history prepended to `response_text` on success.
-- **Schema**: `errors` table now has composite PRIMARY KEY `(error_id, attempt_number)`.
-- **Behavior**: Each error write queries `MAX(attempt_number)` and increments. On eventual success, `ResultWriter._get_error_history()` prepends chronological error log to response text.
+- **Schema**: `errors` table uses composite PRIMARY KEY `(response_id, attempt_number)`. `response_id` is deterministic: `resp-{run_id}-{variant_id}-{snapshot_id}`.
+- **Canonical key**: All error queries use `response_id` — both writes (`_write_error`) and reads (`_get_error_history`). No coupling risk.
 - **Why**: Full observability into retry attempts while maintaining single response row per item.
+- **Test**: `TestErrorVersioning` and `TestCanonicalErrorKey` prove correctness.
+
+### Hardening 5: Schema Migration
+- **What**: `migrate_errors_table()` function migrates existing DBs from old schema (single-column PK) to new schema (composite PK with `response_id`, `attempt_number`).
+- **How**: Creates new table → copies data with backfilled columns → drops old → renames. FK checks disabled during migration, re-enabled after.
+- **Idempotent**: Running again on already-migrated DB is a no-op.
+- **Test**: `TestSchemaMigration` proves fresh DB is untouched and old-schema DB migrates correctly.
+
+### Hardening 6: Transaction Strategy
+- **What**: Standardized autocommit — no `BEGIN IMMEDIATE` anywhere.
+- **Why**: All writes use per-item `commit()`. RunFinalizer runs after writer fully drains, so no concurrent writes exist. `BEGIN IMMEDIATE` was unnecessary and could conflict with future parallel execution.
+- **Test**: `TestTransactionStrategy` proves no "database is locked" errors at concurrency=4.
+
+### Resolved Warnings from Essence Guardian
+| Warning | Resolution | Test |
+|---------|------------|------|
+| W1: Error history key mismatch | Canonical key = `response_id` (both writes and reads) | `TestCanonicalErrorKey` |
+| W2: Schema migration missing | `migrate_errors_table()` — idempotent, handles old→new | `TestSchemaMigration` |
+| W3: Option map assumes uniform count | Maps per `(seed, option_count)` pair | `TestOptionMapPerOptionCount` |
+| W4: Abort window between waits | Abort checked before scheduling + after `wait()` | `TestAbortWindowClosure` |
+| W5: New ResultWriter per retry | Single `_result_writer` instance reused | `TestResultWriterReuse` |
+| W6: BEGIN IMMEDIATE overlap | Removed — standardized autocommit | `TestTransactionStrategy` |
 
 ---
 

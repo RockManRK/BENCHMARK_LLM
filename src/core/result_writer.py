@@ -213,13 +213,11 @@ class ResultWriter:
         finished_at_str = result.finished_at.isoformat() if result.finished_at else None
 
         # Error versioning: prepend error history to response_text if there are
-        # previous errors for this item. This provides observability into retry
+        # previous errors for this response. This provides observability into retry
         # attempts while maintaining a single response row per item.
         response_text = result.response_text
         if result.status == "success" and response_text:
-            error_history = self._get_error_history(
-                result.run_id, result.variant_id, result.snapshot_id
-            )
+            error_history = self._get_error_history(response_id)
             if error_history:
                 response_text = self._prepend_error_history(response_text, error_history)
 
@@ -283,8 +281,7 @@ class ResultWriter:
         """Write error result to errors table.
 
         Appends a new error row with incremented attempt_number to support
-        error versioning. Multiple error rows per item are allowed,
-        distinguished by attempt_number.
+        error versioning. Errors are keyed by (response_id, attempt_number).
 
         Args:
             result: ExecutionResult with status='failure'
@@ -294,27 +291,35 @@ class ResultWriter:
         """
         cursor = self.db_connection.cursor()
 
-        # Generate error_id (deterministic per item)
+        # Generate response_id (deterministic per item) — this is the canonical key
+        response_id = self._generate_response_id(
+            result.run_id,
+            result.variant_id,
+            result.snapshot_id,
+        )
+
+        # Compute next attempt_number for this response
+        cursor.execute(
+            "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM errors WHERE response_id = ?",
+            (response_id,)
+        )
+        next_attempt = cursor.fetchone()[0]
+
+        # error_id is retained for backward compatibility but is no longer the PK
         error_id = self._generate_error_id(
             result.run_id,
             result.variant_id,
             result.snapshot_id,
         )
 
-        # Compute next attempt_number for this item
-        cursor.execute(
-            "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM errors WHERE error_id = ?",
-            (error_id,)
-        )
-        next_attempt = cursor.fetchone()[0]
-
         cursor.execute("""
             INSERT INTO errors (
-                error_id, run_id, variant_id, snapshot_id,
+                error_id, response_id, run_id, variant_id, snapshot_id,
                 question_id, error_type, error_message, attempt_number, attempt_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             error_id,
+            response_id,
             result.run_id,
             result.variant_id,
             result.snapshot_id,
@@ -328,19 +333,17 @@ class ResultWriter:
         self.db_connection.commit()
 
         self._logger.debug(
-            f"WRITE_COMPLETE | run={result.run_id} | error_id={error_id} | "
+            f"WRITE_COMPLETE | run={result.run_id} | response_id={response_id} | "
             f"attempt_number={next_attempt}"
         )
 
     def _get_error_history(
-        self, run_id: str, variant_id: str, snapshot_id: str
+        self, response_id: str
     ) -> list[dict]:
-        """Retrieve error history for a specific item.
+        """Retrieve error history for a specific response.
 
         Args:
-            run_id: Run identifier
-            variant_id: Variant identifier
-            snapshot_id: Snapshot identifier
+            response_id: Deterministic response identifier
 
         Returns:
             List of error dicts sorted by attempt_number ascending.
@@ -349,9 +352,9 @@ class ResultWriter:
         cursor.execute("""
             SELECT error_type, error_message, attempt_number, occurred_at
             FROM errors
-            WHERE run_id = ? AND variant_id = ? AND snapshot_id = ?
+            WHERE response_id = ?
             ORDER BY attempt_number ASC
-        """, (run_id, variant_id, snapshot_id))
+        """, (response_id,))
 
         rows = cursor.fetchall()
         return [
