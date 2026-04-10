@@ -12,9 +12,8 @@ from typing import Any, Generator
 
 import pytest
 
-from src.db.models import Error, Response, Run
+from src.db.models import Response, Run
 from src.db.repository import (
-    ErrorRepository,
     ModelRepository,
     ResponseRepository,
     RunRepository,
@@ -244,23 +243,18 @@ class TestModels:
         assert response.is_correct is None
         assert response.parse_confidence == "unknown"
 
-    def test_error_dataclass_creation(self) -> None:
-        """Test creating an Error dataclass instance."""
-        error = Error(
-            error_id=1,
-            response_id=1,
-            error_type="APIError",
-            error_message="Rate limit exceeded",
-            stack_trace="Traceback...",
-            timestamp=datetime.now(),
+    def test_response_dataclass_defaults(self) -> None:
+        """Test Response dataclass default values."""
+        response = Response(
+            run_id="test-run-001",
+            snapshot_id=1,
+            question_id="Q001",
+            model_id="gpt-4",
+            iteration=1,
         )
-        assert error.error_type == "APIError"
-        assert error.error_message == "Rate limit exceeded"
-
-    def test_error_dataclass_defaults(self) -> None:
-        """Test Error dataclass default values."""
-        error = Error(response_id=1, error_type="Unknown", error_message="An error occurred")
-        assert error.stack_trace == ""
+        assert response.status == "pending"
+        assert response.is_correct is None
+        assert response.parse_confidence == "unknown"
 
 
 class TestRunRepository:
@@ -645,123 +639,6 @@ class TestResponseRepository:
     def test_delete_nonexistent_response(self, db_manager: DatabaseManager) -> None:
         """Test deleting a non-existent response."""
         repo = ResponseRepository(db_manager)
-        deleted = repo.delete(99999)
-        assert deleted is False
-
-
-class TestErrorRepository:
-    """Test cases for ErrorRepository CRUD operations."""
-
-    def _setup_error_test_data(self, db_manager: DatabaseManager) -> tuple[RunRepository, ModelRepository, ResponseRepository, ErrorRepository, int]:
-        """Set up required parent records for error tests."""
-        run_repo = RunRepository(db_manager)
-        model_repo = ModelRepository(db_manager)
-        response_repo = ResponseRepository(db_manager)
-        error_repo = ErrorRepository(db_manager)
-
-        # Create run
-        run = Run(run_id="test-run-001", created_at=datetime.now())
-        run_repo.create(run)
-
-        # Create model
-        model_repo.create("gpt-4", "GPT-4", "OpenAI")
-
-        # Create response
-        response = Response(
-            run_id="test-run-001",
-            snapshot_id=None,
-            question_id="Q001",
-            model_id="gpt-4",
-            iteration=1,
-        )
-        created_response = response_repo.create(response)
-
-        return run_repo, model_repo, response_repo, error_repo, created_response.response_id
-
-    def test_create_error(self, db_manager: DatabaseManager) -> None:
-        """Test creating a new error."""
-        *_, error_repo, response_id = self._setup_error_test_data(db_manager)
-        error = Error(
-            run_id="test-run-001",
-            question_id="Q001",
-            model_id="gpt-4",
-            error_type="APIError",
-            error_message="Rate limit exceeded",
-            stack_trace="Traceback...",
-        )
-
-        created = error_repo.create(error)
-
-        assert created.error_id is not None
-        assert created.error_type == "APIError"
-
-    def test_get_error_by_id(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving an error by ID."""
-        *_, error_repo, response_id = self._setup_error_test_data(db_manager)
-        error = Error(
-            run_id="test-run-001",
-            question_id="Q001",
-            model_id="gpt-4",
-            error_type="APIError",
-            error_message="Test error",
-        )
-        created = error_repo.create(error)
-
-        retrieved = error_repo.get_by_id(created.error_id)
-
-        assert retrieved is not None
-        assert retrieved.error_id == created.error_id
-
-    def test_get_error_by_id_not_found(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving a non-existent error."""
-        repo = ErrorRepository(db_manager)
-        retrieved = repo.get_by_id(99999)
-        assert retrieved is None
-
-    def test_get_errors_by_response(self, db_manager: DatabaseManager) -> None:
-        """Test retrieving errors by response ID."""
-        *_, error_repo, response_id = self._setup_error_test_data(db_manager)
-        
-        # Create additional responses for testing
-        response_repo = ResponseRepository(db_manager)
-
-        # Create second response
-        response2 = Response(
-            run_id="test-run-001",
-            snapshot_id=None,
-            question_id="Q001",
-            model_id="gpt-4",
-            iteration=2,
-        )
-        created_response2 = response_repo.create(response2)
-
-        error1 = Error(run_id="test-run-001", question_id="Q001", model_id="gpt-4", error_type="APIError", error_message="Error 1")
-        error2 = Error(run_id="test-run-001", question_id="Q001", model_id="gpt-4", error_type="TimeoutError", error_message="Error 2")
-        error3 = Error(run_id="test-run-001", question_id="Q001", model_id="gpt-4", error_type="APIError", error_message="Error 3")
-
-        error_repo.create(error1)
-        error_repo.create(error2)
-        error_repo.create(error3)
-
-        errors = error_repo.get_by_run("test-run-001")
-
-        assert len(errors) == 3
-
-    def test_delete_error(self, db_manager: DatabaseManager) -> None:
-        """Test deleting an error."""
-        *_, error_repo, response_id = self._setup_error_test_data(db_manager)
-        error = Error(response_id=response_id, error_type="APIError", error_message="Test")
-        created = error_repo.create(error)
-        
-        deleted = error_repo.delete(created.error_id)
-        assert deleted is True
-        
-        retrieved = error_repo.get_by_id(created.error_id)
-        assert retrieved is None
-
-    def test_delete_nonexistent_error(self, db_manager: DatabaseManager) -> None:
-        """Test deleting a non-existent error."""
-        repo = ErrorRepository(db_manager)
         deleted = repo.delete(99999)
         assert deleted is False
 

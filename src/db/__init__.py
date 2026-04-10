@@ -2,9 +2,14 @@
 
 Exports:
 - schema: create_schema(), get_schema_sql()
-- models: Experiment, ModelVariant, QuestionSnapshot, Run, Response, Error
+- models: Experiment, ModelVariant, QuestionSnapshot, Run, Response
 - repository: ExperimentRepository, VariantRepository, SnapshotRepository,
-              RunRepository, ResponseRepository, ErrorRepository
+              RunRepository, ResponseRepository
+
+Note:
+    ErrorRepository and Error dataclass have been removed. ResultWriter is the
+    sole writer for the errors table. Tests must use ResultWriter.write_result()
+    to create error rows.
 """
 
 from src.db.schema import create_schema, get_schema_sql
@@ -14,7 +19,6 @@ from src.db.models import (
     QuestionSnapshot,
     Run,
     Response,
-    Error,
 )
 from src.db.repository import (
     ExperimentRepository,
@@ -22,7 +26,6 @@ from src.db.repository import (
     SnapshotRepository,
     RunRepository,
     ResponseRepository,
-    ErrorRepository,
 )
 
 __all__ = [
@@ -35,12 +38,10 @@ __all__ = [
     "QuestionSnapshot",
     "Run",
     "Response",
-    "Error",
     # Repositories
     "ExperimentRepository",
     "VariantRepository",
     "SnapshotRepository",
     "RunRepository",
     "ResponseRepository",
-    "ErrorRepository",
 ]

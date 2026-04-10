@@ -15,7 +15,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from src.core.error_collector import ErrorCategory, ErrorCollector, ErrorInfo
-from src.db import DatabaseManager, Error, ErrorRepository
+from src.db import DatabaseManager
 
 
 class TestErrorInfo:
@@ -58,24 +58,6 @@ class TestErrorInfo:
         )
 
         assert error_info.stack_trace == stack
-
-    def test_error_info_to_error_model(self) -> None:
-        """Test conversion to Error model."""
-        error_info = ErrorInfo(
-            response_id=4,
-            error_type="TimeoutError",
-            error_message="Request timed out",
-            stack_trace="Traceback...",
-        )
-
-        error_model = error_info.to_error_model()
-
-        assert isinstance(error_model, Error)
-        assert error_model.response_id == 4
-        assert error_model.error_type == "TimeoutError"
-        assert error_model.error_message == "Request timed out"
-        assert error_model.stack_trace == "Traceback..."
-
 
 class TestErrorCategory:
     """Test cases for ErrorCategory enum."""
@@ -430,12 +412,13 @@ class TestErrorCollectorIntegration:
             summary = collector.get_error_summary()
             assert summary["total_errors"] == 5
 
-            # Verify retrieval
-            error_repo = ErrorRepository(db_manager)
+            # Verify retrieval via direct SQL
+            conn = db_manager.get_connection()
             all_errors = []
             for i in range(1, 6):  # response_id 1-5
-                errors = error_repo.get_by_response(i)
-                all_errors.extend(errors)
+                cursor = conn.execute("SELECT * FROM errors WHERE response_id = ?", (i,))
+                all_errors.extend(cursor.fetchall())
+            conn.close()
 
             assert len(all_errors) == 5
 

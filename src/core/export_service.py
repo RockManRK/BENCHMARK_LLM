@@ -20,8 +20,8 @@ from typing import Any, Literal, Optional
 
 import sqlite3
 
-from src.db.repository import ResponseRepository, ErrorRepository, RunRepository, ExperimentRepository
-from src.db.models import Response, Error
+from src.db.repository import ResponseRepository, RunRepository, ExperimentRepository
+from src.db.models import Response
 from src.utils.logging_config import get_logger
 
 _logger = get_logger('core.export_service')
@@ -83,9 +83,11 @@ class ExportedResponse:
 @dataclass
 class ExportedError:
     """Exported error record.
-    
+
     Attributes:
         error_id: Primary key from errors table
+        response_id: Canonical response identifier (error versioning key)
+        attempt_number: Attempt counter for this response (error versioning)
         question_id: Original question identifier
         variant_id: Model variant identifier
         snapshot_id: Question snapshot identifier
@@ -95,8 +97,10 @@ class ExportedError:
         attempt_count: Number of retry attempts made
         occurred_at: Error occurrence timestamp
     """
-    
+
     error_id: str
+    response_id: str
+    attempt_number: int
     question_id: str
     variant_id: str
     snapshot_id: str
@@ -180,7 +184,6 @@ class ExportService:
         """
         self._conn = conn
         self._response_repo = ResponseRepository(conn)
-        self._error_repo = ErrorRepository(conn)
         self._logger = get_logger('core.export_service')
     
     def export_run(self, run_id: str) -> ExportResult:
@@ -201,12 +204,36 @@ class ExportService:
         
         responses = self._response_repo.list_by_run(run_id)
         self._logger.debug(f"EXPORT_FETCHED | run={run_id} | responses={len(responses)}")
-        
-        errors = self._error_repo.list_by_run(run_id)
-        self._logger.debug(f"EXPORT_FETCHED | run={run_id} | errors={len(errors)}")
-        
+
+        # Read errors directly via SQL (no repository layer).
+        # Includes response_id and attempt_number for error versioning observability.
+        cursor = self._conn.cursor()
+        cursor.execute(
+            "SELECT error_id, response_id, attempt_number, run_id, variant_id, snapshot_id, "
+            "question_id, error_type, error_message, attempt_count, occurred_at "
+            "FROM errors WHERE run_id = ? ORDER BY response_id ASC, attempt_number ASC",
+            (run_id,),
+        )
+        error_rows = cursor.fetchall()
+        self._logger.debug(f"EXPORT_FETCHED | run={run_id} | errors={len(error_rows)}")
+
         exported_responses = [self._response_to_export(r) for r in responses]
-        exported_errors = [self._error_to_export(e) for e in errors]
+        exported_errors = [
+            ExportedError(
+                error_id=row["error_id"],
+                response_id=row["response_id"],
+                attempt_number=row["attempt_number"],
+                question_id=row["question_id"],
+                variant_id=row["variant_id"],
+                snapshot_id=row["snapshot_id"],
+                run_id=row["run_id"],
+                error_type=row["error_type"],
+                error_message=row["error_message"],
+                attempt_count=row["attempt_count"],
+                occurred_at=row["occurred_at"],
+            )
+            for row in error_rows
+        ]
         
         experiment_name = self._get_experiment_name_for_run(run_id)
         
@@ -283,28 +310,7 @@ class ExportService:
             started_at=response.started_at,
             finished_at=response.finished_at,
         )
-    
-    def _error_to_export(self, error: Error) -> ExportedError:
-        """Convert Error to ExportedError.
-        
-        Args:
-            error: Error dataclass from repository.
-        
-        Returns:
-            ExportedError with all fields mapped.
-        """
-        return ExportedError(
-            error_id=error.error_id,
-            question_id=error.question_id,
-            variant_id=error.variant_id,
-            snapshot_id=error.snapshot_id,
-            run_id=error.run_id,
-            error_type=error.error_type,
-            error_message=error.error_message,
-            attempt_count=error.attempt_count,
-            occurred_at=error.occurred_at,
-        )
-    
+
     def _get_experiment_name_for_run(self, run_id: str) -> Optional[str]:
         """Get experiment name for a run (for context in export).
         

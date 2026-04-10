@@ -27,7 +27,6 @@ from src.db.repository import (
     SnapshotRepository,
     RunRepository,
     ResponseRepository,
-    ErrorRepository,
 )
 from src.api.client import CompletionResponse
 from src.api.errors import APIError
@@ -436,11 +435,11 @@ class TestExecutionFlow:
         writer = ResultWriter(in_memory_db)
         results = _execute_and_write(engine, plan, writer)
 
-        # Verify: All items should fail, errors persisted
-        error_repo = ErrorRepository(in_memory_db)
-        errors = error_repo.list_by_run(run_id)
+        # Verify: All items should fail, errors persisted via direct SQL
+        cursor = in_memory_db.execute("SELECT * FROM errors WHERE run_id = ?", (run_id,))
+        errors = cursor.fetchall()
         assert len(errors) == 3
-        assert all(e.error_type == 'api_error' for e in errors)
+        assert all(e["error_type"] == 'api_error' for e in errors)
     
     def test_execution_with_retry(self, full_experiment_setup, in_memory_db):
         """

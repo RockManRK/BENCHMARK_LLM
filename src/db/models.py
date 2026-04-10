@@ -163,31 +163,3 @@ class Response:
     finished_at: str | None = None
 
 
-@dataclass
-class Error:
-    """Error entity matching TO-BE schema.
-
-    An Error records a failure during execution.
-
-    Attributes:
-        error_id: Primary key (UUID format recommended)
-        run_id: Foreign key to runs
-        variant_id: Foreign key to model_variants
-        snapshot_id: Foreign key to question_snapshots
-        question_id: Original question identifier (redundant for querying)
-        error_type: 'api_error', 'timeout', 'parse_error', 'config_error'
-        error_message: Human-readable error message
-        attempt_count: Number of retry attempts made
-        stack_trace: Optional stack trace
-        occurred_at: Error occurrence timestamp (auto-set by DB)
-    """
-    error_id: str
-    run_id: str
-    variant_id: str
-    snapshot_id: str
-    question_id: str
-    error_type: str
-    error_message: str
-    attempt_count: int = 1
-    stack_trace: str | None = None
-    occurred_at: str | None = None

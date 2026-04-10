@@ -34,7 +34,6 @@ from src.db.repository import (
     QuestionSnapshotRepository,
     RunModelRepository,
     ResponseRepository,
-    ErrorRepository,
 )
 
 
@@ -268,11 +267,13 @@ class TestWriteResults:
         assert write_result.responses_written == 0
         assert write_result.errors_written == 1
 
-        # Verify error was persisted
-        errors = ErrorRepository(writer.db_manager).get_all()
+        # Verify error was persisted via direct SQL
+        cursor = writer.db_manager.conn.cursor()
+        cursor.execute("SELECT * FROM errors")
+        errors = cursor.fetchall()
         assert len(errors) == 1
-        assert errors[0].question_id == "Q001"
-        assert errors[0].error_type == "TimeoutError"
+        assert errors[0]["question_id"] == "Q001"
+        assert errors[0]["error_type"] == "TimeoutError"
 
     def test_write_results_idempotency(self, writer, setup_test_plan):
         """Test that write_results is idempotent (same result twice)."""

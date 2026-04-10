@@ -30,8 +30,8 @@ from src.cli.statistics import StatisticsCalculator
 from src.core.loader import QuestionLoader
 from src.core.randomizer import AnswerRandomizer
 from src.core.run_manager import RunManager
-from src.db.models import Error, Iteration, Question, Response, Run
-from src.db.repository import ErrorRepository, ResponseRepository, RunRepository
+from src.db.models import Iteration, Question, Response, Run
+from src.db.repository import ResponseRepository, RunRepository
 from src.db.schema import DatabaseManager
 from src.main import BenchmarkRunner
 from src.utils.config import Settings
@@ -398,76 +398,6 @@ class TestDatabaseIntegration:
         by_run = response_repo.get_by_run("run-test-002")
         assert len(by_run) == 1
         assert by_run[0].question_id == "Q001"
-
-    def test_error_repository_links_to_response(
-        self, db_manager: DatabaseManager
-    ) -> None:
-        """Test that ErrorRepository properly links errors to responses.
-
-        Args:
-            db_manager: DatabaseManager fixture.
-        """
-        # Create run and response first
-        run_repo = RunRepository(db_manager)
-        run = Run(
-            run_id="run-test-003",
-            created_at=datetime.now(),
-            config=json.dumps({}),
-            status="pending",
-        )
-        run_repo.create(run)
-
-        # Create model and iteration records
-        from src.db.repository import ModelRepository, IterationRepository
-        model_repo = ModelRepository(db_manager)
-        model_repo.create("gpt-4", "GPT-4", "OpenAI")
-
-        iteration_repo = IterationRepository(db_manager)
-        from src.db.models import Iteration
-        iteration = Iteration(
-            run_id=run.run_id,
-            model_id="gpt-4",
-            iteration_number=1,
-            status="pending",
-        )
-        iteration_repo.create(iteration)
-
-        response_repo = ResponseRepository(db_manager)
-        response = Response(
-            iteration_id=iteration.iteration_id,
-            question_id="Q001",
-            model_id="gpt-4",
-            run_id="run-test-003",
-            question_text="Test question?",
-            options_json="{}",
-            options_randomized=False,
-            selected_answer=None,
-            correct_answer="A",
-            is_correct=None,
-            response_text="",
-            input_tokens=0,
-            response_tokens=0,
-            latency_ms=5000,
-            status="error",
-        )
-        response_repo.create(response)
-
-        # Create error linked to response
-        error_repo = ErrorRepository(db_manager)
-        error = Error(
-            response_id=response.response_id,
-            error_type="TimeoutError",
-            error_message="Request timed out after 5000ms",
-            stack_trace="Traceback (most recent call last):...",
-        )
-        created_error = error_repo.create(error)
-        assert created_error.error_id is not None
-
-        # Retrieve error by response
-        errors = error_repo.get_by_response(response.response_id)
-        assert len(errors) == 1
-        assert errors[0].error_type == "TimeoutError"
-
 
 # =============================================================================
 # Question Loading Integration Tests
@@ -1061,7 +991,6 @@ class TestFullWorkflowIntegration:
 
         # Create mixed responses
         response_repo = ResponseRepository(db_manager)
-        error_repo = ErrorRepository(db_manager)
 
         # 2 successful responses
         for i in range(2):
@@ -1104,15 +1033,13 @@ class TestFullWorkflowIntegration:
         )
         response_repo.create(error_response)
 
-        # Create error linked to response
+        # Create error record via direct SQL (ErrorRepository removed — single-writer contract)
         if error_response.response_id:
-            error = Error(
-                response_id=error_response.response_id,
-                error_type="TimeoutError",
-                error_message="Request timed out",
-                stack_trace="",
+            db_manager.get_connection().execute(
+                "INSERT INTO errors (response_id, error_type, error_message, stack_trace, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (error_response.response_id, "TimeoutError", "Request timed out", "", datetime.now().isoformat()),
             )
-            error_repo.create(error)
+            db_manager.get_connection().commit()
 
         # Complete run
         run_manager.complete_run(run.run_id)

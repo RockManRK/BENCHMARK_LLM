@@ -34,7 +34,6 @@ from src.db.repository import (
     SnapshotRepository,
     RunRepository,
     ResponseRepository,
-    ErrorRepository,
 )
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
 from src.api.client import CompletionResponse

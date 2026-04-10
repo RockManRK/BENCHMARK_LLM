@@ -18,7 +18,6 @@ from src.db.models import (
     QuestionSnapshot,
     Run,
     Response,
-    Error,
 )
 from src.db.repository import (
     ExperimentRepository,
@@ -26,7 +25,6 @@ from src.db.repository import (
     SnapshotRepository,
     RunRepository,
     ResponseRepository,
-    ErrorRepository,
 )
 
 
@@ -53,7 +51,6 @@ def repos(db_conn):
         "snapshot": SnapshotRepository(db_conn),
         "run": RunRepository(db_conn),
         "response": ResponseRepository(db_conn),
-        "error": ErrorRepository(db_conn),
     }
 
 
@@ -561,89 +558,6 @@ class TestResponseRepository:
         # Verify the correct ones are flagged
         needs_review_ids = {r.response_id for r in needs_review}
         assert needs_review_ids == {"resp_review_2", "resp_review_3"}
-
-
-class TestErrorRepository:
-    """Tests for ErrorRepository CRUD operations."""
-
-    @pytest.mark.domain_rule("Errors must belong to runs, variants, snapshots (FK)")
-    def test_repository_crud_error(self, repos):
-        """Verify CRUD for errors with all FK dependencies."""
-        exp_repo = repos["experiment"]
-        var_repo = repos["variant"]
-        snap_repo = repos["snapshot"]
-        run_repo = repos["run"]
-        error_repo = repos["error"]
-
-        # Create experiment
-        experiment = Experiment(
-            experiment_id="exp_err",
-            name="error_test",
-            config_json="{}",
-            config_hash="h",
-            system_prompt="s",
-            user_prompt="u",
-        )
-        exp_repo.save(experiment)
-
-        # Create variant
-        variant = ModelVariant(
-            variant_id="var_err",
-            experiment_id="exp_err",
-            model_id="openai/gpt-4",
-            variant_signature="gpt4",
-            config="{}",
-        )
-        var_repo.save(variant)
-
-        # Create snapshot
-        snapshot = QuestionSnapshot(
-            snapshot_id="snap_err",
-            experiment_id="exp_err",
-            question_id="q_err",
-            question_payload="{}",
-        )
-        snap_repo.save(snapshot)
-
-        # Create run
-        run = Run(
-            run_id="run_err",
-            experiment_id="exp_err",
-            status="pending",
-        )
-        run_repo.save(run)
-
-        # CREATE error
-        error = Error(
-            error_id="err_001",
-            run_id="run_err",
-            variant_id="var_err",
-            snapshot_id="snap_err",
-            model_id="openai/gpt-4",
-            question_id="q_err",
-            error_type="api_error",
-            error_message="Rate limit exceeded",
-            attempt_count=3,
-            stack_trace="Traceback...",
-        )
-        error_repo.save(error)
-
-        # READ
-        retrieved = error_repo.get_by_id("err_001")
-        assert retrieved is not None
-        assert retrieved.error_type == "api_error"
-        assert retrieved.attempt_count == 3
-
-        # LIST by run
-        errors = error_repo.list_by_run("run_err")
-        assert len(errors) == 1
-        assert errors[0].error_type == "api_error"
-
-        # UPDATE
-        error.attempt_count = 5
-        error_repo.save(error)
-        updated = error_repo.get_by_id("err_001")
-        assert updated.attempt_count == 5
 
 
 class TestForeignKeyEnforcement:

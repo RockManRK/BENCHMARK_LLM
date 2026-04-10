@@ -128,26 +128,35 @@ _No open gaps. All previously identified issues have been resolved._
 - **Why**: Full observability into retry attempts while maintaining single response row per item.
 - **Test**: `TestErrorVersioning` and `TestCanonicalErrorKey` prove correctness.
 
-### Hardening 5: Schema Migration
-- **What**: `migrate_errors_table()` function migrates existing DBs from old schema (single-column PK) to new schema (composite PK with `response_id`, `attempt_number`).
-- **How**: Creates new table → copies data with backfilled columns → drops old → renames. FK checks disabled during migration, re-enabled after.
-- **Idempotent**: Running again on already-migrated DB is a no-op.
-- **Test**: `TestSchemaMigration` proves fresh DB is untouched and old-schema DB migrates correctly.
+### Hardening 5: ~~Schema Migration~~ — REMOVED
+- Schema migration is no longer provided. Only the current errors table schema is supported.
+- Historical schema migrations are not offered — this is an actively developed system.
 
 ### Hardening 6: Transaction Strategy
 - **What**: Standardized autocommit — no `BEGIN IMMEDIATE` anywhere.
 - **Why**: All writes use per-item `commit()`. RunFinalizer runs after writer fully drains, so no concurrent writes exist. `BEGIN IMMEDIATE` was unnecessary and could conflict with future parallel execution.
 - **Test**: `TestTransactionStrategy` proves no "database is locked" errors at concurrency=4.
 
+### Single-Writer Enforcement for Errors
+
+| Decision | Rationale |
+|----------|-----------|
+| `ErrorRepository` removed entirely | Contained no essential domain logic. Write path violated single-writer contract and assumed old schema. Read paths were trivial SELECT wrappers. Sole production consumer (ExportService) replaced with direct SQL. |
+| `Error` dataclass removed | Fragile schema mirror requiring manual sync. No production consumers. Eliminated to prevent future schema divergence. |
+| ExportService reads errors via direct SQL | Single SELECT query does not justify a repository abstraction. Explicit query includes `response_id` and `attempt_number` for error versioning observability. |
+| Tests use ResultWriter exclusively | No test may write to `errors` via raw SQL. Tests exercise the production write path (`ResultWriter.write_result()` with a failure `ExecutionResult`). |
+| No schema migration provided | Only the current errors table schema is supported. Historical schemas are not migrated. |
+
 ### Resolved Warnings from Essence Guardian
 | Warning | Resolution | Test |
 |---------|------------|------|
 | W1: Error history key mismatch | Canonical key = `response_id` (both writes and reads) | `TestCanonicalErrorKey` |
-| W2: Schema migration missing | `migrate_errors_table()` — idempotent, handles old→new | `TestSchemaMigration` |
+| ~~W2: Schema migration missing~~ | ~~Removed — migration no longer provided~~ | — |
 | W3: Option map assumes uniform count | Maps per `(seed, option_count)` pair | `TestOptionMapPerOptionCount` |
 | W4: Abort window between waits | Abort checked before scheduling + after `wait()` | `TestAbortWindowClosure` |
 | W5: New ResultWriter per retry | Single `_result_writer` instance reused | `TestResultWriterReuse` |
 | W6: BEGIN IMMEDIATE overlap | Removed — standardized autocommit | `TestTransactionStrategy` |
+| ErrorRepository schema divergence | Removed entirely — single writer enforced | Integration tests via ResultWriter |
 
 ---
 

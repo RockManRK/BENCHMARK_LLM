@@ -26,7 +26,7 @@ from src.core.async_writer import AsyncWriter
 from src.core.execution_engine import ExecutionResult
 from src.core.result_writer import ResultWriter
 from src.core.randomizer import AnswerRandomizer
-from src.db.schema import create_schema, migrate_errors_table
+from src.db.schema import create_schema
 
 
 @pytest.fixture
@@ -398,89 +398,6 @@ class TestCanonicalErrorKey:
         history = writer._get_error_history(response_id)
         assert len(history) == 1
         assert history[0]["error_type"] == "timeout"
-
-
-# ─────────────────────────────────────────────────────────────
-# W2: Schema Migration
-# ─────────────────────────────────────────────────────────────
-
-class TestSchemaMigration:
-    """errors table migration from old schema to new (response_id FK, composite PK)."""
-
-    def test_fresh_db_no_migration_needed(self, in_memory_db):
-        """Fresh database already has correct schema — migration is no-op."""
-        conn = in_memory_db
-        migrate_errors_table(conn)  # Should not raise
-
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(errors)")
-        columns = {row[1] for row in cursor.fetchall()}
-        assert "response_id" in columns
-        assert "attempt_number" in columns
-
-    def test_migration_from_old_schema(self):
-        """Simulate old-schema DB, run migration, verify new schema."""
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-
-        # Create minimal referenced tables (migration only needs FK targets to exist)
-        conn.execute("""
-            CREATE TABLE experiments (experiment_id TEXT PRIMARY KEY, name TEXT UNIQUE, config_json TEXT, config_hash TEXT)
-        """)
-        conn.execute("""
-            CREATE TABLE model_variants (variant_id TEXT PRIMARY KEY, experiment_id TEXT, model_id TEXT, variant_signature TEXT, config TEXT)
-        """)
-        conn.execute("""
-            CREATE TABLE question_snapshots (snapshot_id TEXT PRIMARY KEY, experiment_id TEXT, json_question_id TEXT, question_position INTEGER, question_payload TEXT)
-        """)
-        conn.execute("""
-            CREATE TABLE runs (run_id TEXT PRIMARY KEY, experiment_id TEXT, config TEXT, status TEXT)
-        """)
-
-        # Create old-schema errors table
-        conn.execute("""
-            CREATE TABLE errors (
-                error_id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                variant_id TEXT NOT NULL,
-                snapshot_id TEXT NOT NULL,
-                question_id TEXT NOT NULL,
-                error_type TEXT NOT NULL,
-                error_message TEXT NOT NULL,
-                attempt_count INTEGER NOT NULL DEFAULT 1,
-                stack_trace TEXT,
-                occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Insert some old-schema data
-        conn.execute("""
-            INSERT INTO errors (error_id, run_id, variant_id, snapshot_id, question_id, error_type, error_message, attempt_count)
-            VALUES ('err-1', 'run-old', 'var-old', 'snap-old', 'q1', 'timeout', 'Timed out', 3)
-        """)
-        conn.commit()
-
-        # Run migration
-        migrate_errors_table(conn)
-
-        # Verify new schema
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(errors)")
-        columns = {row[1] for row in cursor.fetchall()}
-        assert "response_id" in columns
-        assert "attempt_number" in columns
-
-        # Verify data was migrated
-        cursor.execute("SELECT * FROM errors")
-        row = cursor.fetchone()
-        assert row is not None
-        assert row["error_id"] == "err-1"
-        assert row["response_id"] == "resp-run-old-var-old-snap-old"
-        assert row["attempt_number"] == 1  # Backfilled
-        assert row["error_message"] == "Timed out"
-
-        # Migration is idempotent — running again should not raise
-        migrate_errors_table(conn)
 
 
 # ─────────────────────────────────────────────────────────────

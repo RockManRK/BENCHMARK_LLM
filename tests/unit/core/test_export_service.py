@@ -20,8 +20,8 @@ from typing import Generator
 from unittest.mock import patch
 
 from src.core.export_service import ExportService, ExportedResponse, ExportedError, ExportResult
-from src.db.repository import ResponseRepository, ErrorRepository, RunRepository, ExperimentRepository
-from src.db.models import Response, Error, Run, Experiment
+from src.db.repository import ResponseRepository, RunRepository, ExperimentRepository
+from src.db.models import Response, Run, Experiment
 
 
 # =============================================================================

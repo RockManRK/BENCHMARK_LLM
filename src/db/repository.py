@@ -1,12 +1,15 @@
 """TO-BE repository layer.
 
-CRUD operations for all 6 entities:
+CRUD operations for 5 entities:
 - ExperimentRepository
 - VariantRepository
 - SnapshotRepository
 - RunRepository
 - ResponseRepository
-- ErrorRepository
+
+Note:
+    ErrorRepository has been removed. ResultWriter is the sole writer for the
+    errors table. Tests must use ResultWriter.write_result() to create error rows.
 
 Each repository:
 - Takes a sqlite3.Connection in __init__
@@ -26,7 +29,6 @@ from src.db.models import (
     QuestionSnapshot,
     Run,
     Response,
-    Error,
 )
 
 
@@ -664,86 +666,4 @@ class ResponseRepository:
             latency_ms=row["latency_ms"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
-        )
-
-
-# =============================================================================
-# ErrorRepository
-# =============================================================================
-
-class ErrorRepository:
-    """CRUD operations for errors."""
-
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        """Initialize with database connection."""
-        self.conn = conn
-
-    def save(self, error: Error) -> None:
-        """Insert or ignore error (idempotent).
-
-        Does NOT pass occurred_at - let DB DEFAULT handle it.
-        Uses variant_id (not model_id).
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT OR IGNORE INTO errors (
-                error_id, run_id, variant_id, snapshot_id,
-                question_id, error_type, error_message,
-                attempt_count, stack_trace
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            error.error_id,
-            error.run_id,
-            error.variant_id,
-            error.snapshot_id,
-            error.question_id,
-            error.error_type,
-            error.error_message,
-            error.attempt_count,
-            error.stack_trace,
-        ))
-        self.conn.commit()
-
-    def get_by_id(self, error_id: str) -> Error | None:
-        """Get error by ID."""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT error_id, run_id, variant_id, snapshot_id,
-                   question_id, error_type, error_message,
-                   attempt_count, stack_trace, occurred_at
-            FROM errors
-            WHERE error_id = ?
-        """, (error_id,))
-        row = cursor.fetchone()
-        if row is None:
-            return None
-        return self._row_to_error(row)
-
-    def list_by_run(self, run_id: str) -> list[Error]:
-        """List errors for a run."""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT error_id, run_id, variant_id, snapshot_id,
-                   question_id, error_type, error_message,
-                   attempt_count, stack_trace, occurred_at
-            FROM errors
-            WHERE run_id = ?
-            ORDER BY occurred_at ASC
-        """, (run_id,))
-        return [self._row_to_error(row) for row in cursor.fetchall()]
-
-    @staticmethod
-    def _row_to_error(row: sqlite3.Row) -> Error:
-        """Convert database row to Error dataclass."""
-        return Error(
-            error_id=row["error_id"],
-            run_id=row["run_id"],
-            variant_id=row["variant_id"],
-            snapshot_id=row["snapshot_id"],
-            question_id=row["question_id"],
-            error_type=row["error_type"],
-            error_message=row["error_message"],
-            attempt_count=row["attempt_count"],
-            stack_trace=row["stack_trace"],
-            occurred_at=row["occurred_at"],
         )

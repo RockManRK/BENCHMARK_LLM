@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Generator
 
 from src.core.execution_engine import ExecutionResult
-from src.core.result_writer import ResultWriter, WriteReport
+from src.core.result_writer import ResultWriter
 
 
 # =============================================================================
@@ -31,86 +31,16 @@ def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
     Yields:
         sqlite3.Connection: Database connection with row_factory enabled
     """
+    from src.db.schema import create_schema
+
     conn = sqlite3.connect(':memory:')
     conn.row_factory = sqlite3.Row
-    
+
     # Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON")
 
-    # Create minimal schema needed for ResultWriter tests
-    conn.executescript("""
-        CREATE TABLE experiments (
-            experiment_id TEXT PRIMARY KEY,
-            name TEXT UNIQUE NOT NULL,
-            system_prompt TEXT NOT NULL,
-            user_prompt TEXT NOT NULL,
-            is_active BOOLEAN NOT NULL DEFAULT TRUE
-        );
-
-        CREATE TABLE model_variants (
-            variant_id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            model_id TEXT NOT NULL,
-            variant_signature TEXT NOT NULL,
-            is_active BOOLEAN NOT NULL DEFAULT TRUE
-        );
-
-        CREATE TABLE question_snapshots (
-            snapshot_id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            question_id TEXT NOT NULL,
-            question_payload TEXT NOT NULL,
-            is_active BOOLEAN NOT NULL DEFAULT TRUE
-        );
-
-        CREATE TABLE runs (
-            run_id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            seed INTEGER,
-            status TEXT NOT NULL DEFAULT 'pending',
-            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            finished_at TIMESTAMP
-        );
-
-        CREATE TABLE responses (
-            response_id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            variant_id TEXT NOT NULL,
-            snapshot_id TEXT NOT NULL,
-            model_id TEXT NOT NULL,
-            question_id TEXT NOT NULL,
-            status TEXT,
-            finish_reason TEXT,
-            error_details TEXT,
-            response_text TEXT,
-            selected_answer TEXT,
-            is_correct BOOLEAN,
-            parse_confidence TEXT DEFAULT 'unknown',
-            review_status TEXT,
-            needs_review BOOLEAN DEFAULT FALSE,
-            latency_ms INTEGER,
-            input_tokens INTEGER,
-            response_tokens INTEGER,
-            raw_response TEXT,
-            started_at TIMESTAMP,
-            finished_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(run_id, variant_id, snapshot_id)
-        );
-
-        CREATE TABLE errors (
-            error_id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            variant_id TEXT NOT NULL,
-            snapshot_id TEXT NOT NULL,
-            question_id TEXT NOT NULL,
-            error_type TEXT NOT NULL,
-            error_message TEXT NOT NULL,
-            attempt_count INTEGER NOT NULL DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.commit()
+    # Create full TO-BE schema
+    create_schema(conn)
 
     yield conn
 
@@ -737,3 +667,121 @@ def test_writer_report_includes_skipped_count(in_memory_db: sqlite3.Connection, 
     assert report1.responses_skipped == 0
     assert report2.responses_written == 0
     assert report2.responses_skipped == 1
+
+
+class TestErrorVersioning:
+    """Regression tests for error versioning contract.
+
+    ResultWriter is the sole writer for errors. Each error written for the
+    same (run_id, variant_id, snapshot_id) must increment attempt_number.
+    """
+
+    @staticmethod
+    def _setup_minimal_experiment(conn):
+        """Create minimal FK records needed for error writes."""
+        conn.execute(
+            "INSERT INTO experiments (experiment_id, name, config_json, config_hash) VALUES (?, ?, ?, ?)",
+            ("exp-test-001", "Test", "{}", "hash"),
+        )
+        conn.execute(
+            "INSERT INTO model_variants (variant_id, experiment_id, model_id, variant_signature, config) VALUES (?, ?, ?, ?, ?)",
+            ("var-abc-123", "exp-test-001", "test/model", "sig", "{}"),
+        )
+        conn.execute(
+            "INSERT INTO question_snapshots (snapshot_id, experiment_id, json_question_id, question_position, question_payload) VALUES (?, ?, ?, ?, ?)",
+            ("snap-xyz-789", "exp-test-001", "q1", 1, "{}"),
+        )
+        conn.execute(
+            "INSERT INTO runs (run_id, experiment_id, config, status) VALUES (?, ?, ?, ?)",
+            ("run-test-001", "exp-test-001", "{}", "pending"),
+        )
+        conn.commit()
+
+    def test_write_error_increments_attempt_number(self, in_memory_db):
+        """Multiple errors for the same item produce incrementing attempt_number."""
+        from src.core.execution_engine import ExecutionResult
+        from datetime import datetime
+
+        # Create required FK records
+        self._setup_minimal_experiment(in_memory_db)
+
+        writer = ResultWriter(in_memory_db)
+
+        # Write two failure results for the same item
+        for i in range(2):
+            error_result = ExecutionResult(
+                item_id="run-test-001::var-abc-123::snap-xyz-789::it-1",
+                run_id="run-test-001",
+                variant_id="var-abc-123",
+                snapshot_id="snap-xyz-789",
+                question_id="q1",
+                status="failure",
+                error_type="timeout",
+                error_message=f"Timeout attempt {i+1}",
+                attempt_count=i + 1,
+                response_text=None,
+                selected_answer=None,
+                parse_confidence=None,
+                latency_ms=None,
+                input_tokens=None,
+                response_tokens=None,
+                reasoning_tokens=None,
+                raw_response=None,
+                started_at=datetime.now(),
+                finished_at=datetime.now(),
+            )
+            writer.write_result(error_result)
+
+        # Verify both errors exist with incrementing attempt_number
+        cursor = in_memory_db.cursor()
+        cursor.execute("""
+            SELECT attempt_number, error_message
+            FROM errors
+            WHERE run_id = 'run-test-001'
+            ORDER BY attempt_number ASC
+        """)
+        rows = cursor.fetchall()
+
+        assert len(rows) == 2
+        assert rows[0]["attempt_number"] == 1
+        assert "Timeout attempt 1" in rows[0]["error_message"]
+        assert rows[1]["attempt_number"] == 2
+        assert "Timeout attempt 2" in rows[1]["error_message"]
+
+    def test_error_response_id_is_deterministic(self, in_memory_db):
+        """response_id follows the deterministic format resp-{run_id}-{variant_id}-{snapshot_id}."""
+        from src.core.execution_engine import ExecutionResult
+        from datetime import datetime
+
+        self._setup_minimal_experiment(in_memory_db)
+
+        writer = ResultWriter(in_memory_db)
+        error_result = ExecutionResult(
+            item_id="run-test-001::var-abc-123::snap-xyz-789::it-1",
+            run_id="run-test-001",
+            variant_id="var-abc-123",
+            snapshot_id="snap-xyz-789",
+            question_id="q1",
+            status="failure",
+            error_type="api_error",
+            error_message="Test error",
+            attempt_count=1,
+            response_text=None,
+            selected_answer=None,
+            parse_confidence=None,
+            latency_ms=None,
+            input_tokens=None,
+            response_tokens=None,
+            reasoning_tokens=None,
+            raw_response=None,
+            started_at=datetime.now(),
+            finished_at=datetime.now(),
+        )
+        writer.write_result(error_result)
+
+        cursor = in_memory_db.cursor()
+        cursor.execute("SELECT response_id FROM errors WHERE run_id = 'run-test-001'")
+        row = cursor.fetchone()
+
+        assert row is not None
+        assert row["response_id"] == "resp-run-test-001-var-abc-123-snap-xyz-789"

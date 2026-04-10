@@ -15,6 +15,7 @@ import uuid
 import pytest
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,7 +28,6 @@ from src.db.repository import (
     SnapshotRepository,
     RunRepository,
     ResponseRepository,
-    ErrorRepository,
 )
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
 from src.api.client import CompletionResponse
@@ -455,20 +455,32 @@ class TestRunConsolidationContract:
         )
         resp_repo.save(error_response)
 
-        # Also insert into errors table
-        from src.db.models import Error
-        error_repo = ErrorRepository(in_memory_db)
-        error = Error(
-            error_id="err_001",
+        # Also insert into errors table via ResultWriter
+        from src.core.result_writer import ResultWriter
+        from src.core.execution_engine import ExecutionResult
+
+        error_result = ExecutionResult(
+            item_id="item-fail",
             run_id=run_id,
             variant_id=variant_id,
             snapshot_id=snapshot_ids[1],
             question_id="Q02",
+            status="failure",
             error_type="api_error",
             error_message="API timeout",
             attempt_count=3,
+            response_text=None,
+            selected_answer=None,
+            parse_confidence=None,
+            latency_ms=None,
+            input_tokens=None,
+            response_tokens=None,
+            reasoning_tokens=None,
+            raw_response=None,
+            started_at=datetime.now(),
+            finished_at=datetime.now(),
         )
-        error_repo.save(error)
+        ResultWriter(in_memory_db).write_result(error_result)
 
         # Finalize
         finalizer = RunFinalizer(in_memory_db)
