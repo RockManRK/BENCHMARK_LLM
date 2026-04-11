@@ -196,8 +196,8 @@ class TestRunModelRepository:
 class TestAddModelsToRun:
     """Test RunManager.add_models_to_run functionality."""
 
-    def test_add_models_to_running_run(self, db_manager, settings) -> None:
-        """Test adding models to a run in 'running' status."""
+    def test_add_models_to_pending_run(self, db_manager, settings) -> None:
+        """Test adding models to a run in 'pending' status."""
         from src.core.run_manager import RunManager
         from src.db.repository import RunRepository
         

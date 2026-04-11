@@ -843,3 +843,93 @@ class TestBuildRunConfigDict:
         assert result1 != result2
         assert isinstance(result1, int)
         assert isinstance(result2, int)
+
+    def test_two_runs_cli_auto_get_different_seeds(self) -> None:
+        """Regression: CLI --seed AUTO must produce unique seeds per run."""
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            seed = "AUTO"
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = '{"RUN_RESPONSES_SEED": "OFF"}'
+
+        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
+        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_002")["RUN_RESPONSES_SEED"]
+
+        assert seed1 != seed2, f"Both runs got same seed: {seed1}"
+        assert isinstance(seed1, int)
+        assert isinstance(seed2, int)
+
+    def test_two_runs_inherit_auto_get_different_seeds(self) -> None:
+        """Regression: Inheriting AUTO from experiment must produce unique seeds per run."""
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = '{"RUN_RESPONSES_SEED": "AUTO"}'
+
+        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
+        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_002")["RUN_RESPONSES_SEED"]
+
+        assert seed1 != seed2, f"Both runs got same seed: {seed1}"
+
+    def test_seed_is_deterministic_for_same_run_id(self) -> None:
+        """Reproducibility: same run_id + experiment_id must always produce same seed."""
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            seed = "AUTO"
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = '{}'
+
+        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
+        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
+
+        assert seed1 == seed2, f"Same run_id produced different seeds: {seed1} vs {seed2}"
+
+    def test_fixed_numeric_experiment_seed_propagates(self) -> None:
+        """Numeric experiment seed should propagate to runs directly."""
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            seed = None
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = '{"RUN_RESPONSES_SEED": 42}'
+
+        config = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")
+
+        assert config["RUN_RESPONSES_SEED"] == 42
+
+    def test_cli_seed_overrides_experiment_auto(self) -> None:
+        """Explicit CLI seed should override experiment AUTO configuration."""
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            seed = 999
+            system_prompt = None
+            user_prompt = None
+
+        class MockExperiment:
+            experiment_id = "exp_001"
+            config_json = '{"RUN_RESPONSES_SEED": "AUTO"}'
+
+        config = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")
+
+        assert config["RUN_RESPONSES_SEED"] == 999

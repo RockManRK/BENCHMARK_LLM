@@ -159,7 +159,7 @@ def handle_add_run(args, conn) -> int:
 
     run_id = f"run_{uuid.uuid4().hex[:8]}"
 
-    config_dict = resolver.build_run_config_dict(args, experiment)
+    config_dict = resolver.build_run_config_dict(args, experiment, run_id=run_id)
 
     run = Run(
         run_id=run_id,

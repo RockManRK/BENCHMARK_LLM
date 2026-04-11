@@ -1,6 +1,11 @@
 -- Benchmark LLM - TO-BE Database Schema
 -- Generated from: src/db/schema.py
--- 
+--
+-- ⚠️  SOURCE OF TRUTH: src/db/schema.py
+-- This file is a generated reference copy for documentation purposes only.
+-- The active schema definition (used at runtime) is in src/db/schema.py.
+-- If there is any discrepancy, schema.py takes precedence.
+--
 -- This schema reflects the CURRENT implemented state:
 -- - 6 tables: experiments, model_variants, question_snapshots, runs, responses, errors
 -- - All columns with correct types
@@ -8,6 +13,9 @@
 -- - All indexes
 -- - NO is_active columns (removed in TO-BE architecture)
 -- - Correct column names (json_question_id, question_position, config, duration, etc.)
+--
+-- Run status values: pending, completed, failed, partial_failed
+-- ('running' was removed — runs go directly to final status via RunFinalizer)
 
 -- Enable foreign keys
 PRAGMA foreign_keys = ON;
@@ -110,12 +118,12 @@ ON question_snapshots(created_at);
 --   run_id            TEXT PRIMARY KEY  - Unique run identifier (run_XXXXXXXX)
 --   experiment_id     TEXT NOT NULL     - FK to experiments.experiment_id
 --   config            TEXT NOT NULL     - JSON configuration (3 run-level keys: seed, system_prompt, user_prompt)
---   status            TEXT NOT NULL     - Lifecycle status (pending|running|completed|failed|partial_failed)
+--   status            TEXT NOT NULL     - Lifecycle status (pending|completed|failed|partial_failed)
 --   duration          INTEGER DEFAULT 0 - Execution duration in milliseconds
 --   created_at        TIMESTAMP         - Creation timestamp (auto-populated)
--- 
+--
 -- Constraints:
---   CHECK(status IN ('pending', 'running', 'completed', 'failed', 'partial_failed'))
+--   CHECK(status IN ('pending', 'completed', 'failed', 'partial_failed'))
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS runs (
     run_id            TEXT PRIMARY KEY,
@@ -124,7 +132,7 @@ CREATE TABLE IF NOT EXISTS runs (
     status            TEXT NOT NULL DEFAULT 'pending',
     duration          INTEGER DEFAULT 0,
     created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CHECK(status IN ('pending', 'running', 'completed', 'failed', 'partial_failed'))
+    CHECK(status IN ('pending', 'completed', 'failed', 'partial_failed'))
 );
 
 -- Index for listing runs by experiment (common query pattern)

@@ -460,7 +460,7 @@ class ConfigResolver:
             return exp_value.strip()
         return exp_value
 
-    def build_run_config_dict(self, cli_args, experiment) -> dict:
+    def build_run_config_dict(self, cli_args, experiment, run_id: str = "") -> dict:
         """Build complete configuration dictionary for run creation.
 
         Includes ALL run-level keys from contract, even if null.
@@ -470,6 +470,7 @@ class ConfigResolver:
         Args:
             cli_args: Parsed CLI arguments (argparse.Namespace).
             experiment: Experiment entity with config_json.
+            run_id: Run identifier for AUTO seed generation.
 
         Returns:
             Dictionary with ALL run-level configuration keys:
@@ -483,7 +484,7 @@ class ConfigResolver:
 
         cli_seed = getattr(cli_args, 'seed', None)
         if cli_seed == "AUTO":
-            resolved_seed = self._generate_seed_from_run("", experiment.experiment_id)
+            resolved_seed = self._generate_seed_from_run(run_id, experiment.experiment_id)
         elif cli_seed is not None and cli_seed is not FORCE_SYSTEM_DEFAULT:
             try:
                 resolved_seed = int(cli_seed)
@@ -495,7 +496,7 @@ class ConfigResolver:
         else:
             exp_seed = exp_config.get("RUN_RESPONSES_SEED")
             if exp_seed is None or exp_seed == "AUTO":
-                resolved_seed = self._generate_seed_from_run("", experiment.experiment_id)
+                resolved_seed = self._generate_seed_from_run(run_id, experiment.experiment_id)
             elif exp_seed is not None:
                 try:
                     resolved_seed = int(exp_seed)

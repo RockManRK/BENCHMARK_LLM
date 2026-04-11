@@ -102,6 +102,14 @@ class Planner:
     def __init__(self, db_connection: sqlite3.Connection, logger: Optional[Logger] = None) -> None:
         """Initialize with database connection.
 
+        ACCEPTED ARCHITECTURAL RISK (ADR: adr-execution-pipeline.md, Decision 2):
+        The Planner takes a raw sqlite3.Connection and executes SQL directly. This
+        couples domain logic to SQLite. This is an intentional trade-off documented
+        in the ADR: cost protection (excluding already-executed items) belongs at
+        plan-build time, requiring DB access. Mitigation would require a read-only
+        query abstraction layer (e.g., ReadOnlyQueryGateway), which is deferred
+        until database portability becomes a real requirement.
+
         Args:
             db_connection: SQLite database connection (used read-only)
             logger: Optional logger instance. If not provided, uses get_logger('core.planner').

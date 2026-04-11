@@ -73,7 +73,7 @@ def setup_test_plan(db_manager):
         experiment_id="exp-test123",
         seed=42,
         started_at=datetime.now(),
-        status="running",
+        status="pending",
     )
     RunRepository(db_manager).create(run)
 

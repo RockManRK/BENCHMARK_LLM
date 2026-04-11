@@ -290,7 +290,7 @@ class TestRunRepository:
         
         assert retrieved is not None
         assert retrieved.run_id == "test-run-002"
-        assert retrieved.status == "running"
+        assert retrieved.status == "pending"
 
     def test_get_run_by_id_not_found(self, db_manager: DatabaseManager) -> None:
         """Test retrieving a non-existent run."""

@@ -121,7 +121,7 @@ def setup_validation_experiment(fresh_db: sqlite3.Connection) -> dict:
         'run-val-001',
         'exp-val-block6c-001',
         json.dumps({'seed': 42}),
-        'running'
+        'pending'
     ))
 
     fresh_db.commit()
