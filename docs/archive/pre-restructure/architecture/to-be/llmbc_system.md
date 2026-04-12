@@ -1,0 +1,49 @@
+**Document Type:** Regras do Projeto - Autoridade Máxima
+**Project:** Benchmark LLM V2
+**Version:** 1.1
+**Date:** 2026-03-30
+
+Requisitos e Essência:
+- O sistema tem como objetivo se tornar uma ferramenta para pesquisa.
+- O sistema deve proteger os dados com rigor.
+- O sistema prioriza determinismo e reprodutibilidade: a mesma configuração deve sempre produzir o mesmo conjunto de solicitações.
+- O sistema deve coletar tudo que possa ser útil para análise posterior, já que é melhor ter dados que não precisará do que precisar de um dado que não foi coletado.
+- Nesse momento, ele suportará modelos da plataforma OpenRouter, como também modelos rodando local no llama.cpp.
+- O sistema possui um funcionamento hierarquico:
+	- Experiments contém todos os elementos para executar um estudo em particular.
+	- Experiments congelam todas as configurações de sistema. Dessa forma, se algo externo a ele for alterado, não afeta um experimento já criado.
+    - Configurações de experiment que podem ser alteradas após a criação:
+      - --add-questions: Mais perguntas podem ser adicionadas, não retiradas
+      - --models: Podem ser livremente adicionados ou removidos, porém dados gerados, nunca são apagados.
+	- Experiments contém snapshots das questões selecionadas. Dessa forma, se as questões forem alteradas no dataset original, não afeta os snapshots. Garantindo que dados coletados antes ou depois de uma possível alteração do dataset, não sofra interferência externa.
+	- Experiments contém listas de modelos de LLM, que podem ser adicionados ou removidos. Porém, dados gerados com um modelo, não é removido caso o modelo seja.
+	- Experiments contém RUNs, que são grupos para rodar o mesmo experimento multiplas vezes, de forma igual ou com algumas configurações em particular diferentes.
+	- As únicas configurações diferentes que RUNs permitem ter entre si são: SEED, SYSTEM_PROMPT e USER_PROMPT. Lembrando: PODEM ser diferentes, não necessáriamente são.
+- As configurações também são hierarquicas:
+  - Configurações de sistema: São as configurações internas. Quando uma configuração opcional não é configurada em lugar nenhum. A de sistema será usada.
+  - .env: É o primeiro nível de configuração de usuário. O que o usuário configurar aqui, vira o defauth quando não informado pelo usuário nos passos seguintes.
+  - experiments: Ao criar um experimento, o usuário pode setar as configurações que desejar. As que ele não setar são puxadas dos níveis anteriores.
+  - runs e model_variants: Ao adicionar runs ou variantes de modelos a um experimento, o usuário pode setar configurações. As que ele não configurar são puxadas dos níveis anteriores;
+  - Níveis: Configurações de Sistema > .env > experiments > runs/model_variants
+  - O usuário pode forçar que seja usada a configuração de sistema ao escrever "system-default" ao setar uma configuração. Dessa forma o sistema entende que já deve ser usada a configuração interna de sistema.
+  - "system-default" é uma instrução explícita do usuário para ignorar configurações herdadas, incluindo .env, e usar o comportamento padrão do sistema.
+- Em geral, as configurações de sistema caem nos seguintes padrões:
+  - --add-questions: Ao não setar em nenhum lugar, se entende que todas as perguntas disponíveis no dataset devem ser usadas.
+  - --seed: Ao não setar em nenhum lugar, se entende que a randomização das respostas deve ser desligada. Ou será será usado a ordem A, B, C, D etc, original apresentada no dataset.
+  - --system-prompt e user-prompt: Ao não setar em nenhum lugar, se entende que essas configurações não serão enviadas na requisição da LLM. Serão ignoradas.
+  - Todas as configurações de model_variants: Ao não serem configuradas em nenhum lugar, se entende que essas configurações não serão enviadas na requisição da LLM. Serão ignoradas.
+  - O sistema busca seguir a linha do entendimento mais comum. O que um usuário acredita que vai acontecer ao não configurar algo.
+- O sistema deve permitir execuções de experimentos de forma integral ou parcial. Por exemplo:
+  - Quero executar um experimento, porém só as perguntas de 1 até 10 serão utilizadas.
+  - Processarei apenas os modelos X, Y e Z nesse momento. A, B e C ficarão de fora.
+  - Apenas o RUN X será processado agora.
+  - Etc.
+  - E quando o usuário for executar novamente aquele experimento, o sistema precisa ser inteligênte para saber quais perguntas, de quais variantes de modelos, de quais runs, já foram executadas para serem puladas, e quais não foram.
+  - Execuções devem ser idempotentes: o sistema nunca deve gerar dados duplicados para a mesma combinação de experimento, run, modelo e questão.
+- O sistema deve gravar os dados de cada solicitação após a solicitação. E não apenas quando terminar a execução completa. O objetivo é garantir que os dados até aquele ponto estejam gravados caso ocorra alguma falha no meio do processo.
+- Futuramente o sistema deverá permitir processar mais de uma requisição por vez, para acelerar o processo. Devido a quantidade de solicitações individuais, fazelas de forma apenas sequêncial poderá acarretar em horas para executar um experimento inteiro. Permitir requisições paralelas pode dar um ganho enorme de velocidade.
+  - Execução paralela ainda requer planejamento, entender quais pontos do sistema será afetado e o que precisa ser modificado para isso.
+- O sistema precisa ter um log robusto e configuravel. Dado seu objetivo para estudo, o log pode ser uma ferramenta fundamental para identificar falhas de execução ou de processo.
+  - Logs fazem parte do conjunto de dados de pesquisa e devem ser tratados como tal.
+  - É importante o log ter multiplos níveis de profundidade de dados, e também que os dados sempre digam a qual experimento ele pertence, quanto pertencer a um experimento em particular. Dessa forma poderemos, futuramente, separar logs por experimento caso seja necessário. (A separação será feita manualmente, não faz parte do sistema nesse momento)
+  - Todo dado gerado deve ser rastreável até seu experimento, run, modelo e questão de origem, permitindo auditoria completa.
