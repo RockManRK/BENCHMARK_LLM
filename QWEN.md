@@ -1,13 +1,39 @@
 > **IMPORTANT:**
 
-> QWEN.md is a conceptual reference, not an operational authority.
+> QWEN.md is the **primary operational entry point** for AI agents working on this codebase.
 > In case of conflict, the following documents take precedence:
 
-> @docs\architecture\to-be\llmbc_system.md
-> @docs\architecture\v2-implementation-checklist.md
-> @docs\architecture\to-be\comandos_simples.md
+> **Normative (Contracts — non-negotiable unless ADR supersedes):**
+> `docs/contracts/README.md` → Index of all system invariants
 
-> Code behavior validated by grounding
+> **Conceptual (Architecture — design intent):**
+> `docs/architecture/overview.md` → System at a glance
+> `docs/architecture/conceptual-model.md` → Entity relationships
+> `docs/architecture/execution-architecture.md` → Component data flow
+> `docs/architecture/design-principles.md` → Philosophy and trade-offs
+
+> **Reference (Implementation — current state, code is source of truth):**
+> `docs/reference/cli-commands.md` → Complete CLI reference
+> `docs/reference/configuration-reference.md` → .env settings
+> `docs/reference/database-schema.md` → Database schema
+> `docs/reference/module-structure.md` → Code organization
+> `docs/reference/api-integration.md` → API integration
+
+> **Status (Current condition & intent):**
+> `docs/status/implementation-status.md` → What exists, partial, planned
+> `docs/status/known-issues.md` → Bugs, technical debt, limitations
+> `docs/status/roadmap.md` → Intent and priorities (explicitly non-normative)
+
+> **Operational (How to work with the system):**
+> `docs/guides/ai-development-workflow.md` → AI agent navigation, contracts, validation
+
+> **Code behavior validated by grounding** — always verify against actual source code.
+
+---
+
+## Source of Truth Rule
+
+**If documentation conflicts with code, code is the source of truth unless an ADR states otherwise.**
 
 ---
 
@@ -15,7 +41,7 @@
 
 **Benchmark LLM** is a **reproducible, experiment‑driven benchmarking system** for evaluating Large Language Models (LLMs).
 
-The system is designed around **explicit experiments**, **immutable execution plans**, and **auditable results**.  
+The system is designed around **explicit experiments**, **immutable execution plans**, and **auditable results**.
 There is **no immediate or ad‑hoc execution mode** in the core system.
 
 All executions are intentional, identifiable, and reproducible.
@@ -30,6 +56,10 @@ All executions are intentional, identifiable, and reproducible.
 - **No mutable global state**
 - **No execution without identity**
 - **No inference during execution**
+
+These principles are the system's north star. If a feature conflicts with them, **the feature is wrong**.
+
+See `docs/architecture/design-principles.md` for complete philosophy and trade-off rationale.
 
 ---
 
@@ -48,9 +78,13 @@ Experiments are **immutable in intent**, but can grow by:
 - adding question snapshots
 - creating new runs
 
+Experiment configuration is **frozen at creation**. Changes to `.env` do not affect existing experiments.
+
+See `docs/architecture/conceptual-model.md` for complete entity relationships.
+
 ---
 
-### 2. Model Variants (called “models” in CLI)
+### 2. Model Variants (called "models" in CLI)
 
 A **Model Variant** represents an **intentional configuration** of a base model.
 
@@ -65,6 +99,7 @@ Variants:
 - are never inferred
 - are never modified after creation
 - do not execute anything by themselves
+- must be added after experiment creation (one per command)
 
 ---
 
@@ -92,7 +127,8 @@ A run defines:
 Runs:
 - do not define models or questions
 - only execute what already exists
-- have a clear lifecycle (`pending`, `running`, `completed`, `failed`, `partial_failed`)
+- have a clear lifecycle (`pending`, `completed`, `failed`, `partial_failed`)
+- have frozen configuration at creation
 
 ---
 
@@ -110,7 +146,7 @@ The ExecutionEngine:
 - does not resolve configuration
 - does not infer scope
 
-📄 See: `docs/architecture/execution-plan.md`
+See `docs/architecture/execution-architecture.md` for complete data flow.
 
 ---
 
@@ -129,26 +165,29 @@ It:
 - does not execute models
 - does not decide scope
 - does not create identity
+- ResultWriter must never infer correctness or meaning — it only persists what ExecutionEngine returns.
 
-📄 See: `docs/architecture/result-writer.md`
+See `docs/contracts/data-auditability.md` for complete audit trail specification.
 
-#### Review Fields (Manual Review Workflow)
+---
 
-The ResultWriter handles review-related fields in the `responses` table:
+## System Contracts
 
-| Field | Purpose | Set By |
-|-------|---------|--------|
-| `parse_confidence` | Parser confidence level | ExecutionEngine |
-| `selected_answer` | Parsed answer (A/B/C/D) | ExecutionEngine |
-| `needs_review` | Derived flag for human review | **ResultWriter** (calculated) |
-| `manual_answer` | Human-corrected answer | Reviewer (post-execution) |
+**Contracts are the backbone of this system.** They define invariants that must never be violated.
 
-The `needs_review` flag is calculated as:
-```
-needs_review = TRUE if (parse_confidence != 'clear' OR selected_answer IS NULL)
-```
+| Contract | What It Guarantees |
+|----------|-------------------|
+| `docs/contracts/determinism.md` | Same config → same requests, always |
+| `docs/contracts/idempotency.md` | No duplicate data per experiment/run/model/question |
+| `docs/contracts/immutability.md` | Snapshots, plans, historical data cannot change |
+| `docs/contracts/configuration-hierarchy.md` | System → .env → Experiment → Run/Model |
+| `docs/contracts/system-default-semantics.md` | "system-default" bypasses inheritance |
+| `docs/contracts/data-auditability.md` | All data traceable to origin |
+| `docs/contracts/interaction-contracts.md` | Event emission, UI boundaries (placeholder) |
 
-📄 See: `docs/architecture/contracts/domain-review-contract.md`
+**Rule:** Contracts are **normative** — they are constraints, not suggestions. Only an ADR can override a contract.
+
+See `docs/contracts/README.md` for complete contract registry and AI agent usage rules.
 
 ---
 
@@ -157,16 +196,40 @@ needs_review = TRUE if (parse_confidence != 'clear' OR selected_answer IS NULL)
 ```
 CLI
  ↓
-Planner
+Planner (read-only)
  ↓
 ExecutionPlan (immutable)
  ↓
-ExecutionEngine
+AsyncOrchestrator (parallel execution)
  ↓
-ResultWriter
+ExecutionEngine (pure execution; no DB)
+ ↓
+ResultWriter (DB writes only; idempotent)
  ↓
 Database
 ```
+
+See `docs/architecture/execution-architecture.md` for detailed component responsibilities.
+
+---
+
+## Configuration Hierarchy
+
+```
+CLI Arguments (highest priority)
+    ↓
+Run / Model Variant config
+    ↓
+Experiment config (frozen at creation)
+    ↓
+.env (used ONLY at experiment creation)
+    ↓
+System Defaults (lowest priority)
+```
+
+**Important:** `.env` is only consulted at experiment creation time. Run-level and Model-level resolution never falls back to `.env` — they inherit from experiment configuration only.
+
+See `docs/contracts/configuration-hierarchy.md` for complete specification.
 
 ---
 
@@ -176,67 +239,15 @@ The CLI is **explicit and declarative**.
 
 There is **no immediate execution mode**.
 
-### Experiments
+All commands require `--experiment <name>` or `--create-experiment <name>` to identify the target experiment.
 
-```bash
-EXE --create-experiment <name>
-EXE --list-experiment
-EXE --experiment <name>
-EXE --remove-experiment <name>
-```
+**Text flags must be quoted** (e.g., `--system-prompt "text"`).
 
----
+**Model variants must be added separately** — one per command, after experiment creation.
 
-### Models (Variants)
+Composite flows are intentionally limited to avoid ambiguity.
 
-```bash
-EXE --experiment <name> --add-model <model_id>
-EXE --experiment <name> --list-model
-EXE --experiment <name> --model <model_id>
-EXE --experiment <name> --remove-model <model_id>
-```
-
-Removing a model:
-- does NOT delete historical data
-- only prevents future runs
-
----
-
-### Questions / Snapshots
-
-```bash
-EXE --experiment <name> --add-questions
-EXE --experiment <name> --add-questions 1-10
-EXE --experiment <name> --list-questions
-```
-
-- Source file comes from `.env` by default
-- Can be overridden explicitly
-- Snapshotting is idempotent
-
----
-
-### Runs
-
-```bash
-EXE --experiment <name> --create-run <run_name>
-EXE --experiment <name> --list-run
-EXE --experiment <name> --run <run_name>
-EXE --experiment <name> --remove-run <run_name>
-```
-
----
-
-### Execution
-
-```bash
-EXE --experiment <name> --run <run_name> --execute
-```
-
-Execution:
-- never creates entities
-- never infers configuration
-- always follows an ExecutionPlan
+See `docs/reference/cli-commands.md` for complete command reference.
 
 ---
 
@@ -249,6 +260,8 @@ The database is:
 
 If something exists in the database, it **means something happened**.
 
+See `docs/reference/database-schema.md` for complete schema with field descriptions.
+
 ---
 
 ## Environment Variables (Current Role)
@@ -260,17 +273,89 @@ Environment variables:
 
 They are **inputs**, not state.
 
+See `docs/reference/configuration-reference.md` for complete .env settings.
+
+---
+
+## AI Agent Working Rules
+
+### Absolute Invariants (Never Violate)
+
+1. **Determinism:** Same configuration must always produce the same set of API requests
+2. **Idempotency:** Never generate duplicate data for same experiment/run/model/question
+3. **Immutability:** Snapshots, execution plans, and historical data cannot be modified
+4. **Explicit Over Implicit:** No inference, no ad-hoc execution, no hidden behavior
+5. **Auditability:** All data must be traceable to its origin
+
+### If You Detect a Violation
+
+1. **Stop** — Do not proceed
+2. **Document** — Show the violation explicitly (contract text + conflicting code)
+3. **Flag** — Present to human for decision
+4. **Wait** — Do not assume correctness
+5. **Record** — If human clarifies, create ADR if architectural
+
+### Documentation Update Protocol
+
+When you change code, update docs in this order:
+1. **Reference docs** (describe what exists)
+2. **Status docs** (track current condition)
+3. **Architecture docs** (only if concepts changed)
+4. **Contracts** (only if invariants changed — requires ADR)
+
+See `docs/guides/ai-development-workflow.md` for complete working guide.
+
+---
+
+## Documentation Structure
+
+```
+docs/
+├── contracts/                    # NORMATIVE — Invariants & guarantees
+│   ├── README.md                 # Index + source-of-truth statement
+│   ├── determinism.md
+│   ├── idempotency.md
+│   ├── immutability.md
+│   ├── configuration-hierarchy.md
+│   ├── system-default-semantics.md
+│   ├── data-auditability.md
+│   └── interaction-contracts.md  # Placeholder
+├── architecture/                 # CONCEPTUAL — Design intent & relationships
+│   ├── overview.md
+│   ├── conceptual-model.md
+│   ├── execution-architecture.md
+│   ├── design-principles.md
+│   └── adr/                      # Architecture Decision Records
+│       └── 000-template.md
+├── reference/                    # IMPLEMENTATION — Current state details
+│   ├── cli-commands.md
+│   ├── configuration-reference.md
+│   ├── database-schema.md
+│   ├── module-structure.md
+│   └── api-integration.md
+├── guides/                       # OPERATIONAL — How to work with system
+│   └── ai-development-workflow.md
+├── status/                       # STATE TRACKING — Current condition
+│   ├── implementation-status.md
+│   ├── known-issues.md
+│   └── roadmap.md                # Intent, not commitment
+├── _review-notes/                # Review accumulation
+└── archive/                      # HISTORICAL — Pre-restructure docs
+    └── pre-restructure/
+        └── INVENTORY.md
+```
+
+**Note:** `docs/maestro/` is NOT part of the documentation system. It remains separate for orchestration state.
+
 ---
 
 ## Outdated Documentation Notice
 
-The following documents are **likely outdated** and should not be used as architectural reference:
+The following documents are **archived** and should not be used as architectural reference:
 
-- README.md (usage examples)
-- docs/USAGE.md
-- docs/CONFIGURATION.md
-- legacy CLI examples
-- any reference to “immediate execution” or “iterations”
+- `docs/archive/pre-restructure/` — All pre-restructure documents (see INVENTORY.md)
+- Any reference to "immediate execution" or "iterations"
+- Any document not in the new structure above
 
 They must be reviewed or rewritten before reuse.
 
@@ -279,10 +364,12 @@ They must be reviewed or rewritten before reuse.
 ## Final Note
 
 This project prioritizes:
-- clarity over convenience
-- reproducibility over speed
-- explicit intent over implicit behavior
+- **clarity over convenience**
+- **reproducibility over speed**
+- **explicit intent over implicit behavior**
 
 If a feature conflicts with these principles, **the feature is wrong**.
+
+See `docs/architecture/design-principles.md` for complete philosophy and non-goals.
 
 ---
