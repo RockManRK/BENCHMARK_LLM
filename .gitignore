@@ -80,7 +80,6 @@ Arquivos_Mortos/
 Nao_Apagar-Temporarios_do_Usuario/
 .gitignore
 
-.qwen/
 gha-creds-*.json
 data/bcllm.db
 .gitignore

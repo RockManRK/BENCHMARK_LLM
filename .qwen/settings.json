@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__maestro__get_session_status",
+      "mcp__maestro__initialize_workspace",
+      "mcp__maestro__create_session",
+      "mcp__maestro__update_session",
+      "Read(D:\\OneDrive\\Pessoais\\Projetos\\Projetos\\benchmark_llm\\docs/**)",
+      "mcp__maestro__resolve_settings",
+      "mcp__maestro__assess_task_complexity",
+      "mcp__maestro__archive_session",
+      "Bash(select-object *)",
+      "Bash(python *)",
+      "WebSearch",
+      "WebFetch(openrouter.ai)",
+      "Read(D:\\OneDrive\\Pessoais\\Projetos\\Projetos\\benchmark_llm\\src\\api/**)",
+      "Bash(type *)",
+      "Bash(echo *)",
+      "Bash(mkdir *)",
+      "Bash(xcopy *)",
+      "Bash(copy *)",
+      "WebFetch(github.com)",
+      "WebFetch(qwenlm.github.io)"
+    ]
+  },
+  "$version": 3
+}

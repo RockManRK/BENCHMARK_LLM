@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__maestro__get_session_status",
+      "mcp__maestro__initialize_workspace",
+      "mcp__maestro__create_session",
+      "mcp__maestro__update_session"
+    ]
+  }
+}
