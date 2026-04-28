@@ -205,6 +205,7 @@ class OpenRouterClient(CompletionProvider):
         max_reasoning_tokens: int | None = None,
         stop: list[str] | None = None,
         response_format: dict[str, Any] | None = None,
+        provider: dict[str, Any] | None = None,
     ) -> CompletionResponse:
         """Perform OpenRouter chat completion.
 
@@ -221,6 +222,8 @@ class OpenRouterClient(CompletionProvider):
             stop: Stop sequences
             response_format: Response format configuration for structured outputs.
                             Example: {"type": "json_object"}
+            provider: Provider configuration for provider locking.
+                     Example: {"only": ["deepinfra/turbo"], "allow_fallbacks": False}
 
         Returns:
             CompletionResponse with content and metadata
@@ -317,6 +320,12 @@ class OpenRouterClient(CompletionProvider):
 
             if reasoning_config:
                 payload["reasoning"] = reasoning_config
+
+            # --- 4b. Provider Locking ---
+            # When provider config is provided, include it in the request.
+            # This ensures the same provider is used for every request.
+            if provider is not None:
+                payload["provider"] = provider
 
             # --- 5. Debug ---
             if self._debug_enabled:

@@ -582,10 +582,12 @@ class TestBuildExperimentConfigDict:
             "RUN_RESPONSES_SEED",
             "SYSTEM_PROMPT",
             "USER_PROMPT",
+            "PROVIDER_LOCK",
+            "PROVIDER_SELECTION_STRATEGY",
         }
 
         assert set(result.keys()) == expected_keys
-        assert len(result) == 14  # 14 keys total
+        assert len(result) == 16  # 16 keys total
 
     def test_does_not_include_system_keys(self) -> None:
         """Test that SYSTEM keys are NOT included in experiment config."""

@@ -31,6 +31,7 @@ SIGNATURE_FIELD_ORDER = [
     ('MODEL_TOP_K', 'top_k'),
     ('MODEL_MAX_TOKENS_TOTAL', 'max_tokens'),
     ('MODEL_MAX_TOKENS_REASONING', 'reasoning_tokens'),
+    ('PROVIDER', 'provider'),
 ]
 
 

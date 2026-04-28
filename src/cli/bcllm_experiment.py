@@ -207,6 +207,12 @@ def create_parser() -> argparse.ArgumentParser:
         action="append",
         help="Exclude filter for questions (format: field=value, e.g., status=annulled)",
     )
+    parser.add_argument(
+        "--provider-lock",
+        type=str,
+        metavar="VALUE",
+        help="Enable provider lock. Valid values: true, false, system-default (case-insensitive). Default: false",
+    )
 
     return parser
 
@@ -345,6 +351,11 @@ def handle_create_experiment(args, conn) -> int:
         print("Valid values: true, false, TRUE, FALSE, True, False, null, NULL, Null", file=sys.stderr)
         print("Note: 'none' is NOT a valid value - it is treated as a literal string", file=sys.stderr)
         print("Example: --structured false", file=sys.stderr)
+        return 1
+
+    if args.provider_lock is not None and not _validate_bool_value(args.provider_lock):
+        print(f"Error: Invalid value for --provider-lock: {args.provider_lock}", file=sys.stderr)
+        print("Valid values: true, false, system-default (case-insensitive)", file=sys.stderr)
         return 1
 
     # Validate mandatory field --url rejects 'system-default'
@@ -744,6 +755,63 @@ def handle_remove_experiment(args, conn) -> int:
     return 0
 
 
+def handle_modify_provider_lock(args, conn) -> int:
+    """Handle --provider-lock modification on an existing experiment.
+
+    Args:
+        args: Parsed command-line arguments.
+        conn: Database connection.
+
+    Returns:
+        Exit code (0 for success, 1 for error).
+    """
+    logger = get_logger('cli.experiment')
+    repo = ExperimentRepository(conn)
+    name = args.experiment
+    experiment = repo.get_by_name(name)
+
+    if not experiment:
+        logger.error(f"EXPERIMENT_MODIFY | name={name} | error=Not found")
+        print(f"Error: Experiment not found: {name}", file=sys.stderr)
+        return 1
+
+    # Validate provider-lock value
+    if not _validate_bool_value(args.provider_lock):
+        print(f"Error: Invalid value for --provider-lock: {args.provider_lock}", file=sys.stderr)
+        print("Valid values: true, false, system-default (case-insensitive)", file=sys.stderr)
+        return 1
+
+    # Resolve provider-lock value
+    resolver = ConfigResolver()
+    resolver.load_env()
+    resolved_lock = resolver.resolve_provider_lock(
+        cli_value=args.provider_lock,
+        env_key="AUTO_PROVIDER_LOCK",
+        default=False
+    )
+
+    # Update experiment config
+    config = json.loads(experiment.config_json) if experiment.config_json else {}
+
+    if resolved_lock is FORCE_SYSTEM_DEFAULT:
+        config["PROVIDER_LOCK"] = None  # Explicit absence
+    else:
+        config["PROVIDER_LOCK"] = resolved_lock
+
+    # Serialize updated config
+    updated_config_json = json.dumps(config, indent=None, separators=(',', ':'))
+    updated_config_hash = hashlib.sha256(updated_config_json.encode('utf-8')).hexdigest()
+
+    # Update experiment in database
+    experiment.config_json = updated_config_json
+    experiment.config_hash = updated_config_hash
+    repo.save(experiment)
+
+    logger.info(f"EXPERIMENT_MODIFIED | name={name} | PROVIDER_LOCK={config.get('PROVIDER_LOCK')}")
+    print(f"✓ Experiment '{experiment.name}' updated: PROVIDER_LOCK = {config.get('PROVIDER_LOCK')}")
+    return 0
+
+
 def main(mode: Mode) -> int:
     """Main entry point.
 
@@ -763,6 +831,9 @@ def main(mode: Mode) -> int:
         if args.create_experiment:
             return handle_create_experiment(args, conn)
         elif args.experiment:
+            # Check if this is a modify operation with --provider-lock
+            if args.provider_lock is not None:
+                return handle_modify_provider_lock(args, conn)
             return handle_show_experiment(args, conn)
         elif args.list_experiments:
             return handle_list_experiments(args, conn)

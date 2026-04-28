@@ -88,6 +88,29 @@ The `is_correct` field is calculated using `correct_option_presented` (the optio
 
 ---
 
+### 5. Provider Locking
+
+When `PROVIDER_LOCK=true` and `PROVIDER` is resolved for a model variant, the provider slug becomes part of the deterministic configuration.
+
+**Invariant**: Same `PROVIDER` + model + config → same API request payload, always.
+
+**Resolution contract**:
+- `PROVIDER` is resolved once via `--resolve-providers`
+- Resolved provider is persisted in `model_variants.config.PROVIDER`
+- ExecutionPlan includes `resolved_provider` per variant
+- Executor includes `provider.only` in request payload
+
+**When `PROVIDER_LOCK=true`**:
+- Pre-execution validation requires all variants to have `PROVIDER != null`
+- If any variant has `PROVIDER=null`, execution fails with clear error
+
+**When `PROVIDER_LOCK=false`**:
+- `PROVIDER=null` is allowed
+- OpenRouter's default load balancing applies
+- Results may not be reproducible across provider changes
+
+---
+
 ## What Determinism Does NOT Guarantee
 
 - **Same responses** — LLMs are non-deterministic; responses may vary

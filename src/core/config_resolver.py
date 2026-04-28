@@ -321,6 +321,74 @@ class ConfigResolver:
         seed = int.from_bytes(hash_bytes[:8], byteorder='big')
         return seed % (2**31)
 
+    def resolve_provider_lock(
+        self,
+        cli_value: str | None,
+        env_key: str = "AUTO_PROVIDER_LOCK",
+        default: bool = False
+    ) -> bool | None | type[FORCE_SYSTEM_DEFAULT]:
+        """Resolve provider lock setting.
+
+        Resolution order:
+        1. CLI value (if provided and not FORCE_SYSTEM_DEFAULT)
+        2. .env value (AUTO_PROVIDER_LOCK)
+        3. Default (false)
+
+        CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly false" - no fallback to .env.
+
+        Args:
+            cli_value: CLI value (may be FORCE_SYSTEM_DEFAULT for 'system-default' input).
+            env_key: Environment variable key for .env lookup.
+            default: Default value if not specified anywhere.
+
+        Returns:
+            True if lock enabled, False if disabled, FORCE_SYSTEM_DEFAULT for explicit system-default.
+        """
+        # CLI was FORCE_SYSTEM_DEFAULT → return FORCE_SYSTEM_DEFAULT (no fallback)
+        if cli_value is FORCE_SYSTEM_DEFAULT:
+            return FORCE_SYSTEM_DEFAULT
+
+        # CLI provided (not None, not FORCE_SYSTEM_DEFAULT)
+        if cli_value is not None:
+            parsed = self._parse_bool_value(cli_value)
+            if parsed is not None:
+                return parsed
+            # If parsing failed, fall through to .env
+
+        # CLI was None (not specified) → check .env
+        env_value = self.env_dict.get(env_key)
+        if env_value is not None:
+            parsed = self._parse_bool_value(env_value)
+            if parsed is not None:
+                return parsed
+
+        return default
+
+    def resolve_provider_selection_strategy(
+        self,
+        env_key: str = "PROVIDER_SELECTION_STRATEGY",
+        default: str = "first"
+    ) -> str:
+        """Resolve provider selection strategy.
+
+        Resolution order:
+        1. .env value (PROVIDER_SELECTION_STRATEGY)
+        2. Default ("first")
+
+        Valid strategies: "first", "cheapest", "fastest", "lowest-latency"
+
+        Args:
+            env_key: Environment variable key for .env lookup.
+            default: Default strategy name if not specified.
+
+        Returns:
+            Strategy name: "first", "cheapest", "fastest", or "lowest-latency".
+        """
+        env_value = self.env_dict.get(env_key)
+        if env_value and env_value.strip():
+            return env_value.strip().lower()
+        return default
+
     def build_experiment_config_dict(self, cli_args) -> dict:
         """Build complete configuration dictionary for experiment creation.
 
@@ -347,7 +415,7 @@ class ConfigResolver:
             cli_args: Parsed CLI arguments (argparse.Namespace).
 
         Returns:
-            Dictionary with 14 configuration keys (1 EXPERIMENT + 10 MODEL + 3 RUN).
+            Dictionary with 16 configuration keys (3 EXPERIMENT + 10 MODEL + 3 RUN).
         """
         resolved_seed = self.resolve_seed(
             cli_value=getattr(cli_args, 'seed', None),
@@ -355,9 +423,24 @@ class ConfigResolver:
             experiment_name=getattr(cli_args, 'create_experiment', 'default')
         )
 
+        # Resolve PROVIDER_LOCK from CLI > .env > default
+        resolved_provider_lock = self.resolve_provider_lock(
+            cli_value=getattr(cli_args, 'provider_lock', None),
+            env_key="AUTO_PROVIDER_LOCK",
+            default=False
+        )
+
+        # Resolve PROVIDER_SELECTION_STRATEGY from .env > default
+        resolved_strategy = self.resolve_provider_selection_strategy(
+            env_key="PROVIDER_SELECTION_STRATEGY",
+            default="first"
+        )
+
         return {
-            # EXPERIMENT keys (1) - Resolved from .env at experiment creation
+            # EXPERIMENT keys (3) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
+            "PROVIDER_LOCK": resolved_provider_lock if resolved_provider_lock is not FORCE_SYSTEM_DEFAULT else None,
+            "PROVIDER_SELECTION_STRATEGY": resolved_strategy,
 
             # MODEL keys (10) - Resolved from CLI/.env as defaults for model variants
             "BASE_URL": self._resolve_with_force_system_default(

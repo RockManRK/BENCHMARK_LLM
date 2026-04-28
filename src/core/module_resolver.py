@@ -47,6 +47,9 @@ _MODULE_MAP = {
     "--review-experiment": "bcllm_review",
     "--review-all": "bcllm_review",
 
+    # Provider module
+    "--resolve-providers": "bcllm_provider",
+
     # Main module (help)
     "--help": "bcllm_main",
     "-h": "bcllm_main",
@@ -157,6 +160,8 @@ def resolve_module(argv: List[str]) -> Optional[str]:
 
     # Check for other action flags (list, remove, run, review, etc.)
     PRIORITY_FLAGS = [
+        # Provider resolution (MODIFY operation - must check before --experiment)
+        "--resolve-providers",
         # Run actions
         "--create-run", "--list-runs", "--run", "--remove-run",
         # Model actions (already handled ADD_MODEL above, but list/remove need this)

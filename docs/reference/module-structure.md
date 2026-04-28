@@ -22,6 +22,7 @@ src/
 │   ├── client.py         # OpenRouterClient (httpx.AsyncClient wrapper)
 │   ├── errors.py         # API error types
 │   ├── message_builder.py # Request message construction
+│   ├── provider_resolver.py # Provider endpoint resolution
 │   ├── response_parser.py # LLM response parsing
 │   └── stream_aggregator.py # Streaming response handling
 ├── cli/                  # CLI command modules
@@ -55,8 +56,7 @@ src/
 │   ├── answer_randomizer.py # Fisher-Yates shuffle
 │   ├── argv_utils.py     # Argument parsing utilities
 │   ├── json_serializer.py # JSON serialization
-│   ├── question_loader.py # Question dataset loading
-│   └── variant_signature.py # Variant identity generation
+│   └── question_loader.py # Question dataset loading
 ├── db/                   # Database layer
 │   ├── __init__.py
 │   ├── models.py         # Entity dataclasses
@@ -96,6 +96,7 @@ src/
 | Module | Responsibility |
 |--------|---------------|
 | `client.py` | `OpenRouterClient` — wraps `httpx.AsyncClient`; handles auth, request building, response receiving |
+| `provider_resolver.py` | Provider endpoint resolution via OpenRouter `/models/{id}/endpoints` API |
 | `errors.py` | API error types (network, auth, rate_limit, server) |
 | `message_builder.py` | Builds OpenRouter API request messages |
 | `response_parser.py` | Parses streaming responses; extracts text |
@@ -112,8 +113,9 @@ src/
 | Module | Commands | Responsibility |
 |--------|----------|---------------|
 | `bcllm_main.py` | `--help` | Help display, argument parser definition |
-| `bcllm_experiment.py` | `--create-experiment`, `--experiment`, `--list-experiments`, `--remove-experiment` | Experiment lifecycle |
-| `bcllm_model.py` | `--add-model`, `--list-models`, `--remove-model` | Model variant management |
+| `bcllm_experiment.py` | `--create-experiment`, `--experiment`, `--list-experiments`, `--remove-experiment` | Experiment lifecycle (including `--provider-lock`) |
+| `bcllm_model.py` | `--add-model`, `--list-models`, `--remove-model` | Model variant management (including `--provider`) |
+| `bcllm_provider.py` | `--resolve-providers` | Provider resolution for model variants |
 | `bcllm_questions.py` | `--add-questions`, `--list-questions`, `--remove-question` | Question snapshot management |
 | `bcllm_run.py` | `--create-run`, `--list-runs`, `--run`, `--remove-run` | Run management |
 | `bcllm_execute.py` | `--execute` | Execution orchestration (Planner → Engine → Writer) |
@@ -157,7 +159,6 @@ src/
 | `question_loader.py` | Loads and filters questions from dataset |
 | `json_serializer.py` | Consistent JSON serialization |
 | `argv_utils.py` | Argument parsing utilities |
-| `variant_signature.py` | Generates human-readable variant signatures |
 
 ---
 

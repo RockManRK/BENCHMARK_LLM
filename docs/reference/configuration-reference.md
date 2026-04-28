@@ -129,6 +129,21 @@ These values serve as defaults when creating runs.
 
 ---
 
+### 7. Provider Locking (OpenRouter)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTO_PROVIDER_LOCK` | `false` | Default provider lock setting for new experiments. Set to `true` to require provider resolution before execution. |
+| `PROVIDER_SELECTION_STRATEGY` | `first` | Strategy for `--resolve-providers`. Options: `first`, `cheapest`, `fastest`, `lowest-latency`. |
+
+**Provider Resolution Strategies:**
+- `first`: First endpoint listed by OpenRouter
+- `cheapest`: Lowest prompt pricing
+- `fastest`: Highest throughput
+- `lowest-latency`: Lowest latency
+
+---
+
 ## Configuration Resolution
 
 Configuration follows the **hierarchy**:
@@ -160,6 +175,43 @@ System Defaults (lowest priority)
 **First non-None value wins.**
 
 See [contracts/configuration-hierarchy.md](../contracts/configuration-hierarchy.md) for full specification.
+
+---
+
+## Experiment Config Schema
+
+The `Experiment.config_json` stores these fields:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `SEED` | `str \| null` | Randomization seed (`"AUTO"`, `null`, or integer) |
+| `SYSTEM_PROMPT` | `str \| null` | System prompt template |
+| `USER_PROMPT` | `str \| null` | User prompt template with `{question}`, `{options}` |
+| `BASE_URL` | `str \| null` | API base URL |
+| `QUESTIONS_DATASET_PATH` | `str \| null` | Questions file path |
+| `PROVIDER_LOCK` | `bool \| null` | Provider lock setting (`true` = require resolved providers) |
+| `PROVIDER_SELECTION_STRATEGY` | `str` | Provider resolution strategy (default: `first`) |
+
+---
+
+## Model Variant Config Schema
+
+The `ModelVariant.config` stores these fields:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `MODEL_ID` | `str` | Base model identifier |
+| `REASONING` | `str \| null` | Reasoning effort |
+| `MAX_TOKENS` | `int \| null` | Max tokens for generation |
+| `REASONING_TOKENS` | `int \| null` | Max reasoning tokens |
+| `TEMPERATURE` | `float \| null` | Temperature |
+| `TOP_P` | `float \| null` | Top-P sampling |
+| `TOP_K` | `int \| null` | Top-K sampling |
+| `REPEAT_PENALTY` | `float \| null` | Repeat penalty |
+| `VISION` | `bool \| null` | Vision support |
+| `STRUCTURED` | `bool \| null` | Structured output |
+| `BASE_URL` | `str \| null` | Model-specific API URL |
+| `PROVIDER` | `str \| null` | OpenRouter provider slug (e.g., `deepinfra/turbo`). `null` means unresolved — OpenRouter chooses. |
 
 ---
 
@@ -228,6 +280,10 @@ USER_PROMPT=
 
 # Concurrency
 CONCURRENCY=
+
+# Provider Locking
+AUTO_PROVIDER_LOCK=false
+PROVIDER_SELECTION_STRATEGY=first
 ```
 
 ---

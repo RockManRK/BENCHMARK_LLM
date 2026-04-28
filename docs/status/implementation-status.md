@@ -172,6 +172,21 @@ This distinction is critical for future AI agents to correctly assess implementa
 
 **Module:** `src/api/client.py`
 
+### ✅ Provider Locking (OpenRouter)
+
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Provider resolution | ✅ Complete | Via `--resolve-providers` command |
+| Provider strategies | ✅ Complete | first, cheapest, fastest, lowest-latency |
+| Provider locking | ✅ Complete | `--provider-lock true|false|system-default` |
+| Pre-execution validation | ✅ Complete | Planner blocks execution if lock enabled and unresolved |
+| Provider in API request | ✅ Complete | `provider.only` + `allow_fallbacks: false` |
+| Provider persistence | ✅ Complete | Stored in `model_variants.config.PROVIDER` |
+| ExecutionPlan inclusion | ✅ Complete | `resolved_provider` in `PlanVariant` |
+| Idempotent resolution | ✅ Complete | Skips already-resolved variants |
+
+**Modules:** `src/api/provider_resolver.py`, `src/cli/bcllm_provider.py`, `src/core/planner.py`, `src/core/execution_engine.py`, `src/core/execution_plan.py`
+
 ### ✅ Retry Safety
 
 | Capability | Status | Notes |

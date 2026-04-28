@@ -265,7 +265,7 @@ def _execute_all_add_actions(argv: list[str], experiment_name: str, conn, logger
             "--add-model": [
                 "--reasoning", "--max-tokens", "--reasoning-tokens",
                 "--temperature", "--top-p", "--top-k", "--repeat-penalty",
-                "--vision", "--structured", "--url"
+                "--vision", "--structured", "--url", "--provider"
             ],
             "--add-questions": [
                 "--where", "--exclude", "--source-file"
@@ -383,6 +383,7 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
         bcllm_review,
         bcllm_export,
         bcllm_main,
+        bcllm_provider,
     )
 
     if module_name == "bcllm_main":
@@ -399,6 +400,8 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
         return bcllm_review.main(mode)
     elif module_name == "bcllm_export":
         return bcllm_export.main(mode)
+    elif module_name == "bcllm_provider":
+        return bcllm_provider.main(mode)
     else:
         print(f"Error: Unknown v2 module: {module_name}", file=sys.stderr)
         return 1

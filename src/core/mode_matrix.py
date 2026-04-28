@@ -22,11 +22,12 @@ _VALID_COMBINATIONS = {
     (Mode.CREATE, "bcllm_model"): True,
     (Mode.CREATE, "bcllm_questions"): True,
     (Mode.CREATE, "bcllm_run"): True,
-    
+
     (Mode.MODIFY, "bcllm_experiment"): True,
     (Mode.MODIFY, "bcllm_model"): True,
     (Mode.MODIFY, "bcllm_questions"): True,
     (Mode.MODIFY, "bcllm_run"): True,
+    (Mode.MODIFY, "bcllm_provider"): True,
     (Mode.EXECUTE, "bcllm_run"): True,
     (Mode.EXECUTE, "bcllm_execute"): True,
     (Mode.EXPORT, "bcllm_export"): True,

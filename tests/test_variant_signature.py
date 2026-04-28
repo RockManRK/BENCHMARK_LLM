@@ -131,6 +131,7 @@ class TestGenerateVariantSignature:
             "MODEL_TOP_K": 40,
             "MODEL_MAX_TOKENS_TOTAL": 2048,
             "MODEL_MAX_TOKENS_REASONING": 1024,
+            "PROVIDER": "deepinfra/turbo",
         }
         result = generate_variant_signature("google/gemini-3.1-flash-lite-preview", config)
         expected = (
@@ -142,9 +143,35 @@ class TestGenerateVariantSignature:
             "top_p=0.95|"
             "top_k=40|"
             "max_tokens=2048|"
-            "reasoning_tokens=1024"
+            "reasoning_tokens=1024|"
+            "provider=deepinfra/turbo"
         )
         assert result == expected
+
+    def test_provider_differentiation(self):
+        """Different PROVIDER values should produce different signatures.
+
+        This test ensures that variants with same model_id and config but
+        different providers generate unique signatures, preventing collisions.
+        """
+        base_config = {
+            "MODEL_TEMPERATURE": 0.7,
+        }
+
+        # Same model, same config, different providers
+        sig1 = generate_variant_signature("openai/gpt-4", {**base_config, "PROVIDER": "deepinfra/turbo"})
+        sig2 = generate_variant_signature("openai/gpt-4", {**base_config, "PROVIDER": "together"})
+        sig3 = generate_variant_signature("openai/gpt-4", base_config)  # No provider
+
+        # All signatures should be different
+        assert sig1 != sig2
+        assert sig1 != sig3
+        assert sig2 != sig3
+
+        # Verify provider appears in signature
+        assert "provider=deepinfra/turbo" in sig1
+        assert "provider=together" in sig2
+        assert "provider=" not in sig3
 
 
 class TestParseVariantSignature:

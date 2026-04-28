@@ -157,6 +157,9 @@ class Planner:
         # Validate experiment has snapshots
         snapshots = self._validate_has_snapshots(experiment_row["experiment_id"])
 
+        # Validate provider lock if enabled
+        self._validate_provider_lock(experiment_row["experiment_id"], variants)
+
         # Apply filters
         if model_variant_ids:
             variants = [v for v in variants if v["variant_id"] in model_variant_ids]
@@ -284,6 +287,73 @@ class Planner:
 
         return snapshots
 
+    def _validate_provider_lock(self, experiment_id: str, variants: list[sqlite3.Row]) -> None:
+        """Validate that all variants have PROVIDER resolved if lock is enabled.
+
+        When PROVIDER_LOCK is True in experiment config, all model variants must have
+        their PROVIDER field set. This ensures provider locking can be enforced during
+        execution without requiring fallback resolution.
+
+        Args:
+            experiment_id: Experiment identifier
+            variants: List of model variant rows
+
+        Raises:
+            PlannerValidationError: If PROVIDER_LOCK is True and any variant has PROVIDER=null
+        """
+        import json
+
+        # Get experiment config
+        cursor = self.conn.execute(
+            "SELECT config_json FROM experiments WHERE experiment_id = ?",
+            (experiment_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return  # Experiment doesn't exist — caught by other validation
+
+        exp_config = json.loads(row["config_json"]) if row["config_json"] else {}
+        provider_lock = exp_config.get("PROVIDER_LOCK", False)
+
+        if not provider_lock:
+            return  # Lock not enabled — no validation needed
+
+        # Check each variant
+        unresolved = []
+        for variant in variants:
+            config = json.loads(variant["config"]) if variant["config"] else {}
+            if config.get("PROVIDER") is None:
+                unresolved.append({
+                    "variant_id": variant["variant_id"],
+                    "model_id": variant["model_id"],
+                })
+
+        if unresolved:
+            variant_info = ", ".join(f"{u['model_id']} ({u['variant_id']})" for u in unresolved)
+            error_msg = (
+                f"ERROR: Provider lock is enabled for this experiment, "
+                f"but {len(unresolved)} model variant(s) have PROVIDER=null:\n"
+                f"  {variant_info}\n"
+                f"\nRun: bcllm --experiment <name> --resolve-providers\n"
+                f"Aborting execution."
+            )
+            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={experiment_id} | error={error_msg}")
+            raise PlannerValidationError(error_msg)
+
+    def _get_variant_provider(self, variant_row: sqlite3.Row) -> str | None:
+        """Get provider from variant config.
+
+        Args:
+            variant_row: Model variant database row
+
+        Returns:
+            Provider slug string or None if not set
+        """
+        import json
+        config_str = variant_row["config"] if "config" in variant_row.keys() else "{}"
+        config = json.loads(config_str) if config_str else {}
+        return config.get("PROVIDER")
+
     def _get_runs(
         self,
         experiment_id: str,
@@ -353,6 +423,7 @@ class Planner:
                 variant_id=variant["variant_id"],
                 model_id=variant["model_id"],
                 model_config_effective=self._build_model_config(variant),
+                resolved_provider=self._get_variant_provider(variant),
             )
             for variant in variants
         ]

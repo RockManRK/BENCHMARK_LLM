@@ -20,7 +20,12 @@
       "Bash(xcopy *)",
       "Bash(copy *)",
       "WebFetch(github.com)",
-      "WebFetch(qwenlm.github.io)"
+      "WebFetch(qwenlm.github.io)",
+      "Bash(.venv\\scripts\\python.exe *)",
+      "Bash(.venv\\scripts\\pytest.exe *)",
+      "Bash(del *)",
+      "Bash(findstr *)",
+      "Bash(powershell *)"
     ]
   },
   "$version": 3

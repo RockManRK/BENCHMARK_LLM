@@ -166,6 +166,12 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="VALUE",
         help="Enable structured outputs. Valid values: true, false, null (case-insensitive). Default: false",
     )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        metavar="PROVIDER_SLUG",
+        help="OpenRouter provider slug (e.g., deepinfra/turbo)",
+    )
 
     return parser
 
@@ -217,6 +223,13 @@ def handle_add_model(args, conn) -> int:
     resolver.load_env()
 
     config = resolver.build_model_config_dict(args, experiment)
+
+    # Add PROVIDER to config if specified
+    if args.provider is not None:
+        if args.provider is FORCE_SYSTEM_DEFAULT:
+            config["PROVIDER"] = None  # Explicit absence
+        else:
+            config["PROVIDER"] = args.provider.strip()
 
     variant_signature = generate_variant_signature(args.add_model, config)
 

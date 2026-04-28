@@ -163,7 +163,7 @@ not temporal execution order.
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
-| *(none yet)* | | | |
+| [ADR-001](adr-001-provider-locking.md) | Provider Selection & Locking for OpenRouter | Accepted | 2026-04-14 |
 
 ---
 

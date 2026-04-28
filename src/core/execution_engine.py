@@ -617,6 +617,20 @@ class ExecutionEngine:
             if reasoning_config:
                 request_payload["reasoning"] = reasoning_config
 
+            # --- Provider Locking ---
+            # When resolved_provider is set, include provider.only and allow_fallbacks=false
+            # This ensures the same provider is used for every request in this variant.
+            provider_slug = variant.resolved_provider  # From PlanVariant
+            if provider_slug is not None:
+                request_payload["provider"] = {
+                    "only": [provider_slug],
+                    "allow_fallbacks": False
+                }
+                self._logger.info(
+                    f"PROVIDER_LOCKED | run={item.run_id} | variant={item.variant_id} | "
+                    f"provider={provider_slug}"
+                )
+
             # Capture request_json AFTER all modifications to request_payload are complete.
             # This ensures the persisted JSON represents the EXACT payload that would be sent to the API,
             # including: all non-null fields, merged reasoning object, and streaming flag.
@@ -630,6 +644,15 @@ class ExecutionEngine:
             # Call API (this is what RetryHandler will retry)
             # CRITICAL: Use variant.model_id for API calls (external identifier)
             # variant.variant_id is for internal identity tracking only
+
+            # Build provider config if resolved_provider is set
+            provider_config: dict[str, Any] | None = None
+            if provider_slug is not None:
+                provider_config = {
+                    "only": [provider_slug],
+                    "allow_fallbacks": False
+                }
+
             response = await self.api_client.chat_completion(
                 model_id=variant.model_id,  # External API identifier
                 messages=messages,
@@ -641,6 +664,7 @@ class ExecutionEngine:
                 reasoning_effort=model_config.reasoning_effort,
                 max_reasoning_tokens=model_config.max_reasoning_tokens,
                 response_format=response_format,
+                provider=provider_config,
             )
 
             # Extract response data

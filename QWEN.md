@@ -326,7 +326,8 @@ docs/
 │   ├── execution-architecture.md
 │   ├── design-principles.md
 │   └── adr/                      # Architecture Decision Records
-│       └── 000-template.md
+│       ├── 000-template.md
+│       └── adr-001-provider-locking.md  # Provider selection & locking
 ├── reference/                    # IMPLEMENTATION — Current state details
 │   ├── cli-commands.md
 │   ├── configuration-reference.md

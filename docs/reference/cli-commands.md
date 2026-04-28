@@ -45,6 +45,7 @@ bcllm --create-experiment <name> [options]
 | `--data-set <path>` | Path to questions dataset | From `.env` QUESTIONS_DATASET_PATH |
 | `--add-questions <spec>` | Questions to snapshot | All available |
 | `--add-model <model_id>` | Model variant to add | None (must be explicit) |
+| `--provider-lock <value>` | Enable/disable provider lock (`true`, `false`, `system-default`) | From `.env` AUTO_PROVIDER_LOCK |
 
 **Text Flags Must Be Quoted:** Flags accepting multi-word text (e.g., `--system-prompt`, `--user-prompt`) must be quoted or provided via file:
 ```bash
@@ -95,7 +96,20 @@ bcllm --experiment <name> [options]
 - Can add models: `--add-model <model_id>`
 - Can change seed (doesn't affect existing runs)
 - Can change prompts (doesn't affect existing runs)
+- Can modify `--provider-lock` setting (requires `--experiment <name>`)
 - Cannot change name
+
+**Provider Lock Modification:**
+```bash
+# Enable provider lock
+bcllm --experiment my_exp --provider-lock true
+
+# Disable provider lock
+bcllm --experiment my_exp --provider-lock false
+
+# Reset to system default (bypass .env)
+bcllm --experiment my_exp --provider-lock system-default
+```
 
 ### List Experiments
 
@@ -112,6 +126,47 @@ bcllm --remove-experiment <name>
 ```
 
 **Purpose:** Remove experiment (soft delete; historical data preserved)
+
+---
+
+## Provider Commands
+
+### --resolve-providers
+
+**Purpose**: Resolve and persist providers for all model variants with `PROVIDER=null`.
+
+**Applies to**: `--experiment`
+
+**Example**:
+```bash
+bcllm --experiment my_exp --resolve-providers
+```
+
+**Output**:
+```
+Provider Resolution Report for experiment 'my_exp':
+  Resolved: 2
+  Skipped:  1
+  Failed:   0
+
+Resolved providers:
+  meta-llama/llama-3.3-70b-instruct -> deepinfra/turbo (via first)
+  anthropic/claude-3.5-sonnet -> togetherai/turbo (via cheapest)
+```
+
+**Behavior**:
+- Reads `PROVIDER_SELECTION_STRATEGY` from experiment config (default: `first`)
+- Updates `model_variants.config.PROVIDER` for unresolved variants
+- Skips variants with already-resolved providers
+- Returns exit code 0 on success, 1 if any failed
+
+**Strategies**:
+- `first`: First endpoint listed by OpenRouter
+- `cheapest`: Lowest prompt pricing
+- `fastest`: Highest throughput
+- `lowest-latency`: Lowest latency
+
+**Note**: Run this before `--execute` when `PROVIDER_LOCK=true`.
 
 ---
 
@@ -142,7 +197,22 @@ bcllm --experiment <name> --add-model <model_id> [options]
 | `--structured <bool>` | Enable structured output (`true`, `false`) | Not sent in API request |
 | `--url <base_url>` | Model-specific API URL | Experiment-level URL |
 
-**Boolean Values:** `true`, `false`, `system-default` (case-insensitive)
+### --provider <provider_slug>
+
+**Purpose**: Specify OpenRouter provider for a model variant.
+
+**Applies to**: `--add-model`
+
+**Example**:
+```bash
+bcllm --experiment my_exp --add-model meta-llama/llama-3.3-70b-instruct --provider deepinfra/turbo
+```
+
+**Behavior**:
+- Sets `PROVIDER` in the model variant's config
+- Provider slug must match a valid OpenRouter provider endpoint (e.g., `deepinfra/turbo`)
+- Use `system-default` to explicitly clear the provider (forces OpenRouter to choose)
+- Without `--provider`, the variant has `PROVIDER=null` (unresolved)
 
 ### List Models
 

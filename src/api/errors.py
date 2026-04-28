@@ -11,6 +11,7 @@ Error Types:
 - ClientError: Client errors (4xx, non-auth)
 - TimeoutError: Request timeouts
 - NetworkError: Network connectivity failures
+- NoProviderError: No providers available for a model
 
 The ErrorClassifier provides static methods to classify HTTP errors
 into domain-specific error types.
@@ -155,6 +156,26 @@ class TimeoutError(APIError):  # type: ignore
             raw_error: Optional raw error data from provider
         """
         super().__init__(message, error_type="timeout", raw_error=raw_error)
+
+
+class NoProviderError(APIError):
+    """No providers available for the given model.
+
+    Raised when the OpenRouter API returns an empty endpoints list
+    for a model, indicating that no providers are currently available.
+
+    Example:
+        >>> raise NoProviderError("No providers for meta-llama/llama-3.3-70b-instruct")
+    """
+
+    def __init__(self, message: str, raw_error: dict | None = None) -> None:
+        """Initialize no provider error.
+
+        Args:
+            message: Human-readable error message
+            raw_error: Optional raw error data from provider
+        """
+        super().__init__(message, error_type="no_provider", raw_error=raw_error)
 
 
 class NetworkError(APIError):

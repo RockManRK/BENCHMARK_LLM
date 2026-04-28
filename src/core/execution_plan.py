@@ -239,18 +239,22 @@ class PlanVariant:
         variant_id: Unique identifier for this variant
         model_id: Base model identifier (e.g., 'openai/gpt-4')
         model_config_effective: Complete model configuration
+        resolved_provider: Provider slug (e.g., 'deepinfra/turbo') or None.
+                          When set, the executor includes provider.only in requests.
 
     Example:
         variant = PlanVariant(
             variant_id="var-abc123",
             model_id="openai/gpt-4",
             model_config_effective=ModelConfig(temperature=0.7),
+            resolved_provider="deepinfra/turbo",
         )
     """
 
     variant_id: str
     model_id: str
     model_config_effective: ModelConfig
+    resolved_provider: str | None = None
 
 
 @dataclass(frozen=True)
