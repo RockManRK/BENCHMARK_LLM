@@ -609,7 +609,7 @@ class ConfigResolver:
     def build_model_config_dict(self, cli_args, experiment) -> dict:
         """Build complete configuration dictionary for model variant creation.
 
-        Includes ALL 10 model-level keys from contract, even if null.
+        Includes ALL 11 model-level keys from contract, even if null.
         Resolution order: CLI > experiment > NULL (NO .env consultation)
 
         Args:
@@ -617,7 +617,7 @@ class ConfigResolver:
             experiment: Experiment entity (for potential inheritance).
 
         Returns:
-            Dictionary with ALL 10 model-level configuration keys:
+            Dictionary with ALL 11 model-level configuration keys:
             - BASE_URL: str | None
             - MODEL_MAX_TOKENS_REASONING: int | None
             - MODEL_MAX_TOKENS_TOTAL: int | None
@@ -628,6 +628,7 @@ class ConfigResolver:
             - MODEL_TOP_P: float | None
             - MODEL_VISION: bool | None
             - STRUCTURED_OUTPUTS: bool | None
+            - PROVIDER: str | None
         """
         import json
 
@@ -709,6 +710,11 @@ class ConfigResolver:
                 exp_config,
                 "STRUCTURED_OUTPUTS",
                 self._parse_bool_value
+            ),
+            "PROVIDER": self._resolve_cli_or_experiment(
+                getattr(cli_args, 'provider', None),
+                exp_config,
+                "PROVIDER"
             ),
         }
 

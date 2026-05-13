@@ -742,10 +742,11 @@ class TestBuildModelConfigDict:
             "MODEL_TOP_P",
             "MODEL_VISION",
             "STRUCTURED_OUTPUTS",
+            "PROVIDER",
         }
 
         assert set(result.keys()) == expected_keys
-        assert len(result) == 10
+        assert len(result) == 11
 
     def test_boolean_values_case_insensitive(self) -> None:
         """Test that boolean values are case-insensitive."""

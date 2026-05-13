@@ -161,7 +161,7 @@ class ProviderResolver:
         Raises:
             httpx.HTTPError: HTTP request failures
         """
-        url = f"{self.base_url}/api/v1/models/{model_id}/endpoints"
+        url = f"{self.base_url}/models/{model_id}/endpoints"
 
         response = self._client.get(
             url=url,

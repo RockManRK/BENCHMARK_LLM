@@ -224,13 +224,6 @@ def handle_add_model(args, conn) -> int:
 
     config = resolver.build_model_config_dict(args, experiment)
 
-    # Add PROVIDER to config if specified
-    if args.provider is not None:
-        if args.provider is FORCE_SYSTEM_DEFAULT:
-            config["PROVIDER"] = None  # Explicit absence
-        else:
-            config["PROVIDER"] = args.provider.strip()
-
     variant_signature = generate_variant_signature(args.add_model, config)
 
     existing = var_repo.get_by_signature(experiment.experiment_id, variant_signature)

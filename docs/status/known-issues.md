@@ -1,7 +1,7 @@
 ---
 type: status
 audience: both
-last-validated: 2026-04-11
+last-validated: 2026-05-04
 status: active
 ---
 
@@ -158,6 +158,14 @@ If you encounter a bug, please add it to this document with:
 **Resolved:** 2026-04 (prior to documentation restructure)  
 **Description:** Configurable logging with file rotation and crash-safety implemented  
 **Impact:** System behavior is observable and debuggable
+
+### ✅ ProviderResolver Double ``/api/v1/`` URL Bug
+
+**Resolved:** 2026-05-04
+**Description:** ``ProviderResolver._fetch_endpoints()`` constructed the OpenRouter endpoints URL with a doubled ``/api/v1/`` path segment (``https://openrouter.ai/api/v1/api/v1/models/{id}/endpoints``) because ``base_url`` already included ``/api/v1`` and the method appended it again.
+**Reproduction:** Running ``--resolve-providers`` failed with ``Expecting value: line 1 column 1 (char 0)`` because the malformed URL returned an HTML page instead of JSON.
+**Fix:** Changed ``_fetch_endpoints`` URL construction from ``{base_url}/api/v1/models/{id}/endpoints`` to ``{base_url}/models/{id}/endpoints``. Updated corresponding unit test assertion.
+**Impact:** ``--resolve-providers`` command now works correctly; provider resolution returns valid endpoint data.
 
 ---
 

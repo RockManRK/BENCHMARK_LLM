@@ -329,7 +329,7 @@ class TestProviderResolverFetchEndpoints:
 
             # Assert
             mock_get.assert_called_once_with(
-                url="https://openrouter.ai/api/v1/api/v1/models/meta-llama/llama-3.3-70b-instruct/endpoints",
+                url="https://openrouter.ai/api/v1/models/meta-llama/llama-3.3-70b-instruct/endpoints",
                 headers={
                     "Authorization": "Bearer test-api-key",
                     "Content-Type": "application/json",

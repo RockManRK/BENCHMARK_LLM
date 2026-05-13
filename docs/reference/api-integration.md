@@ -1,7 +1,7 @@
 ---
 type: reference
 audience: ai
-last-validated: 2026-04-11
+last-validated: 2026-05-04
 status: active
 ---
 
@@ -217,6 +217,44 @@ Attempt 1 → Fail? → Wait (backoff) → Attempt 2 → Fail? → Wait → Atte
 **Design:** Same interface as OpenRouterClient, but communicates with local server instead of HTTP API.
 
 **Configuration:** Use model-specific `--url` flag to point to local server.
+
+---
+
+## Provider Resolver
+
+**Module:** `src/api/provider_resolver.py`
+
+### Purpose
+
+Queries the OpenRouter endpoints API to resolve which provider to use for a given model. Used by the `--resolve-providers` CLI command.
+
+### Endpoint
+
+- URL: `GET {base_url}/models/{model_id}/endpoints`
+- Auth: `Authorization: Bearer <OPENROUTER_API_KEY>`
+- Default base_url: `https://openrouter.ai/api/v1` (the `/models/{id}/endpoints` path is appended relative to this base)
+
+### Strategies
+
+| Strategy | Selection Criteria | Fallback |
+|----------|-------------------|----------|
+| `first` | First endpoint listed | N/A (always works) |
+| `cheapest` | Lowest `pricing.prompt` | Falls back to `first` with warning |
+| `fastest` | Highest `throughput_last_30m.p50` | Falls back to `first` with warning |
+| `lowest-latency` | Lowest `latency_last_30m.p50` | Falls back to `first` with warning |
+
+### Return Type
+
+`ProviderResolution(provider_slug, strategy_applied, was_fallback, warning)`
+
+- `provider_slug`: The resolved provider tag (e.g., `deepinfra/turbo`)
+- `strategy_applied`: Strategy actually used (may differ from requested if fallback occurred)
+- `was_fallback`: `True` if requested strategy fell back to `first`
+- `warning`: Warning message if fallback occurred, `None` otherwise
+
+### Synchronous Design
+
+The resolver uses `httpx.Client` (synchronous) because it is called from CLI commands, not from async execution paths.
 
 ---
 
