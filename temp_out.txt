@@ -1,4 +1,0 @@
-2026-04-17 15:09:00,961 - root - INFO - APPLICATION_START | version=2.0 | mode=invalid
-Error: Invalid MODE × MODULE combination (INVALID, bcllm_main).
-Hint: Check that the mode and module are compatible.
-Usage: bcllm --<mode-flag> --<module-flag> ...

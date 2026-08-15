@@ -14,7 +14,7 @@ status: active
 
 ## Contract Statement
 
-All configuration resolution follows a **strict hierarchy** with明确 precedence. A level inherits from its parent when a value is not explicitly set.
+All configuration resolution follows a **strict hierarchy** with precedence. A level inherits from its parent when a value is not explicitly set.
 
 ---
 
