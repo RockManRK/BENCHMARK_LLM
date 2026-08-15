@@ -151,3 +151,22 @@ This project prioritizes:
 - **explicit intent over implicit behavior**
 
 If a feature conflicts with these principles, **the feature is wrong**.
+
+---
+
+## Project Status for Funding Reviewers
+
+The development of **Benchmark LLM** is currently paused due to limited resources required to advance to the next phase of the system. This section is provided specifically for funding reviewers who need evidence of ongoing work, architectural maturity, and project viability.
+
+The project already has a fully structured architecture, well‑defined contracts, a reproducible execution pipeline, and comprehensive documentation. The pause reflects resource constraints — not technical blockers — and the system is ready for continued development as soon as funding becomes available.
+
+The requested funding will enable:
+
+- expansion of experiment coverage and model providers  
+- completion of the review and export subsystems  
+- strengthening of execution invariants and contract validation  
+- progression of the roadmap documented in `docs/status/`  
+
+All existing components remain stable, auditable, and aligned with the project’s core principles: **reproducibility, explicit execution, and full traceability**. The current state represents a solid foundation awaiting the resources necessary to resume active development.
+
+---
