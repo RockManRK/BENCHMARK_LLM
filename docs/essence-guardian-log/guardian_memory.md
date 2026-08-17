@@ -67,3 +67,10 @@ Cada chamada ao Guardian deve ler este arquivo antes de avaliar e adicionar uma 
 - **Contracts checked:** documentation-accuracy, determinism, idempotency, configuration-hierarchy, data-auditability
 - **Status:** Warning
 - **Note:** ADR, CLI docs, config reference, and determinism contract are accurate; module-structure.md has duplicate incorrect entries (provider_resolver.py in Core layer, variant_signature.py in Core layer).
+
+### [7] 2026-08-17
+- **Trigger:** Essence Guardian test invocation (fictitious scenario, no real code change)
+- **Scope:** Hypothetical change to src/core/execution_engine.py (ExecutionEngine writes directly to `errors` table via its own DB connection on retryable error)
+- **Contracts checked:** research-oriented, determinism, logical immutability, configuration hierarchy, idempotency, data-auditability, controlled evolution, planner-executor-purity (architecture)
+- **Status:** Violation
+- **Note:** Direct DB writes from ExecutionEngine break the "ExecutionEngine has zero DB access" architectural boundary and bypass ResultWriter's idempotent INSERT OR IGNORE + traceability guarantees; also undocumented, violating the mandatory documentation rule.
