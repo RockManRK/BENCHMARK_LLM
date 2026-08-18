@@ -440,33 +440,6 @@ python bcllm.py --experiment adição_modelos --add-model servidor/modelo11 --re
 Esse comando não aceita se colocar o valor em maiusculo, e acredito que se testar 1 a 1, todos os comandos que aceitam texto é capaz de recusarem se não for tudo em minusculo, o que é uma falha. O erro que recebi foi o seguinte: "bcllm_model.py: error: argument --reasoning: invalid choice: 'HIGH' (choose from none, minimal, low, medium, high, xhigh)"
 ---
 
-
-Alguns erros para corrigir:
-
-Eu coloquei valores em todos os campos do .env para ver quais ele está puxando para o experimento, quais não, e quais que, mesmo puxando, ele ignora.
-
-### DEFAULT_QUESTIONS=1-10
-    - Completamente ignorado. Ele adicionou as 100 perguntas totais do arquivo.
-
-### QUESTIONS_STATUS_ADD=status=valid
-    - Completamente ignorado. Ele adicionou as 100 perguntas totais do arquivo.
-    - Ele puxou a informação para o experiments.config_json, nesse formato: ""QUESTIONS_STATUS_ADD":"status=valid"".
-    - Porém, dois problemas: Além de ser ignorada, essa configuração é igual a "DEFAULT_QUESTIONS". Ela cumpre sua função ao criar o experimento, ou seja, filtrar as perguntas, e após isso não precisa ser salvo.
-
-### QUESTIONS_STATUS_EXCLUDE=has_image=true
-    - Completamente ignorado. Ele adicionou as 100 perguntas totais do arquivo.
-    - Ele puxou a informação para o experiments.config_json, nesse formato: ""QUESTIONS_STATUS_EXCLUDE":"has_image=true"".
-    - Porém, dois problemas: Além de ser ignorada, essa configuração é igual a "DEFAULT_QUESTIONS". Ela cumpre sua função ao criar o experimento, ou seja, filtrar as perguntas, e após isso não precisa ser salvo.
-
-### MODELS_DEFAULT_FOR_EXPERIMENTS=teste/teste
-    - Esse é complexo. Primeiro que ele não está lendo essa informação. Na coluna experiments.config_json, temos o seguinte valor: ""MODELS_DEFAULT_FOR_EXPERIMENTS":null"
-    - De qualquer forma, esse nem deve entrar no config_json, o processo correto seria:
-        - Ao criar um experimento, o sistema verifica se tem modelos nessa flag do .env.
-        - Se houve, ele adiciona os modelos ao experimento, com as configurações especificadas e pronto. O comando foi resolvido e não precisa salvar o valor.
-    - Porém, acho que isso é de um grau de complexidade para esse momento que eu estou pensando em eliminar esse comando, e nesse momento só aceitar adição 1 a 1 posterior no experimento. Até porque ainda temos que ver se o próprio --add-models vai funcionar direito.
-
----
-
 # Testes de criação de experimento com foco no NULL:
 
 ## TESTE_CE_NULL1

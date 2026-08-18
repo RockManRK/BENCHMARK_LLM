@@ -51,6 +51,19 @@ All modules read from `os.environ`, **not** by loading `.env` directly.
 
 ---
 
+### 1b. Database Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_PATH` | No | `./data/bcllm.db` | SQLite database file path (relative to project root, or absolute) |
+
+**Behavior:**
+- A SYSTEM-level key (same category as `LOG_FILE_PATH`) — resolved fresh from the environment on every CLI invocation, never stored in `experiment.config_json`, never consulted through the CLI > Run/Model > Experiment > `.env` hierarchy.
+- Read by `src/cli/database.py::get_database_path()`. Relative paths are resolved against the project root, not the current working directory; the parent directory is created automatically if missing.
+- Primary use case: redirecting the CLI at an isolated sandbox database (e.g. the CLI test suite, `docs/tests/`) without copying `bcllm.py`/`src/`.
+
+---
+
 ### 3. Questions Configuration
 
 | Variable | Required | Default | Description |
@@ -256,6 +269,9 @@ Configuration is validated at:
 # API Configuration
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 BASE_URL=https://openrouter.ai/api/v1
+
+# Database (optional; defaults to ./data/bcllm.db)
+DATABASE_PATH=./data/bcllm.db
 
 # Logging
 LOG_LEVEL=INFO

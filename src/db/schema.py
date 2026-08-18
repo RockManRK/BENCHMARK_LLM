@@ -77,7 +77,13 @@ def get_schema_sql() -> str:
         status            TEXT NOT NULL DEFAULT 'pending',
         duration          INTEGER DEFAULT 0,
         created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CHECK(status IN ('pending', 'completed', 'failed', 'partial_failed'))
+        -- 'removed': set by --remove-run (src/cli/bcllm_run.py::handle_remove_run)
+        -- instead of a hard DELETE, so the row (and its config, for
+        -- auditability) stays — see docs/contracts/immutability.md
+        -- ("Run: status, duration ... Execution lifecycle tracking" is
+        -- the documented mutable exception this reuses) and
+        -- docs/status/known-issues.md.
+        CHECK(status IN ('pending', 'completed', 'failed', 'partial_failed', 'removed'))
     );
 
     -- Index for listing runs by experiment

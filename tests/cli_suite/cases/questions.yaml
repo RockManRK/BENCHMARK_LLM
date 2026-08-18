@@ -1,0 +1,128 @@
+# Question command cases (area: questions). AQ- prefix per the manual roteiro.
+cases:
+  - id: AQ-001
+    name: adicionar perguntas por intervalo numerico
+    area: questions
+    profiles: [smoke, cli-unit, full]
+    priority: critical
+    tags: [creation]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    # NOTE: bare --create-experiment (no --add-questions at all) snapshots
+    # ALL available questions from the dataset — that's the documented
+    # system-default for --add-questions (docs/reference/cli-commands.md:
+    # "System-Default: All available"), not a bug. So this case exercises
+    # the composite --create-experiment + --add-questions flow directly,
+    # which is what actually controls the question set at creation time.
+    command:
+      argv: ["--create-experiment", "{ns}_aq001", "--add-questions", "1-3"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM question_snapshots qs
+            JOIN experiments e ON e.experiment_id = qs.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_aq001"]
+          equals: 3
+      unchanged_tables: [model_variants, runs, responses, errors]
+
+  - id: AQ-002
+    name: adicionar perguntas com filtro where sem resultado nao adiciona nada novo
+    area: questions
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [filters, negative]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_filters
+    setup:
+      # Explicit --add-questions "1" at creation time, to get a KNOWN
+      # baseline count instead of the "all available" default — see the
+      # note on AQ-001.
+      - ["--create-experiment", "{ns}_aq002", "--add-questions", "1"]
+    command:
+      # --add-questions requires an explicit SPEC value (no bare/optional
+      # form outside the --create-experiment composite flow — confirmed:
+      # `--add-questions --where ...` is an argparse error, "expected one
+      # argument"). "1-3" here is deliberately wider than the 1-question
+      # baseline; --where narrows it down to zero NEW matches.
+      argv: ["--experiment", "{ns}_aq002", "--add-questions", "1-3", "--where", "status=does_not_exist"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        # Still just the 1 baseline question — the where-filter matched
+        # nothing new.
+        - query: >-
+            SELECT COUNT(*) FROM question_snapshots qs
+            JOIN experiments e ON e.experiment_id = qs.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_aq002"]
+          equals: 1
+
+  - id: AQ-003
+    name: "criacao de experimento e atomica quando add-questions falha"
+    area: questions
+    profiles: [cli-unit, contracts, regression, full]
+    priority: critical
+    tags: [contracts, atomicity, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # docs/.archive/pre-restructure/architecture/to-be/testes.md TESTE_CE_NULL1
+      # described this scenario (still present as of 2026-08-17). Fixed
+      # same day: bcllm.py's composite flow now propagates the failing
+      # action's real exit code and rolls back (deletes) the experiment
+      # it just created. See docs/status/known-issues.md Resolved Issues.
+      argv: ["--create-experiment", "{ns}_aq003", "--add-questions", "null"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["Error: Invalid question specification"]
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_aq003"]
+          equals: 0
+
+  - id: AQ-004
+    name: "rollback tambem desfaz uma acao anterior bem-sucedida (add-model) quando uma acao posterior falha"
+    area: questions
+    profiles: [cli-unit, contracts, regression, full]
+    priority: critical
+    tags: [contracts, atomicity, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Exercises the harder rollback path: --add-model runs FIRST
+      # (ADD_ACTION_FLAGS order) and succeeds, creating a model_variants
+      # row; --add-questions runs SECOND and fails. Rollback must undo
+      # BOTH the variant and the experiment, not just stop at the
+      # experiment row — a single-action case like AQ-003 can't catch a
+      # rollback that only cleans up the LAST action's own table.
+      argv: ["--create-experiment", "{ns}_aq004", "--add-model", "test/success", "--add-questions", "null"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["Error: Invalid question specification"]
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_aq004"]
+          equals: 0
+        # Orphan check, not scoped by name (other cases in this shared
+        # suite database also create test/success variants): any
+        # model_variants row whose experiment no longer exists means the
+        # rollback deleted the experiment but left the variant behind.
+        - query: >-
+            SELECT COUNT(*) FROM model_variants
+            WHERE experiment_id NOT IN (SELECT experiment_id FROM experiments)
+          params: []
+          equals: 0

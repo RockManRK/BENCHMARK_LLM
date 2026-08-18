@@ -1,0 +1,28 @@
+# Review command cases (area: review). No prefix in the manual roteiro —
+# review was explicitly out of scope there (docs/tests/plano-de-testes.cli.md
+# §2.3 lists manual review as future/partial coverage).
+cases:
+  - id: RV-001
+    name: "--review-all alcanca o modulo mas falha em coluna inexistente (bug confirmado)"
+    area: review
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [routing, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Mode.INVALID routing to bcllm_review is fixed (docs/status/known-issues.md
+      # Resolved Issues) — this now reaches review_ui.py, which queries a
+      # responses.created_at column that doesn't exist in the schema
+      # (src/db/schema.sql has started_at/finished_at instead). Runs even
+      # against an empty database: SQLite validates column names when
+      # preparing the statement, before checking for matching rows.
+      argv: ["--review-all"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["no such column"]
+      no_traceback: true
+    known_issue:
+      ref: "Review UI queries a non-existent responses.created_at column"
+      note: "src/review/review_ui.py:160,557; docs/status/known-issues.md"

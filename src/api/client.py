@@ -116,6 +116,7 @@ class CompletionProvider(ABC):
         max_tokens: int | None = None,
         stop: list[str] | None = None,
         response_format: dict[str, Any] | None = None,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Perform chat completion API call.
 
@@ -127,6 +128,8 @@ class CompletionProvider(ABC):
             max_tokens: Maximum output tokens
             stop: Stop sequences
             response_format: Response format configuration for structured outputs
+            base_url: Per-call endpoint override, when the provider supports
+                     multiple endpoints (e.g. a variant-specific URL)
 
         Returns:
             CompletionResponse with content and metadata
@@ -206,6 +209,7 @@ class OpenRouterClient(CompletionProvider):
         stop: list[str] | None = None,
         response_format: dict[str, Any] | None = None,
         provider: dict[str, Any] | None = None,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Perform OpenRouter chat completion.
 
@@ -224,6 +228,11 @@ class OpenRouterClient(CompletionProvider):
                             Example: {"type": "json_object"}
             provider: Provider configuration for provider locking.
                      Example: {"only": ["deepinfra/turbo"], "allow_fallbacks": False}
+            base_url: Per-call endpoint override (e.g. a model variant's
+                     resolved BASE_URL). One client instance is shared across
+                     variants within a run, and variants may target different
+                     endpoints (OpenRouter, a local llama.cpp server, a test
+                     stub). When None, falls back to self.base_url.
 
         Returns:
             CompletionResponse with content and metadata
@@ -336,7 +345,7 @@ class OpenRouterClient(CompletionProvider):
 
             # Make the request
             # Note: base_url may or may not include /v1 suffix, so ensure correct path
-            base = self.base_url.rstrip('/')
+            base = (base_url or self.base_url).rstrip('/')
             endpoint = 'v1/chat/completions' if not base.endswith('/v1') else 'chat/completions'
             response = await self._client.post(
                 url=f"{base}/{endpoint}",

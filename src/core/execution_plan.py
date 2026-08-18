@@ -202,6 +202,10 @@ class ModelConfig:
         enable_vision: Whether vision/image input is enabled
         structured_output: Whether structured output format is enabled
         reasoning_mode: Reasoning mode ('off', 'auto', 'effort', 'budget')
+        base_url: Resolved API endpoint for this variant (None = provider's
+                  default endpoint). Resolved by the Planner from the
+                  variant's config, falling back to the experiment's
+                  config — never re-consulted from .env at execution time.
 
     Example:
         config = ModelConfig(
@@ -213,6 +217,7 @@ class ModelConfig:
             reasoning_effort='high',
             enable_vision=True,
             reasoning_mode='effort',
+            base_url='https://openrouter.ai/api/v1',
         )
     """
 
@@ -226,6 +231,7 @@ class ModelConfig:
     enable_vision: bool = False
     structured_output: bool = False
     reasoning_mode: str = 'off'
+    base_url: str | None = None
 
 
 @dataclass(frozen=True)

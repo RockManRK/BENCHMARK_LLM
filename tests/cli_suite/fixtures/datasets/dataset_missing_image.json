@@ -1,0 +1,30 @@
+{
+  "dataset": {
+    "name": "clitest-fixture",
+    "version": "1.0",
+    "language": "pt-BR",
+    "source": "enamed_questions.json (subset)"
+  },
+  "questions": [
+    {
+      "id": "Q005",
+      "stem": "Homem de 28 anos, estudante universitário, residente em zona urbana, comparece à Unidade Básica de Saúde (UBS) referindo aparecimento de lesão cutânea em região dorsal da mão, cerca de 1 mês após ter sofrido arranhadura de gato de rua. A lesão apresenta úlceras com presença de crostas além de nodulações próximas. Foi submetido à biópsia da lesão cutânea e cultura de material. Observou-se dermatite granulomatosa difusa, presença de corpos asteroides e material eosinofílico ao redor de células características. Quais são a principal hipótese diagnóstica e o respectivo tratamento para esse caso?",
+      "options": {
+        "A": "Furunculose; cefalexina por 7 dias.",
+        "B": "Herpes-zóster; aciclovir por 10 dias.",
+        "C": "Esporotricose; itraconazol por 120 dias.",
+        "D": "Paracoccidioidomicose; anfotericina B por 30 dias."
+      },
+      "answer_key": "C",
+      "assets": [
+        "data/assets/does_not_exist.png"
+      ],
+      "meta": {
+        "has_table": false,
+        "has_image": true,
+        "status": "valid",
+        "notes": ""
+      }
+    }
+  ]
+}

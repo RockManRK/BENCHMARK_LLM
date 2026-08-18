@@ -56,28 +56,40 @@ def _extract_experiment_name(argv: list[str]) -> str | None:
     return None
 
 
-def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> bool:
+def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tuple[bool, int]:
     """Handle composite flow: CREATE + ADD_*.
-    
+
     If --create-experiment is present with one or more --add-* actions:
     1. Create the experiment FIRST
-    2. Execute ALL --add-* actions in sequence (model -> questions -> run)
+    2. Execute --add-* actions in sequence (model -> questions -> run),
+       stopping at the first one that fails
     3. Propagate context to each action
-    
+    4. If any action failed AND this invocation is the one that created
+       the experiment (not a pre-existing one found via TOCTOU handling),
+       roll back: delete the experiment and anything the earlier,
+       successful actions created for it, so a failed composite command
+       never leaves a partially-configured experiment behind — see
+       docs/status/known-issues.md ("Composite --create-experiment +
+       --add-questions is not atomic").
+
     Args:
         argv: Raw command-line arguments.
         mode: Resolved CLI mode.
         module_name: Resolved module name (last action in sequence).
-        
+
     Returns:
-        True if composite flow was handled, False otherwise.
+        (handled, exit_code). handled=False means this wasn't a composite
+        flow at all (caller should fall through to normal routing).
+        handled=True means it was handled; exit_code is 0 on full success,
+        non-zero if any --add-* action failed (and, when applicable, was
+        rolled back).
     """
     # Check if this is a composite flow
     has_create = has_flag(argv, "--create-experiment")
     has_add_action = any(has_flag(argv, flag) for flag in ADD_ACTION_FLAGS)
-    
+
     if not (has_create and has_add_action):
-        return False  # Not a composite flow
+        return False, 0  # Not a composite flow
 
     # Extract experiment name
     experiment_name = _extract_experiment_name(argv)
@@ -143,6 +155,10 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> boo
     logger.info(f"COMPOSITE_FLOW | creating experiment={experiment_name} before action={module_name}")
 
     conn = get_database_connection()
+    # Only roll back an experiment THIS invocation created — never one
+    # found pre-existing via the TOCTOU handling below, which belongs to
+    # whatever process actually created it.
+    experiment_created_by_us = True
     try:
         # Filter argv to only include experiment creation flags
         # Remove --add-* flags as they will be handled separately
@@ -195,7 +211,9 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> boo
                 logger.info(
                     f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name}"
                 )
-                # Continue to execute actions on existing experiment
+                # Continue to execute actions on existing experiment.
+                # It's not ours to roll back if an action fails below.
+                experiment_created_by_us = False
             else:
                 # Re-raise if it's a different ValueError
                 raise
@@ -227,31 +245,148 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> boo
             # Re-raise if it's a different integrity error
             raise
 
-        # Execute ALL --add-* actions in sequence
-        _execute_all_add_actions(argv, experiment_name, conn, logger)
-        
-        return True  # Composite flow handled
+        # Execute --add-* actions in sequence, stopping at the first failure
+        action_exit_code = _execute_all_add_actions(argv, experiment_name, conn, logger)
+
+        if action_exit_code != 0 and experiment_created_by_us:
+            _rollback_created_experiment(conn, experiment_name, logger)
+
+        return True, action_exit_code  # Composite flow handled
 
     finally:
         conn.close()
 
 
-def _execute_all_add_actions(argv: list[str], experiment_name: str, conn, logger) -> None:
-    """Execute all --add-* actions in sequence.
-    
+def _rollback_created_experiment(conn: sqlite3.Connection, experiment_name: str, logger) -> None:
+    """Delete an experiment (and anything created for it) after a failed
+    --add-* action during composite --create-experiment flow.
+
+    Only ever called on an experiment THIS invocation just created (the
+    experiment_created_by_us guard in _handle_composite_flow) — never on
+    one found pre-existing via TOCTOU handling.
+
+    Why explicit DELETEs instead of a transaction rollback: each handler
+    (handle_add_model/handle_add_questions/handle_add_run, and the
+    ExperimentRepository save that created the experiment itself) commits
+    its own writes immediately after saving — that's the existing
+    convention throughout src/db/repository.py, unrelated to this fix. By
+    the time a later action fails, everything an earlier successful
+    action wrote is already durably committed; there is no open
+    transaction left for conn.rollback() to undo. Changing every handler
+    to defer commits until the whole composite flow finishes would also
+    change the commit behavior of standalone (non-composite) --add-*
+    invocations, a much larger and riskier change than this task asked
+    for — so this rolls back by deleting the specific rows instead.
+
+    Note: src/db/schema.py (the actual runtime schema — src/db/schema.sql
+    is a separate, stale reference copy, do not trust it) DOES declare ON
+    DELETE CASCADE from model_variants/question_snapshots/runs to
+    experiments, so exp_repo.delete(experiment_id) alone would already
+    remove them. The explicit DELETEs here are redundant with that
+    cascade, not a workaround for its absence — kept for clarity and as a
+    belt-and-suspenders measure, not because cascade is missing.
+
+    Composite flow can only run --add-model/--add-questions/--add-run
+    (ADD_ACTION_FLAGS never includes --execute), so only
+    question_snapshots, model_variants, and runs should reference the
+    experiment at this point — no responses/errors rows should exist yet.
+    That assumption is verified below rather than trusted, and this is
+    the part that actually matters: responses/errors reference
+    runs/model_variants/question_snapshots WITHOUT cascade, so if this
+    assumption is ever violated (e.g. ADD_ACTION_FLAGS grows to include
+    something that can produce responses), a plain cascade-delete of the
+    experiment would either silently orphan those rows or fail outright
+    depending on order — this check refuses to delete anything and logs
+    loudly instead, rather than risk either.
+
+    See docs/status/known-issues.md ("--remove-experiment does a real,
+    undocumented hard cascading delete") for the broader discovery this
+    surfaced: unlike this function (new experiment only, no responses/
+    errors possible yet), the existing --remove-experiment CLI command
+    can hard-delete an arbitrary experiment's snapshots/variants/runs at
+    any time, which is a live tension with docs/contracts/immutability.md
+    and was flagged to the user rather than resolved here.
+    """
+    from src.db.repository import ExperimentRepository
+
+    exp_repo = ExperimentRepository(conn)
+    experiment = exp_repo.get_by_name(experiment_name)
+    if experiment is None:
+        # Nothing to roll back (e.g. the create step itself never
+        # committed a row before the first --add-* action ran).
+        return
+
+    experiment_id = experiment.experiment_id
+    cursor = conn.cursor()
+
+    orphan_responses = cursor.execute(
+        """
+        SELECT COUNT(*) FROM responses resp
+        JOIN runs r ON r.run_id = resp.run_id
+        WHERE r.experiment_id = ?
+        """,
+        (experiment_id,),
+    ).fetchone()[0]
+    orphan_errors = cursor.execute(
+        """
+        SELECT COUNT(*) FROM errors err
+        JOIN runs r ON r.run_id = err.run_id
+        WHERE r.experiment_id = ?
+        """,
+        (experiment_id,),
+    ).fetchone()[0]
+    if orphan_responses or orphan_errors:
+        logger.error(
+            f"COMPOSITE_FLOW_ROLLBACK_ABORTED | experiment={experiment_name} | "
+            f"experiment_id={experiment_id} | responses={orphan_responses} | errors={orphan_errors} | "
+            f"reason=unexpected_responses_or_errors_present_refusing_to_delete_experiment"
+        )
+        return
+
+    cursor.execute("DELETE FROM question_snapshots WHERE experiment_id = ?", (experiment_id,))
+    cursor.execute("DELETE FROM model_variants WHERE experiment_id = ?", (experiment_id,))
+    cursor.execute("DELETE FROM runs WHERE experiment_id = ?", (experiment_id,))
+    conn.commit()
+
+    exp_repo.delete(experiment_id)
+
+    fk_issues = cursor.execute("PRAGMA foreign_key_check").fetchall()
+    if fk_issues:
+        # Should be unreachable given the orphan check above, but this is
+        # a rollback path — verify rather than assume.
+        logger.error(
+            f"COMPOSITE_FLOW_ROLLBACK_INTEGRITY_WARNING | experiment={experiment_name} | "
+            f"experiment_id={experiment_id} | foreign_key_issues={fk_issues}"
+        )
+
+    logger.info(
+        f"COMPOSITE_FLOW_ROLLBACK | experiment={experiment_name} | experiment_id={experiment_id} | "
+        f"reason=add_action_failed"
+    )
+
+
+def _execute_all_add_actions(argv: list[str], experiment_name: str, conn, logger) -> int:
+    """Execute --add-* actions in sequence, stopping at the first failure.
+
     Execution order: model -> questions -> run
-    
+
     Args:
         argv: Raw command-line arguments.
         experiment_name: Name of the experiment.
         conn: Database connection.
         logger: Logger instance.
+
+    Returns:
+        0 if every action succeeded (or there were none to run); the
+        failing action's exit code otherwise. Actions after the first
+        failure are NOT executed — the caller (_handle_composite_flow)
+        rolls back on a non-zero result.
     """
     add_actions = [flag for flag in ADD_ACTION_FLAGS if has_flag(argv, flag)]
-    
+
     if not add_actions:
-        return
-    
+        return 0
+
     logger.info(f"COMPOSITE_FLOW | executing actions={add_actions} in sequence")
     
     for action_flag in add_actions:
@@ -317,41 +452,56 @@ def _execute_all_add_actions(argv: list[str], experiment_name: str, conn, logger
                     action_argv.append(argv[i + 1])
                     skip_next = True
         
-        _execute_single_action(action_flag, action_argv, conn, logger)
+        exit_code = _execute_single_action(action_flag, action_argv, conn, logger)
+        if exit_code != 0:
+            logger.info(
+                f"COMPOSITE_FLOW | action={action_flag} failed with exit_code={exit_code}; "
+                f"stopping remaining actions"
+            )
+            return exit_code
 
-def _execute_single_action(action_flag: str, argv: list[str], conn, logger) -> None:
+    return 0
+
+
+def _execute_single_action(action_flag: str, argv: list[str], conn, logger) -> int:
     """Execute a single --add-* action.
-    
+
     Args:
         action_flag: The action flag (--add-model, --add-questions, or --add-run).
         argv: Command-line arguments for this action (should only contain relevant flags).
         conn: Database connection.
         logger: Logger instance.
+
+    Returns:
+        The action handler's exit code (0 for success, 1 for error).
     """
-    from src.core.mode import Mode
-    
     if action_flag == "--add-model":
         from src.cli import bcllm_model
         # Parse and execute
         parser = bcllm_model.create_parser()
         args = parser.parse_args(argv[1:])  # Skip script name
-        bcllm_model.handle_add_model(args, conn)
-        
+        exit_code = bcllm_model.handle_add_model(args, conn)
+
     elif action_flag in ("--add-questions", "--questions"):
         from src.cli import bcllm_questions
         # Parse and execute
         parser = bcllm_questions.create_parser()
         args = parser.parse_args(argv[1:])  # Skip script name
-        bcllm_questions.handle_add_questions(args, conn)
-        
+        exit_code = bcllm_questions.handle_add_questions(args, conn)
+
     elif action_flag == "--add-run":
         from src.cli import bcllm_run
         # Parse and execute
         parser = bcllm_run.create_parser()
         args = parser.parse_args(argv[1:])  # Skip script name
-        bcllm_run.handle_add_run(args, conn)
-    
-    logger.info(f"COMPOSITE_FLOW | action={action_flag} completed")
+        exit_code = bcllm_run.handle_add_run(args, conn)
+
+    else:
+        logger.error(f"COMPOSITE_FLOW | unknown action_flag={action_flag}")
+        return 1
+
+    logger.info(f"COMPOSITE_FLOW | action={action_flag} completed with exit_code={exit_code}")
+    return exit_code
 
 
 def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> int:
@@ -371,8 +521,11 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
     """
     # Handle composite flow: create experiment BEFORE dispatching
     # If composite flow was handled, all actions were executed - don't delegate again
-    if _handle_composite_flow(argv if argv is not None else sys.argv, mode, module_name):
-        return 0  # Composite flow handled successfully
+    handled, composite_exit_code = _handle_composite_flow(
+        argv if argv is not None else sys.argv, mode, module_name
+    )
+    if handled:
+        return composite_exit_code
 
     from src.cli import (
         bcllm_experiment,

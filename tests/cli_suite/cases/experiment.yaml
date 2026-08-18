@@ -1,0 +1,164 @@
+# Experiment command cases (area: experiment).
+# Case ids follow the manual roteiro's CE- prefix (docs/tests/BCLLM_Roteiro_Manual_Testes.md)
+# so a case imported from there keeps its original id.
+cases:
+  - id: CE-001
+    name: criar experimento minimo
+    area: experiment
+    profiles: [smoke, cli-unit, full]
+    priority: critical
+    tags: [creation]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      argv: ["--create-experiment", "{ns}_ce001"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_ce001"]
+          equals: 1
+        # Bare --create-experiment (no --add-questions at all) snapshots
+        # ALL available questions from the configured dataset — the
+        # documented system-default for --add-questions
+        # (docs/reference/cli-commands.md: "System-Default: All
+        # available"), pinned here so a change to that default is a
+        # visible, deliberate event. dataset_small_valid.json has 10.
+        - query: >-
+            SELECT COUNT(*) FROM question_snapshots qs
+            JOIN experiments e ON e.experiment_id = qs.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_ce001"]
+          equals: 10
+      unchanged_tables: [model_variants, runs, responses, errors]
+
+  - id: CE-002
+    name: criar experimento com nome duplicado deve falhar
+    area: experiment
+    profiles: [smoke, cli-unit, full]
+    priority: high
+    tags: [creation, negative]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ce002"]
+    command:
+      argv: ["--create-experiment", "{ns}_ce002"]
+    expect:
+      exit_code: 1
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_ce002"]
+          equals: 1  # still exactly one — the duplicate attempt created nothing
+
+  - id: CE-003
+    name: "--list-experiments funciona"
+    area: experiment
+    profiles: [smoke, cli-unit, full]
+    priority: high
+    tags: [listing]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Fixed 2026-08-17 (mode_matrix.py's Mode.INVALID gap) — see
+      # docs/status/known-issues.md Resolved Issues. No stdout assertion
+      # on content: this runs against the suite's shared database, so
+      # whatever experiments other cases created by this point are listed;
+      # asserting exact output here would be order-dependent and fragile.
+      argv: ["--list-experiments"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+
+  - id: CE-004
+    name: "--help funciona"
+    area: experiment
+    profiles: [smoke, cli-unit, full]
+    priority: normal
+    tags: [help]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Fixed 2026-08-17 — see docs/status/known-issues.md Resolved Issues.
+      argv: ["--help"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["usage:"]
+      no_traceback: true
+
+  - id: CE-005
+    name: criar experimento com seed inteira explicita
+    area: experiment
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [creation, seed]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      argv: ["--create-experiment", "{ns}_ce005", "--seed", "42"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_ce005"]
+          equals: 1
+
+  - id: CE-006
+    name: "seed 0 deve ser preservada como valida (nao tratada como falsy)"
+    area: experiment
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [creation, seed, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      argv: ["--create-experiment", "{ns}_ce006", "--seed", "0"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT json_extract(config_json, '$.RUN_RESPONSES_SEED') FROM experiments WHERE name = ?"
+          params: ["{ns}_ce006"]
+          equals: 0
+
+  - id: CE-007
+    name: "--remove-experiment esta desabilitado deliberadamente"
+    area: experiment
+    profiles: [cli-unit, contracts, regression, full]
+    priority: critical
+    tags: [contracts, immutability, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ce007"]
+    command:
+      # docs/status/known-issues.md: --remove-experiment does a real hard
+      # cascading delete of question_snapshots/model_variants/runs, which
+      # conflicts with docs/contracts/immutability.md ("cannot be
+      # deleted") — disabled by user decision until further planning,
+      # rather than shipping a contract-violating implementation.
+      argv: ["--remove-experiment", "{ns}_ce007"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["disabled"]
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_ce007"]
+          equals: 1  # untouched — the disabled command must not delete anything
+      unchanged_tables: [experiments, model_variants, question_snapshots, runs]

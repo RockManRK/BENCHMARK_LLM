@@ -17,6 +17,7 @@ Usage:
         conn.close()
 """
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -24,11 +25,26 @@ from src.db.schema import create_schema
 
 
 def get_database_path() -> Path:
-    """Get or create database directory and return path to bcllm.db.
-    
+    """Get or create database directory and return path to the SQLite file.
+
+    Honors the DATABASE_PATH environment variable when set (e.g. loaded from
+    .env by the CLI entry point), so the database location can be redirected
+    without copying source code — used by the CLI test suite to run against
+    an isolated sandbox database. Falls back to the historical default,
+    ./data/bcllm.db relative to the project root, when unset.
+
     Returns:
-        Path to persistent database file at ./data/bcllm.db
+        Path to the SQLite database file. Parent directory is created if
+        missing.
     """
+    override = os.getenv("DATABASE_PATH")
+    if override:
+        db_path = Path(override).expanduser()
+        if not db_path.is_absolute():
+            db_path = Path(__file__).parent.parent.parent / db_path
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        return db_path
+
     project_root = Path(__file__).parent.parent.parent
     data_dir = project_root / "data"
     data_dir.mkdir(exist_ok=True)

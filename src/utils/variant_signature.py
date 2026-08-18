@@ -10,10 +10,28 @@ Field order (mandatory):
 5. temperature
 6. top_p
 7. top_k
-8. max_output_tokens
-9. reasoning_tokens
+8. repeat_penalty
+9. max_output_tokens
+10. reasoning_tokens
+11. provider
+12. base_url
 
 Float normalization: 3 decimal places
+
+History: repeat_penalty and base_url were missing from this list until
+2026-08-17 (see docs/status/known-issues.md) — two model variants that
+differed ONLY by --repeat-penalty, or ONLY by --url, hashed to the same
+signature and the second --add-model was rejected as a duplicate. Fixed
+without migrating existing variant_signature values already stored in the
+database: those rows are immutable snapshots of what the signature was at
+creation time (same principle as question_snapshots), so they keep their
+old signature. Only NEW variants use the corrected field list. base_url is
+unrelated to OpenRouter's own provider-routing `provider` object
+(docs/Manuais_Diversos/openrouterdocs/provider_routing.md) — that concept
+is already covered by the separate `provider` field below (which endpoint
+OpenRouter fans a request out to). base_url is which HTTP server the
+client itself talks to (OpenRouter, a local llama.cpp server, a test
+stub) and never appears in OpenRouter's own request/routing semantics.
 """
 
 import json
@@ -29,9 +47,11 @@ SIGNATURE_FIELD_ORDER = [
     ('MODEL_TEMPERATURE', 'temp'),
     ('MODEL_TOP_P', 'top_p'),
     ('MODEL_TOP_K', 'top_k'),
+    ('MODEL_REPEAT_PENALTY', 'repeat_penalty'),
     ('MODEL_MAX_TOKENS_TOTAL', 'max_tokens'),
     ('MODEL_MAX_TOKENS_REASONING', 'reasoning_tokens'),
     ('PROVIDER', 'provider'),
+    ('BASE_URL', 'base_url'),
 ]
 
 

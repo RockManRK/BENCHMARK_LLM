@@ -1,0 +1,190 @@
+{
+  "dataset": {
+    "name": "clitest-fixture",
+    "version": "1.0",
+    "language": "pt-BR",
+    "source": "enamed_questions.json (subset)"
+  },
+  "questions": [
+    {
+      "id": "Q001",
+      "stem": "[CHANGED_V2] Mulher de 58 anos, com diagnóstico de hipertensão arterial sistêmica (HAS) e em tratamento irregular, é encaminhada ao ambulatório de clínica médica de atenção secundária. Queixa-se de fadiga e dispneia aos esforços, com piora progressiva. Ao exame físico, é observado ritmo cardíaco regular em 4 tempos (B3 + B4), sem sopros no precórdio, mas com crépitos em bases pulmonares; pressão arterial: 148 x 90 mmHg. Ecocardiograma transtorácico evidencia hipertrofia ventricular esquerda concêntrica, associada com fração de ejeção de 38% (por Simpson). Exames laboratoriais normais, salvo pela elevação sérica de peptídeo natriurético tipo B (BNP). Para melhorar o controle da HAS e o prognóstico da paciente, o tratamento com inibidor da enzima conversora de angiotensina foi mantido, e o especialista optou por associar determinado fármaco, devido ao impacto positivo no prognóstico de sobrevida dessa paciente. O fármaco introduzido no tratamento da paciente foi:",
+      "options": {
+        "A": "espironolactona.",
+        "B": "clortalidona.",
+        "C": "hidralazina.",
+        "D": "clonidina."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q003",
+      "stem": "Homem de 45 anos foi encontrado inconsciente por familiares junto a uma escada de sua casa. Familiares conduziram-no em carro próprio, sem medidas-padrão de atendimento pré-hospitalar. Não sabem por quanto tempo ficou desacordado nem sobre o histórico de saúde. Quando deu entrada no pronto-socorro, encontrava-se inconsciente, com equimose e escoriações na região orbital e palpebral direita, além de escoriações na região cervical posterior e em membros à direita. Não apresentava resposta ao comando verbal, mas respirava espontaneamente com frequência normal. Pressão arterial de 140 × 90 mmHg e pupilas isocóricas. Durante a avaliação, abriu os olhos e começou a se mexer, ainda sem responder a questões ou comandos. Após 30 minutos começou a responder, mas informava não se lembrar de ter caído da escada. Considerando o quadro, a conduta adequada é:",
+      "options": {
+        "A": "tomografia de crânio, face e coluna cervical; radiografia de membros; manter o paciente em observação por 12 horas.",
+        "B": "radiografia de crânio, coluna cervical e membros em duas posições; internar o paciente para observação.",
+        "C": "tomografia de crânio, face e radiografia de membros; liberar o paciente para observação domiciliar.",
+        "D": "radiografia de crânio e face; radiografia de membros; internar o paciente por 24 horas."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q004",
+      "stem": "Paciente de 30 anos procurou consultório de ginecologia relatando fadiga, dismenorreia progressiva e dispareunia de profundidade. Toque vaginal; útero de volume normal, retroversofletido, dor à mobilização do colo. Com base nessas informações, a principal hipótese diagnóstica é:",
+      "options": {
+        "A": "doença inflamatória pélvica.",
+        "B": "miomatose uterina.",
+        "C": "cisto hemorrágico.",
+        "D": "endometriose."
+      },
+      "answer_key": "D",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q006",
+      "stem": "Observe o encaminhamento realizado por um médico de família. À cardiologia, \"Encaminho o Sr. J. L. S., de 56 anos, com diagnóstico de cardiopatia isquêmica, que sofreu um infarto agudo do miocárdio há 3 meses. Tem orientação para o uso de antiagregantes plaquetários, mas tem história de úlcera péptica e teve reação alérgica ao clopidogrel e à ticlopidina. Dessa forma, solicito orientação quanto à conduta preventiva.\" Ao ser assistido pelo cardiologista, o paciente será atendido em que nível de atenção e receberá que tipo de prevenção, respectivamente?",
+      "options": {
+        "A": "Primário; secundário.",
+        "B": "Secundário; secundário.",
+        "C": "Terciário; terciário.",
+        "D": "Quaternário; terciário."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q008",
+      "stem": "Mulher de 20 anos procura atendimento médico no ambulatório de clínica médica de referência devido ao quadro iniciado há 3 meses, com dor e edema articular acometendo articulações das mãos (interfalangeanas proximais, metacarpofalangeanas e punhos), assim como cotovelos, joelhos e tornozelos. Relata rigidez matinal que perdura por mais de 2 horas. O exame físico confirma dor e edema nas articulações descritas, além de mucosas hipocoradas (++/4+), sem outras alterações. A hipótese diagnóstica a ser considerada, o achado laboratorial esperado e a primeira linha de tratamento indicada são, respectivamente:",
+      "options": {
+        "A": "esclerose sistêmica; níveis elevados de creatina quinase; prednisona.",
+        "B": "artrite reumatoide; pesquisa do fator reumatoide (FR) positivo; metotrexato.",
+        "C": "lúpus eritematoso sistêmico; FAN com padrão nuclear pontilhado fino denso; cloroquina.",
+        "D": "doença mista do tecido conjuntivo; FAN com padrão nuclear pontilhado fino denso; azatioprina."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q011",
+      "stem": "Paciente de 25 anos, com duas gestações e um parto, no segundo trimestre de gestação, compareceu à primeira consulta de pré-natal sem queixas. Após orientações e realização dos testes rápidos, verificou-se que o teste para sífilis foi positivo e imediatamente a paciente recebeu 2, milhões Ul de penicilina benzatina intramuscular. Paciente nega diagnóstico e tratamento prévios para sífilis. Em relação ao acompanhamento da paciente, é correto afirmar que:",
+      "options": {
+        "A": "com o tratamento instituído, o feto não terá sequelas.",
+        "B": "titulações menores ou iguais a um quarto indicarão cicatriz sorológica.",
+        "C": "a queda de duas titulações do VDRL indicará efetividade de tratamento.",
+        "D": "o exame de FTA-Abs reagente indicará doença ativa."
+      },
+      "answer_key": "C",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q012",
+      "stem": "Homem de 52 anos, branco, solteiro, comparece à consulta agendada na Unidade Básica de Saúde (UBS) desejando realizar revisão clínica e exames laboratoriais. Desde os 35 anos, não faz acompanhamento de saúde. Relata história familiar de diabetes e hipertensão, e a mãe faleceu com câncer de pulmão. Sem história familiar de câncer de próstata. Fuma cerca de 2 maços por dia há 21 anos. Exame físico: pressão arterial de 120 x 80 mmHg, índice de massa corporal de 23 kg/m², sem outras alterações. Considerando as recomendações de rastreamento para esse paciente, o médico de família e comunidade deve:",
+      "options": {
+        "A": "solicitar exames de colesterol total e frações, hemograma, glicemia de jejum, creatinina, PSA, radiografia de tórax, colonoscopia, realizar toque retal; orientar sobre a prática de atividade física regular.",
+        "B": "solicitar exames de colesterol total, glicemia de jejum, pesquisa de sangue oculto nas fezes, PSA, ofertar anti-HIV e HBsAg, realizar toque retal; orientar sobre participação no grupo na UBS para abandono do tabagismo.",
+        "C": "abordar mudanças no estilo de vida e cessação do tabagismo; acompanhar, em consultas longitudinais, as futuras possibilidades de exames complementares quando o paciente atingir faixa etária para investigações adicionais.",
+        "D": "solicitar exames de colesterol total, HDL e triglicerídeos, glicemia de jejum, pesquisa de sangue oculto nas fezes, ofertar testes rápidos para HIV, sífilis e hepatites B e C; realizar abordagem sobre possibilidade de cessação do tabagismo."
+      },
+      "answer_key": "D",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q013",
+      "stem": "Mulher de 32 anos, parda, ensino fundamental incompleto, trabalhadora rural, diarista no plantio de morango, procura Unidade Básica de Saúde (UBS) com queixas de tonturas, dores de cabeça, cansaço, náuseas e falta de ar. Ela referiu que desde os 20 anos sofre com dores de cabeça frequentes, mas há 2 semanas, após uma pulverização de agrotóxicos, começou a apresentar os sintomas descritos. Disse, ainda, que sua colega de trabalho apresentava queixas similares. Ao ouvir esses relatos, a médica da UBS suspeita de intoxicação aguda por agrotóxicos. Nessa situação, qual é a conduta adequada a ser adotada na assistência?",
+      "options": {
+        "A": "Encaminhar como caso suspeito ao centro de referência em saúde do trabalhador estadual e formalizar denúncia ao Ministério Público do Trabalho.",
+        "B": "Estabelecer nexo causal entre os sintomas e os resultados de exames complementares, para confirmar diagnóstico de intoxicação por agrotóxicos, e notificar a Vigilância em Saúde municipal.",
+        "C": "Tratar os sintomas, solicitar exames complementares, notificar o caso no Sistema de Notificação de Agravos e Doenças (Sinan), conceder atestado médico e solicitar matriciamento à Vigilância em Saúde do Trabalhador.",
+        "D": "Informar não ser responsável pelo preenchimento da comunicação de acidente de trabalho (CAT), por ser atribuição exclusiva da medicina do trabalho, no centro municipal de referência em saúde do trabalhador."
+      },
+      "answer_key": "C",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q014",
+      "stem": "Pais de um menino de 10 anos levam a criança para avaliação médica em Unidade Básica de Saúde (UBS). Relatam que seu filho se dá bem com a família até que não lhe seja permitido fazer algo que deseja. Quando isso ocorre, ele fica irritado, impulsivamente agressivo e agitado por várias horas. Assim que se acalma ou consegue o que quer, fica feliz e agradável novamente. Os pais entendem que o filho parece agir deliberadamente para aborrecer os outros e nunca assume a culpa por seus próprios erros ou mau comportamento. Relatam ainda que ele discute com adultos ou figuras de autoridade e, em várias situações, não aceita as regras de boa convivência com os familiares. Considerando o caso descrito, qual é o diagnóstico mais provável?",
+      "options": {
+        "A": "Transtorno afetivo bipolar.",
+        "B": "Transtorno de oposição desafiante.",
+        "C": "Transtorno disruptivo da desregulação do humor.",
+        "D": "Transtorno do déficit de atenção e hiperatividade."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q016",
+      "stem": "Recém-nascido de 15 dias, a termo, Apgar 8/9, peso e comprimento ao nascer de 2.600 g e 46 cm, respectivamente, com síndrome de Down e cuja gestação não apresentou outras intercorrências. Está na consulta de puericultura com peso e comprimento atuais de 2.900 g e 47 cm, respectivamente. Para o acompanhamento pondero-estatural, os dados devem ser plotados nas:",
+      "options": {
+        "A": "curvas de crescimento da OMS desde o nascimento até a adolescência.",
+        "B": "curvas de crescimento específicas para síndrome de Down desde o nascimento.",
+        "C": "curvas de crescimento da OMS, corrigindo o peso e o comprimento para síndrome de Down.",
+        "D": "curvas de crescimento da OMS até os dois anos e, a partir daí, em curvas específicas para síndrome de Down."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    }
+  ]
+}

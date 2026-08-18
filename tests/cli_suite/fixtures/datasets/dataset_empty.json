@@ -1,0 +1,9 @@
+{
+  "dataset": {
+    "name": "clitest-fixture",
+    "version": "1.0",
+    "language": "pt-BR",
+    "source": "enamed_questions.json (subset)"
+  },
+  "questions": []
+}

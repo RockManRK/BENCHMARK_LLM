@@ -1,0 +1,174 @@
+{
+  "dataset": {
+    "name": "clitest-fixture",
+    "version": "1.0",
+    "language": "pt-BR",
+    "source": "enamed_questions.json (subset)"
+  },
+  "questions": [
+    {
+      "id": "Q001",
+      "stem": "Mulher de 58 anos, com diagnóstico de hipertensão arterial sistêmica (HAS) e em tratamento irregular, é encaminhada ao ambulatório de clínica médica de atenção secundária. Queixa-se de fadiga e dispneia aos esforços, com piora progressiva. Ao exame físico, é observado ritmo cardíaco regular em 4 tempos (B3 + B4), sem sopros no precórdio, mas com crépitos em bases pulmonares; pressão arterial: 148 x 90 mmHg. Ecocardiograma transtorácico evidencia hipertrofia ventricular esquerda concêntrica, associada com fração de ejeção de 38% (por Simpson). Exames laboratoriais normais, salvo pela elevação sérica de peptídeo natriurético tipo B (BNP). Para melhorar o controle da HAS e o prognóstico da paciente, o tratamento com inibidor da enzima conversora de angiotensina foi mantido, e o especialista optou por associar determinado fármaco, devido ao impacto positivo no prognóstico de sobrevida dessa paciente. O fármaco introduzido no tratamento da paciente foi:",
+      "options": {
+        "A": "espironolactona.",
+        "B": "clortalidona.",
+        "C": "hidralazina.",
+        "D": "clonidina."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q003",
+      "stem": "Homem de 45 anos foi encontrado inconsciente por familiares junto a uma escada de sua casa. Familiares conduziram-no em carro próprio, sem medidas-padrão de atendimento pré-hospitalar. Não sabem por quanto tempo ficou desacordado nem sobre o histórico de saúde. Quando deu entrada no pronto-socorro, encontrava-se inconsciente, com equimose e escoriações na região orbital e palpebral direita, além de escoriações na região cervical posterior e em membros à direita. Não apresentava resposta ao comando verbal, mas respirava espontaneamente com frequência normal. Pressão arterial de 140 × 90 mmHg e pupilas isocóricas. Durante a avaliação, abriu os olhos e começou a se mexer, ainda sem responder a questões ou comandos. Após 30 minutos começou a responder, mas informava não se lembrar de ter caído da escada. Considerando o quadro, a conduta adequada é:",
+      "options": {
+        "A": "tomografia de crânio, face e coluna cervical; radiografia de membros; manter o paciente em observação por 12 horas.",
+        "B": "radiografia de crânio, coluna cervical e membros em duas posições; internar o paciente para observação.",
+        "C": "tomografia de crânio, face e radiografia de membros; liberar o paciente para observação domiciliar.",
+        "D": "radiografia de crânio e face; radiografia de membros; internar o paciente por 24 horas."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q004",
+      "stem": "Paciente de 30 anos procurou consultório de ginecologia relatando fadiga, dismenorreia progressiva e dispareunia de profundidade. Toque vaginal; útero de volume normal, retroversofletido, dor à mobilização do colo. Com base nessas informações, a principal hipótese diagnóstica é:",
+      "options": {
+        "A": "doença inflamatória pélvica.",
+        "B": "miomatose uterina.",
+        "C": "cisto hemorrágico.",
+        "D": "endometriose."
+      },
+      "answer_key": "D",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q006",
+      "stem": "Observe o encaminhamento realizado por um médico de família. À cardiologia, \"Encaminho o Sr. J. L. S., de 56 anos, com diagnóstico de cardiopatia isquêmica, que sofreu um infarto agudo do miocárdio há 3 meses. Tem orientação para o uso de antiagregantes plaquetários, mas tem história de úlcera péptica e teve reação alérgica ao clopidogrel e à ticlopidina. Dessa forma, solicito orientação quanto à conduta preventiva.\" Ao ser assistido pelo cardiologista, o paciente será atendido em que nível de atenção e receberá que tipo de prevenção, respectivamente?",
+      "options": {
+        "A": "Primário; secundário.",
+        "B": "Secundário; secundário.",
+        "C": "Terciário; terciário.",
+        "D": "Quaternário; terciário."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q008",
+      "stem": "Mulher de 20 anos procura atendimento médico no ambulatório de clínica médica de referência devido ao quadro iniciado há 3 meses, com dor e edema articular acometendo articulações das mãos (interfalangeanas proximais, metacarpofalangeanas e punhos), assim como cotovelos, joelhos e tornozelos. Relata rigidez matinal que perdura por mais de 2 horas. O exame físico confirma dor e edema nas articulações descritas, além de mucosas hipocoradas (++/4+), sem outras alterações. A hipótese diagnóstica a ser considerada, o achado laboratorial esperado e a primeira linha de tratamento indicada são, respectivamente:",
+      "options": {
+        "A": "esclerose sistêmica; níveis elevados de creatina quinase; prednisona.",
+        "B": "artrite reumatoide; pesquisa do fator reumatoide (FR) positivo; metotrexato.",
+        "C": "lúpus eritematoso sistêmico; FAN com padrão nuclear pontilhado fino denso; cloroquina.",
+        "D": "doença mista do tecido conjuntivo; FAN com padrão nuclear pontilhado fino denso; azatioprina."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q011",
+      "stem": "Paciente de 25 anos, com duas gestações e um parto, no segundo trimestre de gestação, compareceu à primeira consulta de pré-natal sem queixas. Após orientações e realização dos testes rápidos, verificou-se que o teste para sífilis foi positivo e imediatamente a paciente recebeu 2, milhões Ul de penicilina benzatina intramuscular. Paciente nega diagnóstico e tratamento prévios para sífilis. Em relação ao acompanhamento da paciente, é correto afirmar que:",
+      "options": {
+        "A": "com o tratamento instituído, o feto não terá sequelas.",
+        "B": "titulações menores ou iguais a um quarto indicarão cicatriz sorológica.",
+        "C": "a queda de duas titulações do VDRL indicará efetividade de tratamento.",
+        "D": "o exame de FTA-Abs reagente indicará doença ativa."
+      },
+      "answer_key": "C",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q002",
+      "stem": "Lactente de 4 meses é levado ao serviço de emergência com história de vômitos, poliúria, episódios de fraqueza intensa e febre. Ao exame físico, apresenta-se com desidratação grave e déficit de crescimento significativo. Encontram-se, ainda, sinais radiológicos de osteopenia e raquitismo resistente à vitamina D. Com base na principal hipótese diagnóstica, o distúrbio ácido-básico relacionado ao caso é:",
+      "options": {
+        "A": "alcalose respiratória hipoclorêmica.",
+        "B": "acidose metabólica hiperclorêmica.",
+        "C": "alcalose respiratória hipocalêmica.",
+        "D": "acidose metabólica hipercalêmica."
+      },
+      "answer_key": "B",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "annulled",
+        "notes": "Questão anulada ou excluída no gabarito definitivo (Caderno 1)"
+      }
+    },
+    {
+      "id": "Q007",
+      "stem": "Homem de 20 anos, com diagnóstico de esquizofrenia, chega à Unidade de Pronto Atendimento (UPA) acompanhado de familiares, que descrevem que o paciente acordou \"torto\". Há 5 dias, foi realizada a troca de risperidona por haloperidol, pois aquela estava em falta na farmácia. Paciente nega outras queixas clínicas. Ao exame, apresenta contratura de região cervical e fácies de dor. Quais são, respectivamente, a hipótese diagnóstica mais provável e a conduta mais adequada?",
+      "options": {
+        "A": "Distonia; biperideno intramuscular.",
+        "B": "Acatisia; haloperidol intramuscular.",
+        "C": "Discinesia tardia; diazepam intramuscular.",
+        "D": "Síndrome extrapiramidal; prometazina intramuscular."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "annulled",
+        "notes": "Questão anulada ou excluída no gabarito definitivo (Caderno 1)"
+      }
+    },
+    {
+      "id": "Q005",
+      "stem": "Homem de 28 anos, estudante universitário, residente em zona urbana, comparece à Unidade Básica de Saúde (UBS) referindo aparecimento de lesão cutânea em região dorsal da mão, cerca de 1 mês após ter sofrido arranhadura de gato de rua. A lesão apresenta úlceras com presença de crostas além de nodulações próximas. Foi submetido à biópsia da lesão cutânea e cultura de material. Observou-se dermatite granulomatosa difusa, presença de corpos asteroides e material eosinofílico ao redor de células características. Quais são a principal hipótese diagnóstica e o respectivo tratamento para esse caso?",
+      "options": {
+        "A": "Furunculose; cefalexina por 7 dias.",
+        "B": "Herpes-zóster; aciclovir por 10 dias.",
+        "C": "Esporotricose; itraconazol por 120 dias.",
+        "D": "Paracoccidioidomicose; anfotericina B por 30 dias."
+      },
+      "answer_key": "C",
+      "assets": [
+        "data/assets/image_Q005.png"
+      ],
+      "meta": {
+        "has_table": false,
+        "has_image": true,
+        "status": "valid",
+        "notes": ""
+      }
+    }
+  ]
+}

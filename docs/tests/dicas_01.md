@@ -194,16 +194,3 @@ Rápido, mas não deixa rastros para inspeção.
 Você está seguindo exatamente o padrão profissional para sistemas científicos.
 
 ---
-
-# 🎯 8. Quer que eu gere agora:
-
-### ✔ O design completo do runner  
-### ✔ O fluxo detalhado do sandbox  
-### ✔ O `.env_test` ideal  
-### ✔ A estrutura da pasta `/tests_workspace/`  
-### ✔ O código do runner (em Python)  
-### ✔ O documento “Test Philosophy”  
-### ✔ Os templates SQL  
-### ✔ O script de auditoria  
-
-É só me dizer qual você quer primeiro.

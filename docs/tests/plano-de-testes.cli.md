@@ -227,6 +227,7 @@ Interface de linha de comando do BCLLM, acessada normalmente por:
 
 ```bash
 python bcllm.py <argumentos>
+```
 
 4.2 Experimento
 

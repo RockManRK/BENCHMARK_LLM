@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# CLI test suite sandbox (tests/cli_suite/run.py) — wiped/regenerated per run
+tests_workspace/
+
 # C extensions
 *.so
 

@@ -732,27 +732,40 @@ def handle_list_experiments(args, conn) -> int:
 def handle_remove_experiment(args, conn) -> int:
     """Handle --remove-experiment command.
 
+    Deliberately disabled (returns 1, touches nothing) pending a product
+    decision on how experiment removal should behave. The underlying
+    implementation is ExperimentRepository.delete(), a hard delete that
+    (per src/db/schema.py's ON DELETE CASCADE) also removes every
+    question_snapshots, model_variants, and runs row for the experiment —
+    with no soft-delete mechanism anywhere in the schema. That is in
+    direct tension with docs/contracts/immutability.md ("Question
+    Snapshots ... Cannot be deleted") and docs/contracts/
+    configuration-hierarchy.md ("Model variant configuration is frozen at
+    creation"). Command was previously unreachable entirely (a routing
+    bug sent it, and --list-experiments/--help/--review-*, to a
+    Mode.INVALID matrix entry that didn't exist); fixing that routing bug
+    made this reachable for the first time and surfaced the conflict —
+    disabled here rather than shipped, until there's an explicit decision
+    on the right removal semantics. See docs/status/known-issues.md.
+
     Args:
         args: Parsed command-line arguments.
         conn: Database connection.
 
     Returns:
-        Exit code (0 for success, 1 for error).
+        1, always. No database access.
     """
-    logger = get_logger('cli.experiment')
-    repo = ExperimentRepository(conn)
-    name = args.remove_experiment
-    experiment = repo.get_by_name(name)
-
-    if not experiment:
-        logger.error(f"EXPERIMENT_REMOVE | name={name} | error=Not found")
-        print(f"Error: Experiment not found: {name}", file=sys.stderr)
-        return 1
-
-    logger.info(f"EXPERIMENT_REMOVE | name={name} | experiment_id={experiment.experiment_id}")
-    repo.delete(experiment.experiment_id)
-    print(f"✓ Experiment '{experiment.name}' removed")
-    return 0
+    print(
+        "Error: --remove-experiment is currently disabled.\n"
+        "Removing an experiment would hard-delete its question snapshots, "
+        "model variants, and runs, which conflicts with this project's "
+        "immutability contract (docs/contracts/immutability.md) and "
+        "configuration-hierarchy contract (docs/contracts/configuration-hierarchy.md). "
+        "See docs/status/known-issues.md for details; this will be revisited "
+        "in a future planning pass.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def handle_modify_provider_lock(args, conn) -> int:

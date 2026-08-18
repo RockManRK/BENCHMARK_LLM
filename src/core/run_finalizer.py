@@ -1,15 +1,26 @@
-"""RunFinalizer — Single owner of runs.status and runs.duration updates.
+"""RunFinalizer — Single owner of EXECUTION-OUTCOME runs.status/duration updates.
 
 The RunFinalizer computes run status and duration from the actual database
 state AFTER all items have been executed and written. It is the ONLY component
-that may update runs.status and runs.duration after execution.
+that may derive runs.status/duration FROM EXECUTION RESULTS (response/error
+counts) — no other code in the execution pipeline (Planner, ExecutionEngine,
+ResultWriter) may write an execution-outcome status.
 
 Key Principles:
 - Duration is computed from a FRESH DB query: SUM(latency_ms) where raw_response IS NOT NULL
 - Status is determined from counts of responses with actual data vs errors
 - Uses a single transaction for both reads and the write
 - Duration stored as integer milliseconds
-- NO other code in the codebase may update runs.status or runs.duration after this
+- NO execution-pipeline code may write runs.status/duration after this
+
+Scope note: this owns status values DERIVED FROM EXECUTION
+('completed'/'failed'/'partial_failed'), not the full lifecycle of the
+column. `--remove-run` (src/cli/bcllm_run.py::handle_remove_run) sets
+status='removed' as a separate, administrative, out-of-band transition —
+not part of the execution pipeline this module governs, analogous to how
+Response.review_status/manual_answer are mutated by the Review UI, a
+different subsystem, without conflicting with ResultWriter's ownership of
+the original response data (see docs/contracts/immutability.md).
 
 This fixes the critical bug where re-execution double-counts duration because
 the old approach summed latency from ALL in-memory results (including items

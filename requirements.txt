@@ -14,6 +14,9 @@ python-dotenv>=1.0.0
 # Terminal Output
 rich>=13.0.0
 
+# CLI test suite (tests/cli_suite) — declarative YAML test cases
+PyYAML>=6.0
+
 # Testing Framework
 pytest>=7.4.0
 pytest-asyncio>=0.21.0

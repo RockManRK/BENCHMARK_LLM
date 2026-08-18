@@ -1,0 +1,134 @@
+# Model variant command cases (area: model). AM- prefix per manual roteiro.
+cases:
+  - id: AM-001
+    name: adicionar variante de modelo minima
+    area: model
+    profiles: [smoke, cli-unit, full]
+    priority: critical
+    tags: [creation]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am001"]
+    command:
+      argv: ["--experiment", "{ns}_am001", "--add-model", "test/success"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ? AND mv.model_id = ?
+          params: ["{ns}_am001", "test/success"]
+          equals: 1
+
+  - id: AM-002
+    name: adicionar a mesma variante duas vezes deve ser rejeitado
+    area: model
+    profiles: [cli-unit, full]
+    priority: high
+    tags: [creation, negative, idempotency]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am002"]
+      - ["--experiment", "{ns}_am002", "--add-model", "test/success"]
+    command:
+      argv: ["--experiment", "{ns}_am002", "--add-model", "test/success"]
+    expect:
+      exit_code: 1
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am002"]
+          equals: 1  # still exactly one — the duplicate attempt added nothing
+
+  - id: AM-003
+    name: "--reasoning aceita apenas minusculas (case-sensitive, regressao)"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [validation, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am003"]
+    command:
+      # docs/.archive/pre-restructure/architecture/to-be/testes.md AM12:
+      # --reasoning HIGH (uppercase) was rejected by argparse choices=.
+      # This case documents the CURRENT validation behavior (rejection),
+      # which is the CORRECT behavior for a strict enum flag — not a bug,
+      # just pinned so a future relaxation is a deliberate, visible change.
+      argv: ["--experiment", "{ns}_am003", "--add-model", "test/success", "--reasoning", "HIGH"]
+    expect:
+      exit_code: 2  # argparse's own exit code for an invalid choice
+      no_traceback: true
+
+  - id: AM-004
+    name: "variante com repeat-penalty unico nao colide com a variante base"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [creation, variant_signature, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am004"]
+      - ["--experiment", "{ns}_am004", "--add-model", "test/success"]
+    command:
+      # docs/.archive/pre-restructure/architecture/to-be/testes.md AM2/AM5
+      # described this exact scenario (still present as of 2026-08-17).
+      # Fixed same day: src/utils/variant_signature.py's
+      # SIGNATURE_FIELD_ORDER now includes MODEL_REPEAT_PENALTY. See
+      # docs/status/known-issues.md Resolved Issues.
+      argv: ["--experiment", "{ns}_am004", "--add-model", "test/success", "--repeat-penalty", "1.2"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am004"]
+          equals: 2
+
+  - id: AM-005
+    name: "variante com --url unico nao colide com a variante base"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [creation, variant_signature, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am005"]
+      - ["--experiment", "{ns}_am005", "--add-model", "test/success"]
+    command:
+      # Same fix as AM-004: SIGNATURE_FIELD_ORDER now includes BASE_URL.
+      # The URL doesn't need to be reachable — creating a variant doesn't
+      # execute against it, only --execute does.
+      argv: ["--experiment", "{ns}_am005", "--add-model", "test/success", "--url", "http://127.0.0.1:9/v1"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am005"]
+          equals: 2

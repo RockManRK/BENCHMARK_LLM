@@ -665,6 +665,7 @@ class ExecutionEngine:
                 max_reasoning_tokens=model_config.max_reasoning_tokens,
                 response_format=response_format,
                 provider=provider_config,
+                base_url=model_config.base_url,
             )
 
             # Extract response data

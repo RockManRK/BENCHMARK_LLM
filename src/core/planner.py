@@ -361,20 +361,35 @@ class Planner:
     ) -> list[sqlite3.Row]:
         """Get runs for experiment.
 
+        This is the execution path only (called from create_plan()) — never
+        used by --run <id>'s show/display handler (that goes through
+        RunRepository.get_by_id() directly) — so a 'removed' run must never
+        be returned here, in either branch. Bug fixed 2026-08-17: the
+        run_ids branch (bcllm --execute --run <id>) previously had NO
+        status filter at all, so explicitly targeting a removed run's ID
+        would include it in the plan, execute it, and let RunFinalizer
+        silently overwrite status='removed' with a computed execution
+        outcome — reactivating a run the user had just removed. Caught by
+        an essence-guardian review; the original --remove-run fix had only
+        verified the *default* (run_ids=None) path excluded 'removed', not
+        this explicit-target path. See docs/status/known-issues.md.
+
         Args:
             experiment_id: Experiment identifier
             run_ids: Optional list of specific run IDs to include
 
         Returns:
-            List of run rows matching the criteria
+            List of run rows matching the criteria (never includes a
+            'removed' run, in either branch).
         """
         if run_ids is not None:
-            # Filter to specific runs
+            # Filter to specific runs, still excluding 'removed'
             placeholders = ",".join("?" for _ in run_ids)
             cursor = self.conn.execute(
                 f"""
                 SELECT * FROM runs
                 WHERE experiment_id = ? AND run_id IN ({placeholders})
+                  AND status != 'removed'
                 """,
                 [experiment_id] + list(run_ids),
             )
@@ -621,6 +636,7 @@ class Planner:
             - top_k: int
             - max_output_tokens: int
             - reasoning_tokens: int
+            - base_url: str (variant's resolved API endpoint)
         """
         import json
         
@@ -644,6 +660,7 @@ class Planner:
             enable_vision=config.get("MODEL_VISION", False),
             structured_output=config.get("STRUCTURED_OUTPUTS", False),
             reasoning_mode="effort" if has_reasoning else "off",
+            base_url=config.get("BASE_URL"),
         )
 
     def _build_items(

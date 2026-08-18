@@ -256,6 +256,29 @@ def handle_show_run(args, conn) -> int:
 def handle_remove_run(args, conn) -> int:
     """Handle --remove-run command.
 
+    Soft delete: sets status='removed' rather than deleting the row.
+    Previously this hard-deleted the run (src/db/repository.py's
+    RunRepository.delete()), which — because responses/errors reference
+    run_id without ON DELETE CASCADE (src/db/schema.py) — would fail with
+    a foreign key error on any run that already had results, and
+    succeeded silently (destroying the run's frozen config, seed, and
+    prompts) on any run that didn't. Neither outcome matches
+    docs/contracts/configuration-hierarchy.md's "Run configuration is
+    frozen at creation; never changes" combined with
+    docs/contracts/immutability.md's documented mutable exception for
+    Run ("status, duration ... Execution lifecycle tracking") — that
+    exception is exactly the seam this now uses: 'removed' is a new,
+    valid status value (src/db/schema.py's CHECK constraint), and the run
+    row and its config stay. Planner._get_runs() excludes 'removed' in
+    BOTH of its branches (the default listing, and the run_ids-not-None
+    branch used by `--execute --run <id>`) — the latter needed its own
+    explicit `status != 'removed'` fix, since it originally had no status
+    filter at all and would happily reactivate a removed run if someone
+    named its id directly. See docs/status/known-issues.md for how that
+    was caught (an essence-guardian review, after an earlier version of
+    this docstring wrongly assumed checking the default branch was
+    enough).
+
     Args:
         args: Parsed command-line arguments.
         conn: Database connection.
@@ -280,7 +303,7 @@ def handle_remove_run(args, conn) -> int:
         print(f"Error: Run '{args.remove_run}' is not in experiment '{args.experiment}'", file=sys.stderr)
         return 1
 
-    run_repo.delete(run.run_id)
+    run_repo.update_status(run.run_id, "removed")
     print(f"✓ Run '{run.run_id}' removed")
     return 0
 

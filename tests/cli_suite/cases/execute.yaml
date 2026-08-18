@@ -1,0 +1,91 @@
+# Execution command cases (area: execute). EX- prefix per manual roteiro.
+# All use the local HTTP stub (runner/stub_server.py) via a "test/<scenario>"
+# model id — no real network call, no cost, deterministic.
+cases:
+  - id: EX-001
+    name: executar experimento minimo com sucesso
+    area: execute
+    profiles: [smoke, cli-unit, integration-mock, full]
+    priority: critical
+    tags: [execution, stub]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex001", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex001", "--add-model", "test/success"]
+      - ["--experiment", "{ns}_ex001", "--add-run"]
+    command:
+      argv: ["--experiment", "{ns}_ex001", "--execute"]
+      timeout: 60
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM responses resp
+            JOIN runs r ON r.run_id = resp.run_id
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ? AND resp.status = 'success'
+          params: ["{ns}_ex001"]
+          equals: 1
+
+  - id: EX-002
+    name: resposta ambigua deve ser marcada para revisao
+    area: execute
+    profiles: [cli-unit, integration-mock, full]
+    priority: high
+    tags: [execution, stub, review]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex002", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex002", "--add-model", "test/ambiguous"]
+      - ["--experiment", "{ns}_ex002", "--add-run"]
+    command:
+      argv: ["--experiment", "{ns}_ex002", "--execute"]
+      timeout: 60
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM responses resp
+            JOIN runs r ON r.run_id = resp.run_id
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ? AND resp.review_status = 'needs_review'
+          params: ["{ns}_ex002"]
+          equals: 1
+
+  - id: EX-003
+    name: "reexecucao nao deve duplicar respostas (idempotencia)"
+    area: execute
+    profiles: [cli-unit, contracts, integration-mock, full]
+    priority: critical
+    tags: [execution, stub, idempotency, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex003", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex003", "--add-model", "test/success"]
+      - ["--experiment", "{ns}_ex003", "--add-run"]
+      - ["--experiment", "{ns}_ex003", "--execute"]
+    command:
+      argv: ["--experiment", "{ns}_ex003", "--execute"]
+      timeout: 60
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM responses resp
+            JOIN runs r ON r.run_id = resp.run_id
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_ex003"]
+          equals: 1  # still exactly one — re-execute skipped the completed item

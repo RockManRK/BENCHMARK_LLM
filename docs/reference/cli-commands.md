@@ -52,9 +52,6 @@ bcllm --create-experiment <name> [options]
 # Correct: Quoted text
 bcllm --create-experiment my_exp --system-prompt "You are a helpful assistant."
 
-# Correct: Using file (if supported)
-bcllm --create-experiment my_exp --system-prompt @prompt.txt
-
 # Wrong: Unquoted text with spaces (shell splits arguments)
 bcllm --create-experiment my_exp --system-prompt You are a helpful assistant.
 ```
@@ -125,7 +122,7 @@ bcllm --list-experiments
 bcllm --remove-experiment <name>
 ```
 
-**Purpose:** Remove experiment (soft delete; historical data preserved)
+**Status:** Disabled. Always exits 1 and touches nothing. The command was previously unreachable via a CLI routing bug; fixing that bug (2026-08-17) exposed that its implementation is a hard, cascading delete of the experiment's question snapshots, model variants, and runs — with no soft-delete mechanism anywhere in the schema — which conflicts with [contracts/immutability.md](../contracts/immutability.md) and [contracts/configuration-hierarchy.md](../contracts/configuration-hierarchy.md). Disabled pending a decision on the right removal semantics; see [status/known-issues.md](../status/known-issues.md).
 
 ---
 
@@ -230,6 +227,8 @@ bcllm --experiment <name> --remove-model <variant_id>
 
 **Purpose:** Remove model variant (prevents future use; historical data preserved)
 
+**Mechanism:** Hard delete of the `model_variants` row itself (unlike `--remove-run`, which soft-deletes — see above; `model_variants` has no status-like column to reuse without a schema change, which was deliberately not done here). "Historical data preserved" refers specifically to `responses`/`errors`: they reference `variant_id` without cascade, so removing a variant that already has results fails with a foreign key error rather than destroying them — a variant with no results yet is removed cleanly, but its own config/`variant_signature` row does not survive. See [status/known-issues.md](../status/known-issues.md).
+
 **Note:** Use `?` as `<variant_id>` to see interactive selection menu
 
 ---
@@ -321,6 +320,8 @@ bcllm --experiment <name> --remove-run <run_id>
 ```
 
 **Purpose:** Remove run (prevents future execution; historical data preserved)
+
+**Mechanism (as of 2026-08-17):** Soft delete — sets `status='removed'` rather than deleting the row, so the run's frozen config/seed/prompts stay legible for audit. `Planner._get_runs()` excludes `status='removed'` both for `--execute` (no `--run` given) and for `--execute --run <id>` naming this run explicitly — the latter needed its own fix (`status != 'removed'` had to be added to that branch too; it originally had no status filter at all, see [status/known-issues.md](../status/known-issues.md)) and its own regression test, since the two code paths are independent.
 
 **Note:** Use `?` as `<run_id>` to see interactive selection menu
 

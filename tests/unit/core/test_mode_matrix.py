@@ -707,12 +707,13 @@ class TestModeMatrixEdgeCases:
 
         This validates that mode validation is consistent across all modules.
         Note: This test assumes Mode enum has only CREATE, MODIFY, EXECUTE.
-        Note: bcllm_review and bcllm_main are excluded - they need mode matrix updates.
+        Note: bcllm_review and bcllm_main are excluded here because their
+        only valid mode is Mode.INVALID itself (see
+        TestModeInvalidIsValidForHelpListReview below) — this loop is about
+        modules with a CREATE/MODIFY/EXECUTE mode, which is a different
+        axis, not a gap.
         """
         # Arrange
-        # Note: bcllm_review and bcllm_main are excluded from this test
-        # because they currently only accept Mode.INVALID (a known gap).
-        # They need to be updated to accept proper modes in a future phase.
         modules_with_valid_modes = [
             "bcllm_experiment",
             "bcllm_model",
@@ -749,3 +750,62 @@ class TestModeMatrixEdgeCases:
 
             # Document: each module should have at least one valid mode
             assert has_valid_mode, f"Module {module} should have at least one valid mode"
+
+
+class TestModeInvalidIsValidForHelpListReview:
+    """(Mode.INVALID, module) is valid for --help, --list-experiments,
+    --remove-experiment, --review-experiment, and --review-all.
+
+    These commands carry their own identity/action flag rather than a
+    mode flag, so resolve_mode() (src/core/mode_resolver.py) has nothing
+    to key CREATE/MODIFY/EXECUTE/EXPORT on and resolves them to
+    Mode.INVALID — which is correct and expected, not an error state.
+    Each target module already treats Mode.INVALID as expected on its own
+    side (_validate_expected_mode's VALID_MODES in bcllm_main.py,
+    bcllm_experiment.py, bcllm_review.py). Before this test was added,
+    _VALID_COMBINATIONS simply never listed these three (mode, module)
+    pairs, so validate_mode_matrix() rejected all five commands before
+    they ever reached the module that was ready to handle them — see
+    docs/status/known-issues.md ("Mode.INVALID has no valid module in the
+    mode/module matrix"), fixed alongside this test.
+    """
+
+    def test_invalid_mode_valid_for_bcllm_main(self):
+        assert validate_mode_matrix(Mode.INVALID, "bcllm_main") is True
+
+    def test_invalid_mode_valid_for_bcllm_experiment(self):
+        assert validate_mode_matrix(Mode.INVALID, "bcllm_experiment") is True
+
+    def test_invalid_mode_valid_for_bcllm_review(self):
+        assert validate_mode_matrix(Mode.INVALID, "bcllm_review") is True
+
+    def test_help_resolves_through_the_full_pipeline(self):
+        """End-to-end: --help must not be rejected by the mode matrix."""
+        from src.core.mode_resolver import resolve_mode
+        from src.core.module_resolver import resolve_module
+
+        argv = ["bcllm", "--help"]
+        mode = resolve_mode(argv)
+        module = resolve_module(argv)
+
+        assert validate_mode_matrix(mode, module) is True
+
+    def test_list_experiments_resolves_through_the_full_pipeline(self):
+        from src.core.mode_resolver import resolve_mode
+        from src.core.module_resolver import resolve_module
+
+        argv = ["bcllm", "--list-experiments"]
+        mode = resolve_mode(argv)
+        module = resolve_module(argv)
+
+        assert validate_mode_matrix(mode, module) is True
+
+    def test_review_all_resolves_through_the_full_pipeline(self):
+        from src.core.mode_resolver import resolve_mode
+        from src.core.module_resolver import resolve_module
+
+        argv = ["bcllm", "--review-all"]
+        mode = resolve_mode(argv)
+        module = resolve_module(argv)
+
+        assert validate_mode_matrix(mode, module) is True

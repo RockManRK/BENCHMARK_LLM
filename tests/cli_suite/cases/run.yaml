@@ -1,0 +1,146 @@
+# Run command cases (area: run). RN- prefix per manual roteiro.
+cases:
+  - id: RN-001
+    name: criar run minimo
+    area: run
+    profiles: [smoke, cli-unit, full]
+    priority: critical
+    tags: [creation]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn001"]
+    command:
+      argv: ["--experiment", "{ns}_rn001", "--add-run"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM runs r
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_rn001"]
+          equals: 1
+
+  - id: RN-002
+    name: run herda seed do experimento quando nao especificado
+    area: run
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [inheritance, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn002", "--seed", "77"]
+    command:
+      argv: ["--experiment", "{ns}_rn002", "--add-run"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT json_extract(r.config, '$.RUN_RESPONSES_SEED')
+            FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_rn002"]
+          equals: 77
+
+  - id: RN-003
+    name: "--remove-run em id inexistente falha sem tocar o banco"
+    area: run
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [negative, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn003"]
+    command:
+      argv: ["--experiment", "{ns}_rn003", "--remove-run", "run_doesnotexist"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["not found"]
+      no_traceback: true
+    db:
+      unchanged_tables: [runs]
+
+  - id: RN-004
+    name: "--remove-run e soft delete: status muda, config e o proprio run sobrevivem"
+    area: run
+    profiles: [cli-unit, contracts, regression, full]
+    priority: critical
+    tags: [contracts, immutability, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn004", "--seed", "55"]
+      - argv: ["--experiment", "{ns}_rn004", "--add-run"]
+        capture:
+          # bcllm_run.py: "✓ Run created for '...' (ID: run_xxxxxxxx, Seed: ...)"
+          run_id: "ID: (run_[0-9a-f]+)"
+      - ["--experiment", "{ns}_rn004", "--remove-run", "{run_id}"]
+    command:
+      # Positive-path counterpart of RN-003, made possible by this
+      # runner's setup: capture feature (see runner/case.py) — without
+      # it there was no way to name a specific run_id in a later command.
+      argv: ["--experiment", "{ns}_rn004", "--run", "{run_id}"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT status FROM runs WHERE run_id = ?"
+          params: ["{run_id}"]
+          equals: "removed"
+        - query: "SELECT json_extract(config, '$.RUN_RESPONSES_SEED') FROM runs WHERE run_id = ?"
+          params: ["{run_id}"]
+          equals: 55  # config survived intact — frozen seed still there, not deleted
+
+  - id: RN-005
+    name: "run removido nao e reativado por --execute --run <id> (regressao)"
+    area: run
+    profiles: [cli-unit, contracts, regression, full]
+    priority: critical
+    tags: [contracts, immutability, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn005", "--add-questions", "1"]
+      - ["--experiment", "{ns}_rn005", "--add-model", "test/success"]
+      - argv: ["--experiment", "{ns}_rn005", "--add-run"]
+        capture:
+          run_id: "ID: (run_[0-9a-f]+)"
+      - ["--experiment", "{ns}_rn005", "--remove-run", "{run_id}"]
+    command:
+      # Regression for a real bug caught by essence-guardian review,
+      # 2026-08-17: Planner._get_runs()'s run_ids-not-None branch (the
+      # one used when --run names a specific run) had NO status filter
+      # at all, so explicitly targeting a removed run's id would include
+      # it in the plan, execute it, and let RunFinalizer silently
+      # overwrite status='removed' with a computed outcome — reactivating
+      # a run the user had just removed. Fixed in src/core/planner.py by
+      # adding `AND status != 'removed'` to that branch too. See
+      # docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_rn005", "--execute", "--run", "{run_id}"]
+      timeout: 60
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT status FROM runs WHERE run_id = ?"
+          params: ["{run_id}"]
+          equals: "removed"  # must NOT have been overwritten by RunFinalizer
+        - query: >-
+            SELECT COUNT(*) FROM responses resp
+            WHERE resp.run_id = ?
+          params: ["{run_id}"]
+          equals: 0  # must NOT have actually executed anything

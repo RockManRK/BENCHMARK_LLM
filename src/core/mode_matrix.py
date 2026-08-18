@@ -32,6 +32,19 @@ _VALID_COMBINATIONS = {
     (Mode.EXECUTE, "bcllm_execute"): True,
     (Mode.EXPORT, "bcllm_export"): True,
     (Mode.EXPORT, "bcllm_main"): True,
+
+    # Commands that carry their own identity/action flag rather than a
+    # mode flag (--experiment/--create-experiment/--execute/--export) so
+    # resolve_mode() has nothing to key a CREATE/MODIFY/EXECUTE/EXPORT
+    # mode on and resolves them to Mode.INVALID. Each target module
+    # already treats Mode.INVALID as expected on its own
+    # (_validate_expected_mode's VALID_MODES) — this matrix was simply
+    # never told these three (mode, module) pairs are legitimate.
+    # See docs/status/known-issues.md ("Mode.INVALID has no valid module
+    # in the mode/module matrix").
+    (Mode.INVALID, "bcllm_main"): True,        # --help / -h
+    (Mode.INVALID, "bcllm_experiment"): True,  # --list-experiments, --remove-experiment
+    (Mode.INVALID, "bcllm_review"): True,      # --review-experiment, --review-all
 }
 
 _ERROR_MESSAGES = {

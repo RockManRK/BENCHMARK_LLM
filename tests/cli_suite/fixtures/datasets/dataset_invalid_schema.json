@@ -1,0 +1,46 @@
+{
+  "dataset": {
+    "name": "clitest-fixture",
+    "version": "1.0",
+    "language": "pt-BR",
+    "source": "enamed_questions.json (subset)"
+  },
+  "not_questions_at_all": [
+    {
+      "id": "Q001",
+      "stem": "Mulher de 58 anos, com diagnóstico de hipertensão arterial sistêmica (HAS) e em tratamento irregular, é encaminhada ao ambulatório de clínica médica de atenção secundária. Queixa-se de fadiga e dispneia aos esforços, com piora progressiva. Ao exame físico, é observado ritmo cardíaco regular em 4 tempos (B3 + B4), sem sopros no precórdio, mas com crépitos em bases pulmonares; pressão arterial: 148 x 90 mmHg. Ecocardiograma transtorácico evidencia hipertrofia ventricular esquerda concêntrica, associada com fração de ejeção de 38% (por Simpson). Exames laboratoriais normais, salvo pela elevação sérica de peptídeo natriurético tipo B (BNP). Para melhorar o controle da HAS e o prognóstico da paciente, o tratamento com inibidor da enzima conversora de angiotensina foi mantido, e o especialista optou por associar determinado fármaco, devido ao impacto positivo no prognóstico de sobrevida dessa paciente. O fármaco introduzido no tratamento da paciente foi:",
+      "options": {
+        "A": "espironolactona.",
+        "B": "clortalidona.",
+        "C": "hidralazina.",
+        "D": "clonidina."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    },
+    {
+      "id": "Q003",
+      "stem": "Homem de 45 anos foi encontrado inconsciente por familiares junto a uma escada de sua casa. Familiares conduziram-no em carro próprio, sem medidas-padrão de atendimento pré-hospitalar. Não sabem por quanto tempo ficou desacordado nem sobre o histórico de saúde. Quando deu entrada no pronto-socorro, encontrava-se inconsciente, com equimose e escoriações na região orbital e palpebral direita, além de escoriações na região cervical posterior e em membros à direita. Não apresentava resposta ao comando verbal, mas respirava espontaneamente com frequência normal. Pressão arterial de 140 × 90 mmHg e pupilas isocóricas. Durante a avaliação, abriu os olhos e começou a se mexer, ainda sem responder a questões ou comandos. Após 30 minutos começou a responder, mas informava não se lembrar de ter caído da escada. Considerando o quadro, a conduta adequada é:",
+      "options": {
+        "A": "tomografia de crânio, face e coluna cervical; radiografia de membros; manter o paciente em observação por 12 horas.",
+        "B": "radiografia de crânio, coluna cervical e membros em duas posições; internar o paciente para observação.",
+        "C": "tomografia de crânio, face e radiografia de membros; liberar o paciente para observação domiciliar.",
+        "D": "radiografia de crânio e face; radiografia de membros; internar o paciente por 24 horas."
+      },
+      "answer_key": "A",
+      "assets": [],
+      "meta": {
+        "has_table": false,
+        "has_image": false,
+        "status": "valid",
+        "notes": ""
+      }
+    }
+  ]
+}
