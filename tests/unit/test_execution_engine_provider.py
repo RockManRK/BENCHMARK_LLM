@@ -38,6 +38,7 @@ def mock_api_client():
     """
     client = MagicMock()
     client.chat_completion = AsyncMock()
+    client.debug_enabled = False
     return client
 
 
@@ -153,13 +154,15 @@ class TestProviderInRequestPayload:
         mock_api_client.chat_completion.assert_called_once()
         call_kwargs = mock_api_client.chat_completion.call_args.kwargs
 
-        assert "provider" in call_kwargs
-        assert call_kwargs["provider"]["only"] == ["deepinfra/turbo"]
-        assert call_kwargs["provider"]["allow_fallbacks"] is False
+        assert "provider" in call_kwargs["payload"]
+        assert call_kwargs["payload"]["provider"]["only"] == ["deepinfra/turbo"]
+        assert call_kwargs["payload"]["provider"]["allow_fallbacks"] is False
 
     @pytest.mark.asyncio
     async def test_provider_not_added_when_null(self, mock_api_client, randomizer, parser):
-        """When resolved_provider is None, provider is None is passed to API."""
+        """When resolved_provider is None, "provider" is omitted from the
+        payload entirely — matching the None-omission contract every other
+        optional field follows (never a literal "provider": null on the wire)."""
         # Arrange
         mock_api_client.chat_completion = AsyncMock(return_value=_create_mock_response())
         engine = ExecutionEngine(mock_api_client, randomizer, parser)
@@ -169,12 +172,11 @@ class TestProviderInRequestPayload:
         result_queue = asyncio.Queue()
         await engine.execute_async(plan, result_queue)
 
-        # Assert: provider was passed as None to API call
+        # Assert: provider key is absent from the real payload
         mock_api_client.chat_completion.assert_called_once()
         call_kwargs = mock_api_client.chat_completion.call_args.kwargs
 
-        assert "provider" in call_kwargs
-        assert call_kwargs["provider"] is None
+        assert "provider" not in call_kwargs["payload"]
 
     @pytest.mark.asyncio
     async def test_provider_format_matches_blueprint(self, mock_api_client, randomizer, parser):
@@ -190,7 +192,7 @@ class TestProviderInRequestPayload:
 
         # Assert: exact format
         call_kwargs = mock_api_client.chat_completion.call_args.kwargs
-        provider = call_kwargs["provider"]
+        provider = call_kwargs["payload"]["provider"]
 
         assert "only" in provider
         assert "allow_fallbacks" in provider
@@ -282,12 +284,12 @@ class TestProviderInRequestPayload:
         calls = mock_api_client.chat_completion.call_args_list
 
         # First call should have first provider
-        assert "provider" in calls[0].kwargs
-        assert calls[0].kwargs["provider"]["only"] == ["deepinfra/turbo"]
+        assert "provider" in calls[0].kwargs["payload"]
+        assert calls[0].kwargs["payload"]["provider"]["only"] == ["deepinfra/turbo"]
 
         # Second call should have second provider
-        assert "provider" in calls[1].kwargs
-        assert calls[1].kwargs["provider"]["only"] == ["togethercomputer/llama"]
+        assert "provider" in calls[1].kwargs["payload"]
+        assert calls[1].kwargs["payload"]["provider"]["only"] == ["togethercomputer/llama"]
 
     @pytest.mark.asyncio
     async def test_provider_not_overwritten_by_other_params(self, mock_api_client, randomizer, parser):
@@ -305,14 +307,15 @@ class TestProviderInRequestPayload:
         call_kwargs = mock_api_client.chat_completion.call_args.kwargs
 
         # Provider should exist with correct structure
-        assert "provider" in call_kwargs
-        provider = call_kwargs["provider"]
+        assert "provider" in call_kwargs["payload"]
+        provider = call_kwargs["payload"]["provider"]
         assert provider["only"] == ["anyscale/llama"]
         assert provider["allow_fallbacks"] is False
 
-        # model_id should be present (not "model")
-        assert "model_id" in call_kwargs
-        assert call_kwargs["model_id"] == "openai/gpt-4"
+        # payload uses "model" (OpenRouter's real API field name) — the
+        # client no longer receives a separate model_id kwarg at all
+        assert "model" in call_kwargs["payload"]
+        assert call_kwargs["payload"]["model"] == "openai/gpt-4"
 
     @pytest.mark.asyncio
     async def test_provider_with_empty_string_not_added(self, mock_api_client, randomizer, parser):
@@ -330,9 +333,9 @@ class TestProviderInRequestPayload:
         mock_api_client.chat_completion.assert_called_once()
         call_kwargs = mock_api_client.chat_completion.call_args.kwargs
 
-        assert "provider" in call_kwargs
+        assert "provider" in call_kwargs["payload"]
         # Empty string is not None, so it will be included
-        assert call_kwargs["provider"]["only"] == [""]
+        assert call_kwargs["payload"]["provider"]["only"] == [""]
 
     @pytest.mark.asyncio
     async def test_mixed_resolved_and_unresolved_variants(self, mock_api_client, randomizer, parser):
@@ -409,12 +412,11 @@ class TestProviderInRequestPayload:
         calls = mock_api_client.chat_completion.call_args_list
 
         # First variant has provider
-        assert "provider" in calls[0].kwargs
-        assert calls[0].kwargs["provider"]["only"] == ["deepinfra/turbo"]
+        assert "provider" in calls[0].kwargs["payload"]
+        assert calls[0].kwargs["payload"]["provider"]["only"] == ["deepinfra/turbo"]
 
-        # Second variant has provider=None
-        assert "provider" in calls[1].kwargs
-        assert calls[1].kwargs["provider"] is None
+        # Second variant has no provider — key omitted from the payload
+        assert "provider" not in calls[1].kwargs["payload"]
 
 
 class TestProviderLogging:

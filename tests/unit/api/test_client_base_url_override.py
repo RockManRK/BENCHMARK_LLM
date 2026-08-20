@@ -17,6 +17,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.api.client import OpenRouterClient
+from src.api.request_payload import build_chat_completion_payload
 
 
 def _mock_post_response():
@@ -49,10 +50,11 @@ class TestChatCompletionBaseUrlOverride:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = _mock_post_response()
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            await client.chat_completion(payload=payload)
 
             requested_url = mock_post.call_args.kwargs["url"]
             assert requested_url == "https://openrouter.ai/api/v1/chat/completions"
@@ -70,11 +72,11 @@ class TestChatCompletionBaseUrlOverride:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = _mock_post_response()
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
-                base_url="http://127.0.0.1:8080/v1",
             )
+            await client.chat_completion(payload=payload, base_url="http://127.0.0.1:8080/v1")
 
             requested_url = mock_post.call_args.kwargs["url"]
             assert requested_url == "http://127.0.0.1:8080/v1/chat/completions"
@@ -92,11 +94,11 @@ class TestChatCompletionBaseUrlOverride:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = _mock_post_response()
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
-                base_url=None,
             )
+            await client.chat_completion(payload=payload, base_url=None)
 
             requested_url = mock_post.call_args.kwargs["url"]
             assert requested_url == "https://openrouter.ai/api/v1/chat/completions"
@@ -111,11 +113,11 @@ class TestChatCompletionBaseUrlOverride:
         with patch("src.api.client.httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = _mock_post_response()
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
-                base_url="http://127.0.0.1:8080",
             )
+            await client.chat_completion(payload=payload, base_url="http://127.0.0.1:8080")
 
             requested_url = mock_post.call_args.kwargs["url"]
             assert requested_url == "http://127.0.0.1:8080/v1/chat/completions"

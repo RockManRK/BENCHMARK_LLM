@@ -104,6 +104,7 @@ These values serve as defaults when creating model variants. Leave blank to use 
 | `MODEL_TOP_P` | `float` | (blank) | Top-P sampling (0.0-1.0) |
 | `MODEL_TOP_K` | `int` | (blank) | Top-K sampling (0 or above) |
 | `MODEL_REPEAT_PENALTY` | `float` | (blank) | Repeat penalty (0.0-2.0) |
+| `MODEL_SEED` | `int` | (blank) | Model Seed — sent as the API request's `seed` field for deterministic inference. No `AUTO` state. Distinct from `RANDOMIZATION_SEED` above — see `docs/status/model-seed-checkpoint-b-design.md`. |
 | `MODEL_VISION` | `bool` | `false` | Enable vision/multimodal support |
 | `STRUCTURED_OUTPUTS` | `bool` | `false` | Enable JSON schema responses |
 
@@ -221,6 +222,7 @@ The `ModelVariant.config` stores these fields:
 | `TOP_P` | `float \| null` | Top-P sampling |
 | `TOP_K` | `int \| null` | Top-K sampling |
 | `REPEAT_PENALTY` | `float \| null` | Repeat penalty |
+| `MODEL_SEED` | `int \| null` | Sent as the API request's `seed` field. `null` omits the key entirely. Never `AUTO`. |
 | `VISION` | `bool \| null` | Vision support |
 | `STRUCTURED` | `bool \| null` | Structured output |
 | `BASE_URL` | `str \| null` | Model-specific API URL |
@@ -286,6 +288,7 @@ QUESTIONS_STATUS_EXCLUDE=
 MODEL_MAX_TOKENS_TOTAL=
 MODEL_TEMPERATURE=
 MODEL_TOP_P=
+MODEL_SEED=
 MODEL_VISION=
 STRUCTURED_OUTPUTS=
 

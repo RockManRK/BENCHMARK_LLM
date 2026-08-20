@@ -100,6 +100,7 @@ def mock_api_client():
                 self.latency_ms = latency_ms
 
     client = MagicMock(spec=OpenRouterClient)
+    client.debug_enabled = False
     client.chat_completion.return_value = CompletionResponse(
         content="The answer is (B).",
         model_id="openai/gpt-4",

@@ -117,7 +117,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
-    # Model configuration options (all 10 model-level keys from contract)
+    # Model configuration options (all 11 model-level keys from contract)
     parser.add_argument(
         "--url",
         metavar="URL",
@@ -188,6 +188,15 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="PROVIDER_SLUG",
         help="OpenRouter provider slug (e.g., deepinfra/turbo)",
     )
+    parser.add_argument(
+        "--model-seed",
+        type=parse_int_or_system_default,
+        metavar="N",
+        help="MODEL_SEED - Sent as the API request's 'seed' field for "
+             "deterministic inference. Distinct from Randomization Seed "
+             "(--randomization-seed on --add-run), which controls only "
+             "answer-option shuffling and is never sent to the API.",
+    )
 
     return parser
 
@@ -199,7 +208,7 @@ def create_parser() -> argparse.ArgumentParser:
 SYSTEM_DEFAULT_SUPPORTED = {
     'max_reasoning', 'max_tokens', 'reasoning', 'repeat_penalty',
     'temperature', 'top_k', 'top_p', 'reasoning_tokens',
-    'vision', 'structured', 'provider',
+    'vision', 'structured', 'provider', 'model_seed',
 }
 SYSTEM_DEFAULT_FORBIDDEN = {
     'experiment', 'url', 'add_model', 'remove_model',
@@ -228,6 +237,7 @@ class AddModelRequest:
     vision: str | ForceSystemDefault | None = None
     structured: str | ForceSystemDefault | None = None
     provider: str | ForceSystemDefault | None = None
+    model_seed: int | ForceSystemDefault | None = None
 
 
 @dataclass(frozen=True)
@@ -352,6 +362,7 @@ def parse_add_model_request(argv: list[str]) -> AddModelRequest:
         vision=args.vision,
         structured=args.structured,
         provider=args.provider,
+        model_seed=args.model_seed,
     )
 
 

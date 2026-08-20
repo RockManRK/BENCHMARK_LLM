@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from src.api.message_builder import MessageBuilder
+from src.api.request_payload import build_chat_completion_payload
 from src.core.json_serializer import serialize_json
 from src.core.execution_plan import (
     ExecutionPlan,
@@ -174,14 +175,15 @@ class OpenRouterClient:
     """Type hint for OpenRouterClient.
 
     This is a placeholder for type hints. The actual implementation
-    is in src.api.client (to be implemented).
+    is in src.api.client.
     """
+
+    debug_enabled: bool = False
 
     async def chat_completion(
         self,
-        model_id: str,
-        messages: list[dict],
-        **kwargs: Any,
+        payload: dict[str, Any],
+        base_url: str | None = None,
     ) -> Any:
         """Call OpenRouter chat completion API."""
         ...
@@ -543,86 +545,13 @@ class ExecutionEngine:
             if model_config.structured_output:
                 response_format = {"type": "json_object"}
 
-            # Build the complete request payload for audit/capture.
-            # This is the EXACT payload that will be sent to the API.
-            #
-            # Fields are inserted in a logical order for human readability:
-            # 1. Identification & Content  → model, messages
-            # 2. Output Control            → response_format, stream, max_tokens
-            # 3. Generation Parameters     → temperature, top_p, top_k, repetition_penalty
-            # 4. Special Features          → reasoning
-            #
-            # Python ≥3.7 preserves insertion order — we use this to produce
-            # a consistently readable request_json in the database.
-            request_payload: dict[str, Any] = {
-                # --- 1. Identification & Content ---
-                "model": variant.model_id,
-                "messages": messages,
-
-                # --- 2. Output Control ---
-                # response_format added conditionally below
-                # stream added below
-                # max_tokens added conditionally below
-
-                # --- 3. Generation Parameters ---
-                # All added conditionally below
-
-                # --- 4. Special Features ---
-                # reasoning added conditionally below
-            }
-
-            # --- 2. Output Control ---
-            if response_format is not None:
-                request_payload["response_format"] = response_format
-
-            request_payload["stream"] = True
-
-            if model_config.max_output_tokens is not None:
-                request_payload["max_tokens"] = model_config.max_output_tokens
-
-            # --- 3. Generation Parameters ---
-            if model_config.temperature is not None:
-                request_payload["temperature"] = model_config.temperature
-            if model_config.top_p is not None:
-                request_payload["top_p"] = model_config.top_p
-            if model_config.top_k is not None:
-                request_payload["top_k"] = model_config.top_k
-            if model_config.repeat_penalty is not None:
-                # OpenRouter API uses 'repetition_penalty' as field name
-                request_payload["repetition_penalty"] = model_config.repeat_penalty
-
-            # --- 4. Special Features: Reasoning ---
-            # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
-            # If both are defined, prioritize effort and log a warning.
-            reasoning_config: dict[str, Any] = {}
-
-            if model_config.reasoning_effort is not None and model_config.max_reasoning_tokens is not None:
-                # Conflict: both defined - prioritize effort per OpenRouter contract
-                self._logger.warning(
-                    f"REASONING_CONFLICT | run={item.run_id} | variant={item.variant_id} | "
-                    f"snapshot={item.snapshot_id} | "
-                    f"Both reasoning_effort='{model_config.reasoning_effort}' and "
-                    f"max_reasoning_tokens={model_config.max_reasoning_tokens} are set. "
-                    f"Prioritizing reasoning_effort and ignoring max_reasoning_tokens."
-                )
-                reasoning_config["effort"] = model_config.reasoning_effort
-            elif model_config.reasoning_effort is not None:
-                # Only effort defined - use it normally
-                reasoning_config["effort"] = model_config.reasoning_effort
-            elif model_config.max_reasoning_tokens is not None:
-                # Only max_tokens defined - use it normally
-                reasoning_config["max_tokens"] = model_config.max_reasoning_tokens
-            # else: neither defined - no reasoning config at all
-
-            if reasoning_config:
-                request_payload["reasoning"] = reasoning_config
-
             # --- Provider Locking ---
             # When resolved_provider is set, include provider.only and allow_fallbacks=false
             # This ensures the same provider is used for every request in this variant.
             provider_slug = variant.resolved_provider  # From PlanVariant
+            provider_config: dict[str, Any] | None = None
             if provider_slug is not None:
-                request_payload["provider"] = {
+                provider_config = {
                     "only": [provider_slug],
                     "allow_fallbacks": False
                 }
@@ -631,30 +560,30 @@ class ExecutionEngine:
                     f"provider={provider_slug}"
                 )
 
-            # Capture request_json AFTER all modifications to request_payload are complete.
-            # This ensures the persisted JSON represents the EXACT payload that would be sent to the API,
-            # including: all non-null fields, merged reasoning object, and streaming flag.
-            # Fields are serialized in insertion order (Python ≥3.7) for human readability.
-            # ensure_ascii=False preserves unicode characters as-is for legibility.
-            request_json = serialize_json(request_payload, pretty=True)
-            
-            # Store in context for exception handling
-            execution_context["request_json"] = request_json
+            if model_config.reasoning_effort is not None and model_config.max_reasoning_tokens is not None:
+                self._logger.warning(
+                    f"REASONING_CONFLICT | run={item.run_id} | variant={item.variant_id} | "
+                    f"snapshot={item.snapshot_id} | "
+                    f"Both reasoning_effort='{model_config.reasoning_effort}' and "
+                    f"max_reasoning_tokens={model_config.max_reasoning_tokens} are set. "
+                    f"Prioritizing reasoning_effort and ignoring max_reasoning_tokens."
+                )
 
-            # Call API (this is what RetryHandler will retry)
-            # CRITICAL: Use variant.model_id for API calls (external identifier)
-            # variant.variant_id is for internal identity tracking only
+            # Build the ONE canonical request payload. This same object is
+            # used, unmodified, both to derive request_json (audit) below
+            # and as the literal body handed to the API client — there is
+            # no second construction to drift from this one. See
+            # docs/status/model-seed-checkpoint-b-design.md, Part 1.
+            #
+            # debug_enabled is read from the client's own constructed
+            # setting (single source of truth — never duplicated here).
+            # `is True` (not a plain truthy check) so an unconfigured test
+            # double (e.g. a MagicMock without debug_enabled explicitly
+            # set) never accidentally enables debug.
+            debug_enabled = getattr(self.api_client, "debug_enabled", False) is True
 
-            # Build provider config if resolved_provider is set
-            provider_config: dict[str, Any] | None = None
-            if provider_slug is not None:
-                provider_config = {
-                    "only": [provider_slug],
-                    "allow_fallbacks": False
-                }
-
-            response = await self.api_client.chat_completion(
-                model_id=variant.model_id,  # External API identifier
+            payload = build_chat_completion_payload(
+                model_id=variant.model_id,
                 messages=messages,
                 temperature=model_config.temperature,
                 top_p=model_config.top_p,
@@ -665,6 +594,22 @@ class ExecutionEngine:
                 max_reasoning_tokens=model_config.max_reasoning_tokens,
                 response_format=response_format,
                 provider=provider_config,
+                model_seed=model_config.model_seed,
+                debug_enabled=debug_enabled,
+            )
+
+            # Capture request_json from the SAME payload object that will
+            # be sent — fields serialized in insertion order for readability.
+            request_json = serialize_json(payload, pretty=True)
+
+            # Store in context for exception handling
+            execution_context["request_json"] = request_json
+
+            # Call API (this is what RetryHandler will retry). The payload
+            # is passed through unmodified — OpenRouterClient never
+            # reconstructs it.
+            response = await self.api_client.chat_completion(
+                payload=payload,
                 base_url=model_config.base_url,
             )
 

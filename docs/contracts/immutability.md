@@ -56,7 +56,7 @@ Once a response or error is written to the database:
 
 Once a run is created:
 
-- **Cannot be modified** — Run configuration (seed, prompts) is frozen
+- **Cannot be modified** — Run configuration (Randomization Seed, prompts) is frozen
 - **Status can change** — `pending` → `running` → `completed`/`failed`/`partial_failed`
 - **Duration can accumulate** — Partial runs accumulate duration across executions
 
@@ -68,12 +68,19 @@ Experiment configuration is **mostly immutable** with specific exceptions:
 
 **Cannot be modified:**
 - Experiment name
-- Original configuration (frozen at creation)
+- Original configuration (frozen at creation), including System Prompt,
+  User Prompt, Randomization Seed, and Model Seed — corrected 2026-08-20
+  (Checkpoint B): this section previously and incorrectly claimed
+  "System/user prompts can be changed" — they cannot. The only way to use
+  different prompts (or a different Randomization Seed/Model Seed) is to
+  create a new Run, or a new Experiment. See
+  `docs/contracts/configuration-hierarchy.md` and
+  `docs/contracts/determinism.md`, which had the same corrected claim.
 
 **Can be extended (not modified):**
 - **Questions:** More questions can be added via `--add-questions`; questions cannot be removed
 - **Models:** Models can be added or removed; model removal only prevents future runs, does not delete historical data
-- **Prompts:** System/user prompts can be changed; this does **not** affect existing runs (they keep original prompts)
+- **Runs:** More runs can be added at any time, each optionally with its own frozen Randomization Seed/prompts
 
 **Rationale:** Experiments can grow but their original state is preserved for reproducibility.
 
@@ -120,14 +127,15 @@ self._write_snapshot(new_snapshot)
 
 ```python
 # VIOLATION: ExecutionPlan is frozen; cannot be modified
-plan.runs[0].seed_effective = 123  # FrozenInstanceError raised
+plan.runs[0].randomization_seed_effective = 123  # FrozenInstanceError raised
 ```
 
 ### ✅ CORRECT: Create new plan
 
 ```python
-# CORRECT: Create new plan with different configuration
-new_plan = planner.create_plan(experiment_id, seed=123)
+# CORRECT: Build a new plan — Randomization Seed is fixed at Run creation,
+# never altered afterward
+new_plan = planner.build_plan(experiment_id)
 ```
 
 ### ❌ WRONG: Overwriting response data

@@ -124,6 +124,31 @@ When `PROVIDER_LOCK=true` and `PROVIDER` is resolved for a model variant, the pr
 
 ---
 
+### 6. Model Seed (generation determinism, distinct from randomization determinism)
+
+Model Seed (`MODEL_SEED`, sent as the API request's `seed` field) is a
+**separate** determinism concern from Randomization Seed above — see
+`docs/status/model-seed-checkpoint-b-design.md`. Randomization Seed
+determines whether `AnswerRandomizer` produces the same option order
+every time; Model Seed determines whether the *generation itself* is
+requested to be deterministic. Neither can affect the other — they never
+share a resolver, a config key, or a code path.
+
+**What this contract guarantees**: the same `MODEL_SEED` value produces
+the same `"seed"` field in the API request payload, every time (payload
+construction is deterministic — see `src/api/request_payload.py`).
+
+**What this contract does NOT guarantee**: that the provider's generated
+output is identical across calls with the same seed. `MODEL_SEED` is a
+*request*, not a promise the system can verify or enforce — the system
+never claims determinism of the response itself, only of the request
+sent. Some providers may not honor `seed` at all; BCLLM does not filter
+or validate provider support before sending it (see
+`docs/status/model-seed-checkpoint-b-design.md`, "Backends") — an
+unsupported parameter surfaces as a normal API error, never a silent drop.
+
+---
+
 ## What Determinism Does NOT Guarantee
 
 - **Same responses** — LLMs are non-deterministic; responses may vary

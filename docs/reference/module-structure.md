@@ -1,7 +1,7 @@
 ---
 type: reference
 audience: ai
-last-validated: 2026-04-11
+last-validated: 2026-08-20
 status: active
 ---
 
@@ -23,6 +23,7 @@ src/
 │   ├── errors.py         # API error types
 │   ├── message_builder.py # Request message construction
 │   ├── provider_resolver.py # Provider endpoint resolution
+│   ├── request_payload.py # Canonical chat completion payload builder
 │   ├── response_parser.py # LLM response parsing
 │   └── stream_aggregator.py # Streaming response handling
 ├── cli/                  # CLI command modules
@@ -96,10 +97,11 @@ src/
 
 | Module | Responsibility |
 |--------|---------------|
-| `client.py` | `OpenRouterClient` — wraps `httpx.AsyncClient`; handles auth, request building, response receiving |
+| `client.py` | `OpenRouterClient` — wraps `httpx.AsyncClient`; sends a pre-built payload (`chat_completion(payload, base_url)`, no scalar kwargs — see `request_payload.py`) and receives the response |
 | `provider_resolver.py` | Provider endpoint resolution via OpenRouter `/models/{id}/endpoints` API |
 | `errors.py` | API error types (network, auth, rate_limit, server) |
 | `message_builder.py` | Builds OpenRouter API request messages |
+| `request_payload.py` | `build_chat_completion_payload()` — the ONE canonical chat completion request payload builder. Called once per attempt by `ExecutionEngine`; the same object is serialized into `request_json` (audit) and handed unmodified to `OpenRouterClient.chat_completion()` (transport) — see `docs/status/model-seed-checkpoint-b-design.md`. |
 | `response_parser.py` | Parses streaming responses; extracts text |
 | `stream_aggregator.py` | Aggregates streaming response chunks |
 

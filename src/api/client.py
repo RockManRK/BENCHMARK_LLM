@@ -14,13 +14,14 @@ for consistent error handling throughout the system.
 
 Example:
     >>> from src.api.client import OpenRouterClient
+    >>> from src.api.request_payload import build_chat_completion_payload
     >>>
     >>> client = OpenRouterClient(api_key="your-api-key")
-    >>>
-    >>> response = await client.chat_completion(
+    >>> payload = build_chat_completion_payload(
     ...     model_id="openai/gpt-4",
     ...     messages=[{"role": "user", "content": "Hello!"}],
     ... )
+    >>> response = await client.chat_completion(payload=payload)
     >>> print(response.content)
 """
 
@@ -109,25 +110,24 @@ class CompletionProvider(ABC):
     @abstractmethod
     async def chat_completion(
         self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float | None = None,
-        top_p: float | None = None,
-        max_tokens: int | None = None,
-        stop: list[str] | None = None,
-        response_format: dict[str, Any] | None = None,
+        payload: dict[str, Any],
         base_url: str | None = None,
     ) -> CompletionResponse:
         """Perform chat completion API call.
 
+        The caller (ExecutionEngine) constructs the complete request
+        payload exactly once, via `src.api.request_payload.
+        build_chat_completion_payload`, and passes it here unmodified —
+        the same object used to derive `request_json` for audit. The
+        provider implementation must send this payload as-is; it must
+        never reconstruct or partially rebuild it from individual
+        parameters (see docs/status/model-seed-checkpoint-b-design.md,
+        Part 1 — this is what keeps `request_json` and the real request
+        byte-identical by construction).
+
         Args:
-            model_id: Model identifier (provider-specific)
-            messages: List of message dicts with 'role' and 'content'
-            temperature: Sampling temperature (0.0-2.0)
-            top_p: Nucleus sampling parameter
-            max_tokens: Maximum output tokens
-            stop: Stop sequences
-            response_format: Response format configuration for structured outputs
+            payload: Complete request payload (model, messages, and all
+                     resolved generation parameters already applied).
             base_url: Per-call endpoint override, when the provider supports
                      multiple endpoints (e.g. a variant-specific URL)
 
@@ -157,10 +157,11 @@ class OpenRouterClient(CompletionProvider):
         ...     api_key="your-api-key",
         ...     base_url="https://openrouter.ai/api/v1",
         ... )
-        >>> response = await client.chat_completion(
+        >>> payload = build_chat_completion_payload(
         ...     model_id="openai/gpt-4",
         ...     messages=[{"role": "user", "content": "Hello!"}],
         ... )
+        >>> response = await client.chat_completion(payload=payload)
     """
 
     def __init__(
@@ -187,6 +188,16 @@ class OpenRouterClient(CompletionProvider):
         self._client = httpx.AsyncClient(timeout=timeout)
         self._debug_enabled = debug_enabled
 
+    @property
+    def debug_enabled(self) -> bool:
+        """Whether this client was constructed with debug mode enabled.
+
+        Public so ExecutionEngine can read the client's own setting when
+        building the canonical request payload (single source of truth —
+        ExecutionEngine never duplicates or overrides this).
+        """
+        return self._debug_enabled
+
     async def close(self) -> None:
         """Close the HTTP client.
 
@@ -197,37 +208,18 @@ class OpenRouterClient(CompletionProvider):
 
     async def chat_completion(
         self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float | None = None,
-        top_p: float | None = None,
-        top_k: int | None = None,
-        repeat_penalty: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        max_reasoning_tokens: int | None = None,
-        stop: list[str] | None = None,
-        response_format: dict[str, Any] | None = None,
-        provider: dict[str, Any] | None = None,
+        payload: dict[str, Any],
         base_url: str | None = None,
     ) -> CompletionResponse:
         """Perform OpenRouter chat completion.
 
         Args:
-            model_id: Model identifier (e.g., "openai/gpt-4")
-            messages: List of message dicts with 'role' and 'content'
-            temperature: Sampling temperature (0.0-2.0)
-            top_p: Nucleus sampling parameter
-            top_k: Top-K sampling parameter
-            repeat_penalty: Repetition penalty (maps to repetition_penalty in API)
-            max_tokens: Maximum output tokens
-            reasoning_effort: Reasoning effort level (none/minimal/low/medium/high/xhigh)
-            max_reasoning_tokens: Maximum reasoning tokens
-            stop: Stop sequences
-            response_format: Response format configuration for structured outputs.
-                            Example: {"type": "json_object"}
-            provider: Provider configuration for provider locking.
-                     Example: {"only": ["deepinfra/turbo"], "allow_fallbacks": False}
+            payload: Complete request payload, built by
+                     `src.api.request_payload.build_chat_completion_payload`
+                     and passed through unmodified — this is the same
+                     object the caller serializes into `request_json` for
+                     audit. This method sends it as-is (`json=payload`);
+                     it never reconstructs or partially rebuilds it.
             base_url: Per-call endpoint override (e.g. a model variant's
                      resolved BASE_URL). One client instance is shared across
                      variants within a run, and variants may target different
@@ -246,6 +238,8 @@ class OpenRouterClient(CompletionProvider):
             NetworkError: Network connectivity failure
         """
         start_time = time.time()
+        model_id = payload["model"]
+        messages = payload["messages"]
 
         # Calculate prompt length for logging
         prompt_length = sum(len(msg.get("content", "")) for msg in messages)
@@ -256,90 +250,8 @@ class OpenRouterClient(CompletionProvider):
         )
 
         try:
-            # Build request payload
-            # Fields are inserted in a logical order for human readability
-            # (consistent with execution_engine.py payload construction):
-            # 1. Identification & Content  → model, messages
-            # 2. Output Control            → response_format, stream, max_tokens
-            # 3. Generation Parameters     → temperature, top_p, top_k, repetition_penalty, stop
-            # 4. Special Features          → reasoning
-            # 5. Debug                     → debug (if enabled)
-            payload: dict[str, Any] = {
-                # --- 1. Identification & Content ---
-                "model": model_id,
-                "messages": messages,
-
-                # --- 2. Output Control ---
-                # response_format added conditionally below
-                # stream added below
-                # max_tokens added conditionally below
-
-                # --- 3. Generation Parameters ---
-                # All added conditionally below
-
-                # --- 4. Special Features ---
-                # reasoning added conditionally below
-
-                # --- 5. Debug ---
-                # debug added conditionally below
-            }
-
-            # --- 2. Output Control ---
-            if response_format is not None:
-                payload["response_format"] = response_format
-
-            payload["stream"] = True
-
-            if max_tokens is not None:
-                payload["max_tokens"] = max_tokens
-
-            # --- 3. Generation Parameters ---
-            if temperature is not None:
-                payload["temperature"] = temperature
-            if top_p is not None:
-                payload["top_p"] = top_p
-            if top_k is not None:
-                payload["top_k"] = top_k
-            if repeat_penalty is not None:
-                # OpenRouter API uses 'repetition_penalty' as field name
-                payload["repetition_penalty"] = repeat_penalty
-            if stop is not None:
-                payload["stop"] = stop
-
-            # --- 4. Special Features: Reasoning ---
-            # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
-            # If both are defined, prioritize effort and log a warning.
-            reasoning_config: dict[str, Any] = {}
-            if reasoning_effort is not None and max_reasoning_tokens is not None:
-                # Conflict: both defined - prioritize effort per OpenRouter contract
-                self._logger.warning(
-                    f"REASONING_CONFLICT | model={model_id} | "
-                    f"Both reasoning_effort='{reasoning_effort}' and "
-                    f"max_reasoning_tokens={max_reasoning_tokens} are set. "
-                    f"Prioritizing reasoning_effort and ignoring max_reasoning_tokens."
-                )
-                reasoning_config["effort"] = reasoning_effort
-            elif reasoning_effort is not None:
-                # Only effort defined - use it normally
-                reasoning_config["effort"] = reasoning_effort
-            elif max_reasoning_tokens is not None:
-                # Only max_tokens defined - use it normally
-                reasoning_config["max_tokens"] = max_reasoning_tokens
-            # else: neither defined - no reasoning config at all
-
-            if reasoning_config:
-                payload["reasoning"] = reasoning_config
-
-            # --- 4b. Provider Locking ---
-            # When provider config is provided, include it in the request.
-            # This ensures the same provider is used for every request.
-            if provider is not None:
-                payload["provider"] = provider
-
-            # --- 5. Debug ---
-            if self._debug_enabled:
-                payload["debug"] = {"echo_upstream_body": True}
-                self._logger.info(f"DEBUG_ENABLED | adding debug payload to request for model={model_id}")
+            if "debug" in payload:
+                self._logger.info(f"DEBUG_ENABLED | debug payload present in request for model={model_id}")
             else:
                 self._logger.debug(f"DEBUG_DISABLED | debug not enabled for model={model_id}")
 

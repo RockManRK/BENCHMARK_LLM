@@ -152,6 +152,15 @@ def create_parser() -> argparse.ArgumentParser:
         help="Repeat penalty (model default)",
     )
     parser.add_argument(
+        "--model-seed",
+        metavar="N",
+        type=parse_int_or_system_default,
+        help="MODEL_SEED - Sent as the API request's 'seed' field for "
+             "deterministic inference (model default). Distinct from "
+             "--randomization-seed, which controls only answer-option "
+             "shuffling and is never sent to the API.",
+    )
+    parser.add_argument(
         "--temperature",
         metavar="VALUE",
         type=parse_float_or_system_default,
@@ -233,7 +242,7 @@ def create_parser() -> argparse.ArgumentParser:
 SYSTEM_DEFAULT_SUPPORTED = {
     'randomization_seed', 'system_prompt', 'user_prompt',
     'max_reasoning', 'max_tokens', 'reasoning', 'repeat_penalty',
-    'temperature', 'top_k', 'top_p', 'reasoning_tokens',
+    'model_seed', 'temperature', 'top_k', 'top_p', 'reasoning_tokens',
     'vision', 'structured', 'add_questions', 'provider_lock',
 }
 SYSTEM_DEFAULT_FORBIDDEN = {

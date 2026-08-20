@@ -189,9 +189,32 @@ bcllm --experiment <name> --add-model <model_id> [options]
 | `--top-p <float>` | Top-P sampling (0.0-1.0) | Not sent in API request |
 | `--top-k <int>` | Top-K sampling (0 or above) | Not sent in API request |
 | `--repeat-penalty <float>` | Repeat penalty (0.0-2.0) | Not sent in API request |
+| `--model-seed <int>` | Model Seed — sent as the API request's `seed` field for deterministic inference. Distinct from `--randomization-seed` (Run-level, controls only answer-option shuffling, never sent to the API) | Not sent in API request |
 | `--vision <bool>` | Enable vision support (`true`, `false`) | Not sent in API request |
 | `--structured <bool>` | Enable structured output (`true`, `false`) | Not sent in API request |
 | `--url <base_url>` | Model-specific API URL | Experiment-level URL |
+
+### --model-seed <int>
+
+**Purpose**: Set Model Seed — sent as the API request's `seed` field for deterministic inference. See `docs/status/model-seed-checkpoint-b-design.md`.
+
+**Applies to**: `--create-experiment` (Experiment-level default) and `--add-model` (per-variant)
+
+**Example**:
+```bash
+bcllm --experiment my_exp --add-model openai/gpt-4 --model-seed 42
+```
+
+**Behavior**:
+- Belongs to Experiment and model_variant — never to a Run.
+- At Experiment creation: `CLI > .env MODEL_SEED > None`.
+- At `--add-model`: `CLI > Experiment's own frozen MODEL_SEED > None` — never consults `.env` at this level.
+- No `AUTO` state anywhere (unlike `--randomization-seed`).
+- `system-default` breaks inheritance from the experiment and resolves to `None` (not sent).
+- An integer, including `0`, is sent verbatim as `"seed"` in the API request; `None` omits the key entirely.
+- Participates in `variant_signature` — two variants differing only by `--model-seed` never collide.
+- Does not guarantee identical responses from the provider — only that the request asked for that seed.
+- Never interferes with `--randomization-seed`/`AnswerRandomizer` — total separation between the two concepts.
 
 ### --provider <provider_slug>
 

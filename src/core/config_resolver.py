@@ -452,7 +452,7 @@ class ConfigResolver:
 
         Resolution strategy:
         - EXPERIMENT keys (1): Resolved from .env at experiment creation
-        - MODEL keys (10): Resolved from CLI/.env as defaults for model variants
+        - MODEL keys (11): Resolved from CLI/.env as defaults for model variants
         - RUN keys (3): Resolved from CLI/.env as defaults for runs
 
         SYSTEM keys REMOVED (resolved at system startup, not stored):
@@ -497,7 +497,7 @@ class ConfigResolver:
             "PROVIDER_LOCK": resolved_provider_lock if resolved_provider_lock is not FORCE_SYSTEM_DEFAULT else None,
             "PROVIDER_SELECTION_STRATEGY": resolved_strategy,
 
-            # MODEL keys (10) - Resolved from CLI/.env as defaults for model variants
+            # MODEL keys (11) - Resolved from CLI/.env as defaults for model variants
             "BASE_URL": self._resolve_with_force_system_default(
                 getattr(cli_args, 'url', None),
                 "BASE_URL"
@@ -538,6 +538,16 @@ class ConfigResolver:
             ),
             "MODEL_VISION": self._resolve_bool_cli_or_env(getattr(cli_args, 'vision', None), "MODEL_VISION"),
             "STRUCTURED_OUTPUTS": self._resolve_bool_cli_or_env(getattr(cli_args, 'structured', None), "STRUCTURED_OUTPUTS"),
+            # Model Seed — sent as the API request's "seed" field. Belongs
+            # to Experiment and model_variant, never to Run. No AUTO
+            # semantics (unlike RANDOMIZATION_SEED below). Never affects
+            # AnswerRandomizer. See
+            # docs/status/model-seed-checkpoint-b-design.md.
+            "MODEL_SEED": self._resolve_with_force_system_default(
+                getattr(cli_args, 'model_seed', None),
+                "MODEL_SEED",
+                self._parse_int_env
+            ),
 
             # RUN keys (3) - Resolved from CLI/.env as defaults for runs
             # Real None (JSON null) means "no randomization" — no textual
@@ -656,7 +666,7 @@ class ConfigResolver:
     def build_model_config_dict(self, cli_args, experiment) -> dict:
         """Build complete configuration dictionary for model variant creation.
 
-        Includes ALL 11 model-level keys from contract, even if null.
+        Includes ALL 12 model-level keys from contract, even if null.
         Resolution order: CLI > experiment > NULL (NO .env consultation)
 
         Args:
@@ -664,12 +674,15 @@ class ConfigResolver:
             experiment: Experiment entity (for potential inheritance).
 
         Returns:
-            Dictionary with ALL 11 model-level configuration keys:
+            Dictionary with ALL 12 model-level configuration keys:
             - BASE_URL: str | None
             - MODEL_MAX_TOKENS_REASONING: int | None
             - MODEL_MAX_TOKENS_TOTAL: int | None
             - MODEL_REASONING_EFFORT: str | None
             - MODEL_REPEAT_PENALTY: float | None
+            - MODEL_SEED: int | None (sent as the API request's "seed"
+              field; distinct from RANDOMIZATION_SEED, which never appears
+              here — see docs/status/model-seed-checkpoint-b-design.md)
             - MODEL_TEMPERATURE: float | None
             - MODEL_TOP_K: int | None
             - MODEL_TOP_P: float | None
@@ -762,6 +775,12 @@ class ConfigResolver:
                 getattr(cli_args, 'provider', None),
                 exp_config,
                 "PROVIDER"
+            ),
+            "MODEL_SEED": self._resolve_cli_or_experiment(
+                getattr(cli_args, 'model_seed', None),
+                exp_config,
+                "MODEL_SEED",
+                parse_int
             ),
         }
 

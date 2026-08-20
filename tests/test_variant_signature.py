@@ -5,6 +5,7 @@ from src.utils.variant_signature import (
     generate_variant_signature,
     parse_variant_signature,
     normalize_float,
+    SIGNATURE_FIELD_ORDER,
 )
 
 
@@ -172,6 +173,75 @@ class TestGenerateVariantSignature:
         assert "provider=deepinfra/turbo" in sig1
         assert "provider=together" in sig2
         assert "provider=" not in sig3
+
+
+class TestModelSeedInSignature:
+    """Model Seed (Checkpoint B) participation in variant_signature.
+    Documented position: directly after repeat_penalty. Pre-production
+    system, test data only — no back-compat handling for previously-stored
+    signatures (per ADR-003), so this only tests newly-generated
+    signatures."""
+
+    def test_stable_field_order(self):
+        """Regression guard for the full, mandatory field order itself —
+        catches any accidental reordering, not just missing/extra fields."""
+        assert SIGNATURE_FIELD_ORDER == [
+            ('MODEL_REASONING_EFFORT', 'reasoning'),
+            ('MODEL_VISION', 'vision'),
+            ('STRUCTURED_OUTPUTS', 'structured'),
+            ('MODEL_TEMPERATURE', 'temp'),
+            ('MODEL_TOP_P', 'top_p'),
+            ('MODEL_TOP_K', 'top_k'),
+            ('MODEL_REPEAT_PENALTY', 'repeat_penalty'),
+            ('MODEL_SEED', 'model_seed'),
+            ('MODEL_MAX_TOKENS_TOTAL', 'max_tokens'),
+            ('MODEL_MAX_TOKENS_REASONING', 'reasoning_tokens'),
+            ('PROVIDER', 'provider'),
+            ('BASE_URL', 'base_url'),
+        ]
+
+    def test_model_seed_only(self):
+        result = generate_variant_signature("openai/gpt-4", {"MODEL_SEED": 42})
+        assert result == "gpt-4|model_seed=42"
+
+    def test_model_seed_appears_after_repeat_penalty(self):
+        config = {
+            "MODEL_REPEAT_PENALTY": 1.2,
+            "MODEL_SEED": 42,
+            "MODEL_MAX_TOKENS_TOTAL": 2048,
+        }
+        result = generate_variant_signature("openai/gpt-4", config)
+        assert result == "gpt-4|repeat_penalty=1.2|model_seed=42|max_tokens=2048"
+
+    def test_model_seed_zero_included_not_treated_as_unset(self):
+        """0 is a valid Model Seed — must not be skipped like None/''."""
+        result = generate_variant_signature("openai/gpt-4", {"MODEL_SEED": 0})
+        assert result == "gpt-4|model_seed=0"
+
+    def test_model_seed_none_skipped(self):
+        result = generate_variant_signature("openai/gpt-4", {"MODEL_SEED": None, "MODEL_TEMPERATURE": 0.7})
+        assert "model_seed=" not in result
+
+    def test_differing_only_by_model_seed_produces_different_signatures(self):
+        """Two variants differing ONLY by --model-seed must not collide —
+        direct analogue of the repeat_penalty/base_url collision-regression
+        tests already covering this exact class of bug."""
+        base_config = {"MODEL_TEMPERATURE": 0.7}
+
+        sig1 = generate_variant_signature("openai/gpt-4", {**base_config, "MODEL_SEED": 42})
+        sig2 = generate_variant_signature("openai/gpt-4", {**base_config, "MODEL_SEED": 99})
+        sig3 = generate_variant_signature("openai/gpt-4", base_config)  # no seed at all
+
+        assert sig1 != sig2
+        assert sig1 != sig3
+        assert sig2 != sig3
+
+    def test_model_seed_never_conflated_with_randomization_seed_key(self):
+        """RANDOMIZATION_SEED must never participate in variant_signature —
+        total separation between the two seed concepts."""
+        config = {"RANDOMIZATION_SEED": 7, "MODEL_SEED": 42}
+        result = generate_variant_signature("openai/gpt-4", config)
+        assert result == "gpt-4|model_seed=42"  # RANDOMIZATION_SEED=7 never appears
 
 
 class TestParseVariantSignature:

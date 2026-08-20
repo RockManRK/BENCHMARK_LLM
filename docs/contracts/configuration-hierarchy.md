@@ -81,7 +81,8 @@ When creating a run:
 When adding a model variant:
 - If a model parameter is not specified, inherit from experiment defaults
 - Model variant configuration is **frozen** at creation
-- Model parameters include: `reasoning`, `max_tokens`, `temperature`, `top_p`, `top_k`, `repeat_penalty`, `vision`, `structured`
+- Model parameters include: `reasoning`, `max_tokens`, `temperature`, `top_p`, `top_k`, `repeat_penalty`, `model_seed`, `vision`, `structured`
+- `model_seed` (Model Seed) follows the same CLI > Experiment > `None` chain as every other model parameter here — **no `.env` consultation at this level** (see "Model Seed Resolution" below)
 
 ---
 
@@ -133,6 +134,55 @@ This is the **only** point where `AUTO` (whether passed directly on the Run's ow
 - **System default:** `None` means randomization disabled (use original order). Never a textual sentinel (`"OFF"`/`"NULL"`/`"NONE"`/`""` are all retired — see `docs/status/known-issues.md`).
 
 **Implementation:** `src/core/config_resolver.py` — `resolve_randomization_seed()` (Experiment level) and `resolve_randomization_seed_for_run()` (Run level, the only place AUTO resolves to a number).
+
+---
+
+## Model Seed Resolution
+
+Model Seed (`MODEL_SEED` — sent as the API request's `seed` field; never
+sent as `RANDOMIZATION_SEED` is; belongs to Experiment and Model Variant,
+never Run — see `docs/status/model-seed-checkpoint-b-design.md`) is
+structurally a plain model parameter, unlike Randomization Seed — it has
+**no `AUTO` state at any level**.
+
+**At Experiment creation:**
+```
+CLI --model-seed → .env MODEL_SEED → System default (None = not sent)
+```
+
+**At Model Variant creation (`--add-model`):**
+```
+CLI --model-seed → Experiment's own MODEL_SEED → System default (None = not sent)
+```
+No `.env` consultation at this level — same rule as every other model
+parameter (`temperature`, `top_p`, etc.).
+
+- **`system-default`:** Breaks inheritance from the Experiment, resolves
+  to `None` (not sent) — same mechanism as `--provider system-default`,
+  no new code path.
+- **Integer, including `0`:** Sent verbatim as `"seed"` in the API
+  request — explicit `is not None` check, never a truthy check.
+- **`None`:** The `"seed"` key is omitted from the request entirely
+  (never `"seed": null`).
+- **Model Variant configuration is frozen at creation**, same as every
+  other model parameter — a variant's `MODEL_SEED` cannot be changed
+  afterward; adding a new variant is the only way to use a different one.
+- **Participates in `variant_signature`** (position: directly after
+  `repeat_penalty`) — two variants differing only by `--model-seed` never
+  collide as duplicates.
+- **Never guarantees identical responses** — only that the request asked
+  for a given seed; the provider may or may not honor it.
+
+**Total separation from Randomization Seed:** the two never share a
+resolver, a config key, or a code path. `RANDOMIZATION_SEED` never
+appears in the API request; `MODEL_SEED` never reaches `AnswerRandomizer`.
+
+**Implementation:** `src/core/config_resolver.py` — `MODEL_SEED` resolved
+inside `build_experiment_config_dict()` (Experiment level, via
+`_resolve_with_force_system_default`) and `build_model_config_dict()`
+(Model Variant level, via `_resolve_cli_or_experiment`) — the same two
+functions, and the same resolution helpers, every other model parameter
+already uses.
 
 ---
 

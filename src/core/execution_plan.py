@@ -206,6 +206,11 @@ class ModelConfig:
                   default endpoint). Resolved by the Planner from the
                   variant's config, falling back to the experiment's
                   config — never re-consulted from .env at execution time.
+        model_seed: Model Seed — sent as the API request's "seed" field for
+                  deterministic inference (None = not sent). Distinct from
+                  Randomization Seed (Run-level, controls only
+                  AnswerRandomizer, never sent to the API) — see
+                  docs/status/model-seed-checkpoint-b-design.md.
 
     Example:
         config = ModelConfig(
@@ -218,6 +223,7 @@ class ModelConfig:
             enable_vision=True,
             reasoning_mode='effort',
             base_url='https://openrouter.ai/api/v1',
+            model_seed=42,
         )
     """
 
@@ -232,6 +238,7 @@ class ModelConfig:
     structured_output: bool = False
     reasoning_mode: str = 'off'
     base_url: str | None = None
+    model_seed: int | None = None
 
 
 @dataclass(frozen=True)

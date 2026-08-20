@@ -8,10 +8,13 @@ Tests cover:
   implemented — see docs/status/seed-vocabulary-separation-investigation.md)
 - resolve_randomization_seed_for_run() — the canonical Run-creation-time
   resolver (AUTO resolution, Experiment -> Run inheritance)
+- Model Seed (MODEL_SEED) resolution at Experiment and model_variant level
+  (Checkpoint B — see docs/status/model-seed-checkpoint-b-design.md)
 - load_env() behavior
 - resolve_config_dict() integration
 """
 
+import json
 import pytest
 
 from src.core.config_resolver import ConfigResolver
@@ -569,7 +572,7 @@ class TestResolveRandomizationSeedForRun:
 class TestBuildExperimentConfigDict:
     """Test cases for build_experiment_config_dict method."""
 
-    def test_returns_dict_with_14_keys(self) -> None:
+    def test_returns_dict_with_17_keys(self) -> None:
         """Test that experiment config has 14 expected keys.
 
         NOTE: QUESTIONS_STATUS_ADD and QUESTIONS_STATUS_EXCLUDE are NOT persisted
@@ -606,6 +609,7 @@ class TestBuildExperimentConfigDict:
             max_tokens = None
             reasoning = None
             repeat_penalty = None
+            model_seed = None
             temperature = None
             top_k = None
             top_p = None
@@ -622,6 +626,7 @@ class TestBuildExperimentConfigDict:
             "MODEL_MAX_TOKENS_TOTAL",
             "MODEL_REASONING_EFFORT",
             "MODEL_REPEAT_PENALTY",
+            "MODEL_SEED",
             "MODEL_TEMPERATURE",
             "MODEL_TOP_K",
             "MODEL_TOP_P",
@@ -635,7 +640,7 @@ class TestBuildExperimentConfigDict:
         }
 
         assert set(result.keys()) == expected_keys
-        assert len(result) == 16  # 16 keys total
+        assert len(result) == 17  # 17 keys total (added MODEL_SEED, Checkpoint B)
 
     def test_does_not_include_system_keys(self) -> None:
         """Test that SYSTEM keys are NOT included in experiment config."""
@@ -720,6 +725,7 @@ class TestBuildExperimentConfigDict:
             max_tokens = None
             reasoning = None
             repeat_penalty = None
+            model_seed = None
             temperature = None
             top_k = None
             top_p = None
@@ -745,7 +751,7 @@ class TestBuildExperimentConfigDict:
 class TestBuildModelConfigDict:
     """Test cases for build_model_config_dict method."""
 
-    def test_returns_dict_with_10_keys(self) -> None:
+    def test_returns_dict_with_12_keys(self) -> None:
         """Test that model config has all 10 expected keys."""
         resolver = ConfigResolver()
         resolver.env_dict = {
@@ -785,6 +791,7 @@ class TestBuildModelConfigDict:
             "MODEL_MAX_TOKENS_TOTAL",
             "MODEL_REASONING_EFFORT",
             "MODEL_REPEAT_PENALTY",
+            "MODEL_SEED",
             "MODEL_TEMPERATURE",
             "MODEL_TOP_K",
             "MODEL_TOP_P",
@@ -794,7 +801,7 @@ class TestBuildModelConfigDict:
         }
 
         assert set(result.keys()) == expected_keys
-        assert len(result) == 11
+        assert len(result) == 12  # 12 keys total (added MODEL_SEED, Checkpoint B)
 
     def test_boolean_values_case_insensitive(self) -> None:
         """Test that boolean values are case-insensitive."""
@@ -812,6 +819,197 @@ class TestBuildModelConfigDict:
         assert resolver._parse_bool_value("NULL") is None  # Deprecated, but handled
         assert resolver._parse_bool_value("null") is None  # Deprecated, but handled
         assert resolver._parse_bool_value(None) is None
+
+
+class TestModelSeedResolution:
+    """Model Seed (MODEL_SEED) resolution — Checkpoint B. Structurally a
+    plain model parameter (mirrors PROVIDER/MODEL_REPEAT_PENALTY): no
+    .env fallback at variant-creation time, no AUTO state anywhere, total
+    separation from RANDOMIZATION_SEED. See
+    docs/status/model-seed-checkpoint-b-design.md."""
+
+    def test_experiment_level_cli_wins_over_env(self) -> None:
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_SEED": "99"}
+
+        class MockArgs:
+            model_seed = "42"
+
+        result = resolver._resolve_with_force_system_default(
+            MockArgs.model_seed, "MODEL_SEED", resolver._parse_int_env
+        )
+        assert result == "42"
+
+    def test_experiment_level_falls_back_to_env_when_cli_absent(self) -> None:
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_SEED": "99"}
+
+        result = resolver._resolve_with_force_system_default(
+            None, "MODEL_SEED", resolver._parse_int_env
+        )
+        assert result == 99
+
+    def test_experiment_level_system_default_ignores_env(self) -> None:
+        from src.core.special_config_values import FORCE_SYSTEM_DEFAULT
+
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_SEED": "99"}
+
+        result = resolver._resolve_with_force_system_default(
+            FORCE_SYSTEM_DEFAULT, "MODEL_SEED", resolver._parse_int_env
+        )
+        assert result is None
+
+    def test_experiment_level_nothing_configured_resolves_none(self) -> None:
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        result = resolver._resolve_with_force_system_default(
+            None, "MODEL_SEED", resolver._parse_int_env
+        )
+        assert result is None
+
+    def test_variant_level_cli_wins_over_experiment(self) -> None:
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            model_seed = 42
+
+        exp_config = {"MODEL_SEED": 99}
+        result = resolver._resolve_cli_or_experiment(
+            MockArgs.model_seed, exp_config, "MODEL_SEED", int
+        )
+        assert result == 42
+
+    def test_variant_level_inherits_from_experiment_when_cli_absent(self) -> None:
+        resolver = ConfigResolver()
+        exp_config = {"MODEL_SEED": 99}
+
+        result = resolver._resolve_cli_or_experiment(
+            None, exp_config, "MODEL_SEED", int
+        )
+        assert result == 99
+
+    def test_variant_level_system_default_breaks_inheritance_even_with_experiment_value(self) -> None:
+        """Direct analogue of Checkpoint A's
+        test_system_default_breaks_inheritance_even_with_experiment_seed —
+        system-default must resolve to None even when the experiment has a
+        real MODEL_SEED configured."""
+        from src.core.special_config_values import FORCE_SYSTEM_DEFAULT
+
+        resolver = ConfigResolver()
+        exp_config = {"MODEL_SEED": 99}
+
+        result = resolver._resolve_cli_or_experiment(
+            FORCE_SYSTEM_DEFAULT, exp_config, "MODEL_SEED", int
+        )
+        assert result is None
+
+    def test_variant_level_never_consults_env(self) -> None:
+        """Variant-level MODEL_SEED resolution must never fall back to
+        .env — only CLI and the experiment's own frozen config."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_SEED": "99"}  # must be ignored entirely
+        exp_config = {}  # experiment has nothing configured either
+
+        result = resolver._resolve_cli_or_experiment(
+            None, exp_config, "MODEL_SEED", int
+        )
+        assert result is None
+
+    def test_zero_preserved_at_experiment_level(self) -> None:
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        class MockArgs:
+            model_seed = "0"
+
+        result = resolver._resolve_with_force_system_default(
+            MockArgs.model_seed, "MODEL_SEED", resolver._parse_int_env
+        )
+        assert result == "0"  # unparsed CLI passthrough, parsed later by build_model_config_dict's parse_int
+
+    def test_zero_preserved_at_variant_level(self) -> None:
+        resolver = ConfigResolver()
+        exp_config = {}
+
+        result = resolver._resolve_cli_or_experiment(0, exp_config, "MODEL_SEED", int)
+        assert result == 0
+
+    def test_build_experiment_config_dict_includes_model_seed(self) -> None:
+        resolver = ConfigResolver()
+        resolver.env_dict = {}
+
+        class MockArgs:
+            randomization_seed = None
+            system_prompt = None
+            user_prompt = None
+            url = None
+            reasoning_tokens = None
+            max_reasoning = None
+            max_tokens = None
+            reasoning = None
+            repeat_penalty = None
+            model_seed = "42"
+            temperature = None
+            top_k = None
+            top_p = None
+            vision = None
+            structured = None
+            experiment_name = "test_exp"
+
+        result = resolver.build_experiment_config_dict(MockArgs())
+        assert result["MODEL_SEED"] == "42"
+
+    def test_build_model_config_dict_includes_model_seed(self) -> None:
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            url = None
+            reasoning_tokens = None
+            max_reasoning = None
+            max_tokens = None
+            reasoning = None
+            repeat_penalty = None
+            model_seed = 42
+            temperature = None
+            top_k = None
+            top_p = None
+            vision = None
+            structured = None
+            provider = None
+
+        class MockExperiment:
+            config_json = "{}"
+
+        result = resolver.build_model_config_dict(MockArgs(), MockExperiment())
+        assert result["MODEL_SEED"] == 42
+
+    def test_build_model_config_dict_model_seed_never_reads_randomization_seed(self) -> None:
+        """Total separation: an experiment's RANDOMIZATION_SEED must never
+        leak into a variant's MODEL_SEED, even if both happen to be set."""
+        resolver = ConfigResolver()
+
+        class MockArgs:
+            url = None
+            reasoning_tokens = None
+            max_reasoning = None
+            max_tokens = None
+            reasoning = None
+            repeat_penalty = None
+            model_seed = None
+            temperature = None
+            top_k = None
+            top_p = None
+            vision = None
+            structured = None
+            provider = None
+
+        class MockExperiment:
+            config_json = json.dumps({"RANDOMIZATION_SEED": 7})
+
+        result = resolver.build_model_config_dict(MockArgs(), MockExperiment())
+        assert result["MODEL_SEED"] is None
 
 
 class TestBuildRunConfigDict:

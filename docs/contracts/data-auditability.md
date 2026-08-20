@@ -44,7 +44,7 @@ Every response record includes complete provenance:
 Each response carries its complete experimental context:
 
 - **What was presented:** Options are saved exactly as shown to the LLM (including randomization)
-- **What was configured:** Randomization Seed, prompts, and model parameters are traceable through run and variant (Model Seed, once implemented, will be traceable through the model variant — see `docs/status/seed-vocabulary-separation-investigation.md`)
+- **What was configured:** Randomization Seed, prompts, and model parameters (including Model Seed) are traceable through run and variant — see `docs/status/model-seed-checkpoint-b-design.md`
 - **What happened:** Full response text, error details, token counts, latency, timestamps
 
 **Rationale:** Scientific reproducibility requires knowing not just the answer, but the complete conditions under which it was generated.
@@ -72,6 +72,35 @@ All configuration is auditable:
 - **Config Hash:** SHA-256 hash enables integrity verification
 
 **Result:** Anyone can verify that an experiment ran with the configuration it claims to have used.
+
+### 4b. Request Fidelity and the Debug Echo (distinct records)
+
+`responses.request_json` is derived from the ONE canonical payload
+actually handed to the HTTP transport — see
+`docs/status/model-seed-checkpoint-b-design.md`, Part 1. There is no
+second, independently-maintained construction of the request payload
+anywhere in the system; `request_json` and the real POST body are
+guaranteed identical by construction, not by convention.
+
+When debug mode is enabled (`OPENROUTER_DEBUG_ENABLED=true`), OpenRouter
+may echo back the transformed request body it actually sent to the
+upstream provider (`debug.echo_upstream_body`, a **response-side**
+field). This is a fundamentally different record from `request_json`:
+
+| Record | What it represents | Where it lives |
+|---|---|---|
+| `responses.request_json` | The request BCLLM sent to OpenRouter (includes `"debug": {"echo_upstream_body": true}` when requested — that boolean instruction IS part of our own request) | Derived from the one canonical payload, before the call |
+| `responses.raw_response` / `raw_response_consolidated` | What OpenRouter sent back, including the echoed upstream body when debug is on | Captured from the response stream, after the call |
+
+**The echoed upstream body must never overwrite or merge into
+`request_json`** — they represent different steps (our request vs. what
+OpenRouter forwarded upstream) and must stay distinguishable. No data
+returned by the API is discarded before its scientific value is
+evaluated: `raw_response` preserves every chunk verbatim, debug or not.
+
+**Secrets:** `request_json` never contains the API key or `Authorization`
+header — those exist only in the HTTP transport layer (`httpx`'s
+`headers=`), never merged into the JSON body that gets persisted.
 
 ### 5. Review Trail
 

@@ -2,7 +2,7 @@
 
 Generates deterministic, ordered variant signatures from model_id and config.
 
-Field order (mandatory):
+Field order (mandatory, documented and tested as stable):
 1. model_name
 2. reasoning_effort
 3. vision
@@ -11,27 +11,31 @@ Field order (mandatory):
 6. top_p
 7. top_k
 8. repeat_penalty
-9. max_output_tokens
-10. reasoning_tokens
-11. provider
-12. base_url
+9. model_seed
+10. max_output_tokens
+11. reasoning_tokens
+12. provider
+13. base_url
 
 Float normalization: 3 decimal places
 
 History: repeat_penalty and base_url were missing from this list until
 2026-08-17 (see docs/status/known-issues.md) — two model variants that
 differed ONLY by --repeat-penalty, or ONLY by --url, hashed to the same
-signature and the second --add-model was rejected as a duplicate. Fixed
-without migrating existing variant_signature values already stored in the
-database: those rows are immutable snapshots of what the signature was at
-creation time (same principle as question_snapshots), so they keep their
-old signature. Only NEW variants use the corrected field list. base_url is
-unrelated to OpenRouter's own provider-routing `provider` object
+signature and the second --add-model was rejected as a duplicate. base_url
+is unrelated to OpenRouter's own provider-routing `provider` object
 (docs/Manuais_Diversos/openrouterdocs/provider_routing.md) — that concept
 is already covered by the separate `provider` field below (which endpoint
 OpenRouter fans a request out to). base_url is which HTTP server the
 client itself talks to (OpenRouter, a local llama.cpp server, a test
 stub) and never appears in OpenRouter's own request/routing semantics.
+
+model_seed (Model Seed, sent as the API request's "seed" field) was added
+2026-08-20 directly after repeat_penalty — both are generation/determinism
+parameters. This is a pre-production system with test data only (see
+docs/architecture/adr/adr-003-pre-production-data-scope.md); no migration
+or backward-compatible handling of previously-stored signatures is
+provided for any field-order change, including this one.
 """
 
 import json
@@ -48,6 +52,7 @@ SIGNATURE_FIELD_ORDER = [
     ('MODEL_TOP_P', 'top_p'),
     ('MODEL_TOP_K', 'top_k'),
     ('MODEL_REPEAT_PENALTY', 'repeat_penalty'),
+    ('MODEL_SEED', 'model_seed'),
     ('MODEL_MAX_TOKENS_TOTAL', 'max_tokens'),
     ('MODEL_MAX_TOKENS_REASONING', 'reasoning_tokens'),
     ('PROVIDER', 'provider'),

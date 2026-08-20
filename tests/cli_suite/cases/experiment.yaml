@@ -272,3 +272,32 @@ cases:
       exit_code: 2
       stderr_contains: ["system-default"]
       no_traceback: true
+
+  - id: CE-012
+    name: "--model-seed no experimento e herdado por variante que nao especifica o proprio (Checkpoint B)"
+    area: experiment
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [creation, model-seed, inheritance, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ce012", "--model-seed", "42"]
+    command:
+      argv: ["--experiment", "{ns}_ce012", "--add-model", "test/success"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT json_extract(config_json, '$.MODEL_SEED') FROM experiments WHERE name = ?"
+          params: ["{ns}_ce012"]
+          equals: 42
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_SEED')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_ce012"]
+          equals: 42  # inherited from the experiment's own MODEL_SEED, --add-model didn't specify its own

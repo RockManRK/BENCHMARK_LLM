@@ -116,7 +116,7 @@ _ACTION_RELEVANT_FLAGS = {
         "--reasoning", "--max-tokens", "--reasoning-tokens",
         "--max-reasoning",
         "--temperature", "--top-p", "--top-k", "--repeat-penalty",
-        "--vision", "--structured", "--url", "--provider",
+        "--vision", "--structured", "--url", "--provider", "--model-seed",
     ],
     "--add-questions": ["--where", "--exclude", "--source-file"],
     "--questions": ["--where", "--exclude", "--source-file"],

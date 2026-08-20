@@ -685,6 +685,9 @@ class Planner:
             - max_output_tokens: int
             - reasoning_tokens: int
             - base_url: str (variant's resolved API endpoint)
+            - model_seed: int (Model Seed, sent as the API request's "seed"
+              field — distinct from RANDOMIZATION_SEED, which never
+              appears in a model_variants config row)
         """
         import json
         
@@ -709,6 +712,7 @@ class Planner:
             structured_output=config.get("STRUCTURED_OUTPUTS", False),
             reasoning_mode="effort" if has_reasoning else "off",
             base_url=config.get("BASE_URL"),
+            model_seed=config.get("MODEL_SEED"),
         )
 
     def _build_items(

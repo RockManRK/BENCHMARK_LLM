@@ -273,3 +273,133 @@ cases:
       exit_code: 2
       stderr_contains: ["system-default"]
       no_traceback: true
+
+  - id: AM-011
+    name: "--model-seed persiste MODEL_SEED (Checkpoint B)"
+    area: model
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [creation, model-seed, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am011"]
+    command:
+      argv: ["--experiment", "{ns}_am011", "--add-model", "test/success", "--model-seed", "42"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_SEED')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am011"]
+          equals: 42
+
+  - id: AM-012
+    name: "--model-seed 0 e preservada como valida (nao tratada como falsy)"
+    area: model
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [creation, model-seed, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am012"]
+    command:
+      argv: ["--experiment", "{ns}_am012", "--add-model", "test/success", "--model-seed", "0"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_SEED')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am012"]
+          equals: 0
+
+  - id: AM-013
+    name: "--model-seed system-default interrompe a heranca do Experiment, resolve para None"
+    area: model
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [inheritance, system-default, model-seed, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      # Experiment has a real MODEL_SEED configured — a naive/buggy
+      # inheritance would leak it into the variant despite the explicit
+      # system-default (direct analogue of Checkpoint A's RN-009).
+      - ["--create-experiment", "{ns}_am013", "--model-seed", "77"]
+    command:
+      argv: ["--experiment", "{ns}_am013", "--add-model", "test/success", "--model-seed", "system-default"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_SEED')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am013"]
+          equals: null
+
+  - id: AM-014
+    name: "--model-seed invalido e usage error, exit 2, nada persistido"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [negative, regression, model-seed]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am014"]
+    command:
+      argv: ["--experiment", "{ns}_am014", "--add-model", "test/success", "--model-seed", "not-a-number"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [model_variants]
+
+  - id: AM-015
+    name: "variante com --model-seed unico nao colide com a variante base (variant_signature)"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [creation, variant_signature, model-seed, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am015"]
+      - ["--experiment", "{ns}_am015", "--add-model", "test/success"]
+    command:
+      # Same class of regression as AM-004/AM-005: MODEL_SEED must
+      # participate in variant_signature (SIGNATURE_FIELD_ORDER), or two
+      # variants differing only by --model-seed would collide as
+      # duplicates.
+      argv: ["--experiment", "{ns}_am015", "--add-model", "test/success", "--model-seed", "42"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am015"]
+          equals: 2

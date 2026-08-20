@@ -13,17 +13,26 @@ Usage:
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from src.api.request_payload import build_chat_completion_payload
 from src.core.execution_plan import ModelConfig, PlanVariant
 from src.core.execution_engine import ExecutionResult
 
 
 class TestModelConfigApplication:
-    """Test that ModelConfig fields are correctly mapped to API payload."""
+    """Test that ModelConfig fields are correctly mapped to the API payload.
+
+    Rewritten 2026-08-20 (Checkpoint B) to call the real
+    build_chat_completion_payload instead of re-implementing the same
+    conditional-omission logic a third time — see
+    docs/status/model-seed-checkpoint-b-design.md, Part 1. This is what
+    makes this test an actual regression guard: it now exercises the same
+    function ExecutionEngine and OpenRouterClient both call, so it cannot
+    pass while the two silently diverge (there is nothing left to diverge
+    from — there's only one implementation)."""
 
     @pytest.mark.asyncio
     async def test_non_null_configs_applied_in_request(self):
         """Verify that non-null config values appear in the request payload."""
-        # Create a model config with specific non-null values
         model_config = ModelConfig(
             temperature=0.9,
             top_p=0.7,
@@ -37,53 +46,30 @@ class TestModelConfigApplication:
             reasoning_mode="effort",
         )
 
-        # Build the request payload (mimicking ExecutionEngine logic)
-        request_payload = {
-            "model": "test/model",
-            "messages": [{"role": "user", "content": "test"}],
-        }
+        request_payload = build_chat_completion_payload(
+            model_id="test/model",
+            messages=[{"role": "user", "content": "test"}],
+            temperature=model_config.temperature,
+            top_p=model_config.top_p,
+            top_k=model_config.top_k,
+            repeat_penalty=model_config.repeat_penalty,
+            max_tokens=model_config.max_output_tokens,
+            reasoning_effort=model_config.reasoning_effort,
+            max_reasoning_tokens=model_config.max_reasoning_tokens,
+            response_format={"type": "json_object"} if model_config.structured_output else None,
+        )
 
-        if model_config.temperature is not None:
-            request_payload["temperature"] = model_config.temperature
-        if model_config.top_p is not None:
-            request_payload["top_p"] = model_config.top_p
-        if model_config.top_k is not None:
-            request_payload["top_k"] = model_config.top_k
-        if model_config.repeat_penalty is not None:
-            request_payload["repetition_penalty"] = model_config.repeat_penalty
-        if model_config.max_output_tokens is not None:
-            request_payload["max_tokens"] = model_config.max_output_tokens
-
-        reasoning_config = {}
-        if model_config.reasoning_effort is not None:
-            reasoning_config["effort"] = model_config.reasoning_effort
-        if model_config.max_reasoning_tokens is not None:
-            reasoning_config["max_tokens"] = model_config.max_reasoning_tokens
-        
-        if reasoning_config:
-            request_payload["reasoning"] = reasoning_config
-
-        if model_config.structured_output:
-            request_payload["response_format"] = {"type": "json_object"}
-
-        request_payload["stream"] = True
-
-        # Verify all non-null values are present
         assert request_payload["temperature"] == 0.9
         assert request_payload["top_p"] == 0.7
         assert request_payload["top_k"] == 50
         assert request_payload["repetition_penalty"] == 1.2
         assert request_payload["max_tokens"] == 1000
-        assert request_payload["reasoning"] == {
-            "effort": "high",
-            "max_tokens": 2000,
-        }
+        assert request_payload["reasoning"] == {"effort": "high"}
         assert "response_format" not in request_payload  # structured_output is False
 
     @pytest.mark.asyncio
     async def test_null_configs_omitted_from_request(self):
         """Verify that null config values are NOT included in request payload."""
-        # Create a model config with mostly null values
         model_config = ModelConfig(
             temperature=0.9,
             top_p=None,
@@ -97,35 +83,18 @@ class TestModelConfigApplication:
             reasoning_mode="off",
         )
 
-        # Build the request payload
-        request_payload = {
-            "model": "test/model",
-            "messages": [{"role": "user", "content": "test"}],
-        }
+        request_payload = build_chat_completion_payload(
+            model_id="test/model",
+            messages=[{"role": "user", "content": "test"}],
+            temperature=model_config.temperature,
+            top_p=model_config.top_p,
+            top_k=model_config.top_k,
+            repeat_penalty=model_config.repeat_penalty,
+            max_tokens=model_config.max_output_tokens,
+            reasoning_effort=model_config.reasoning_effort,
+            max_reasoning_tokens=model_config.max_reasoning_tokens,
+        )
 
-        if model_config.temperature is not None:
-            request_payload["temperature"] = model_config.temperature
-        if model_config.top_p is not None:
-            request_payload["top_p"] = model_config.top_p
-        if model_config.top_k is not None:
-            request_payload["top_k"] = model_config.top_k
-        if model_config.repeat_penalty is not None:
-            request_payload["repetition_penalty"] = model_config.repeat_penalty
-        if model_config.max_output_tokens is not None:
-            request_payload["max_tokens"] = model_config.max_output_tokens
-
-        reasoning_config = {}
-        if model_config.reasoning_effort is not None:
-            reasoning_config["effort"] = model_config.reasoning_effort
-        if model_config.max_reasoning_tokens is not None:
-            reasoning_config["max_tokens"] = model_config.max_reasoning_tokens
-        
-        if reasoning_config:
-            request_payload["reasoning"] = reasoning_config
-
-        request_payload["stream"] = True
-
-        # Verify null values are NOT present
         assert request_payload["temperature"] == 0.9
         assert "top_p" not in request_payload
         assert "top_k" not in request_payload
@@ -134,24 +103,39 @@ class TestModelConfigApplication:
         assert "reasoning" not in request_payload
 
     @pytest.mark.asyncio
+    async def test_model_seed_zero_applied_not_omitted(self):
+        """model_seed=0 must be sent, never dropped as falsy."""
+        model_config = ModelConfig(model_seed=0)
+
+        request_payload = build_chat_completion_payload(
+            model_id="test/model",
+            messages=[{"role": "user", "content": "test"}],
+            model_seed=model_config.model_seed,
+        )
+
+        assert request_payload["seed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_model_seed_none_omitted_from_request(self):
+        model_config = ModelConfig(model_seed=None)
+
+        request_payload = build_chat_completion_payload(
+            model_id="test/model",
+            messages=[{"role": "user", "content": "test"}],
+            model_seed=model_config.model_seed,
+        )
+
+        assert "seed" not in request_payload
+
+    @pytest.mark.asyncio
     async def test_request_json_serialization_preserves_logical_order(self):
         """Verify request_json is serialized with logical field order (insertion order)."""
-        model_config = ModelConfig(
+        request_payload = build_chat_completion_payload(
+            model_id="test/model",
+            messages=[{"role": "user", "content": "test"}],
             temperature=0.9,
             top_k=50,
         )
-
-        request_payload = {
-            "model": "test/model",
-            "messages": [{"role": "user", "content": "test"}],
-        }
-
-        if model_config.temperature is not None:
-            request_payload["temperature"] = model_config.temperature
-        if model_config.top_k is not None:
-            request_payload["top_k"] = model_config.top_k
-
-        request_payload["stream"] = True
 
         # Serialize preserving insertion order (no sort_keys)
         request_json = json.dumps(request_payload, ensure_ascii=False)

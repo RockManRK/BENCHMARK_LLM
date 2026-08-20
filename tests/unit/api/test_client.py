@@ -20,6 +20,7 @@ from src.api.client import (
     OpenRouterClient,
     CompletionResponse,
 )
+from src.api.request_payload import build_chat_completion_payload
 from src.api.errors import (
     AuthenticationError,
     RateLimitError,
@@ -165,10 +166,11 @@ class TestOpenRouterClientChatCompletion:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            response = await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            response = await client.chat_completion(payload=payload)
 
             assert isinstance(response, CompletionResponse)
             assert response.content == "Answer is (B)."  # Aggregated from all chunks
@@ -200,7 +202,7 @@ class TestOpenRouterClientChatCompletion:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
                 temperature=0.7,
@@ -208,6 +210,7 @@ class TestOpenRouterClientChatCompletion:
                 max_tokens=100,
                 stop=["\n"],
             )
+            await client.chat_completion(payload=payload)
 
             # Verify request payload
             call_args = mock_post.call_args
@@ -243,10 +246,11 @@ class TestOpenRouterClientChatCompletion:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            await client.chat_completion(payload=payload)
 
             # Verify headers
             call_args = mock_post.call_args
@@ -278,10 +282,11 @@ class TestOpenRouterClientChatCompletion:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            await client.chat_completion(payload=payload)
 
             call_args = mock_post.call_args
             headers = call_args.kwargs.get("headers", {})
@@ -311,10 +316,11 @@ class TestOpenRouterClientChatCompletion:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            response = await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            response = await client.chat_completion(payload=payload)
 
             # latency_ms should be set (implementation-dependent)
             assert response.latency_ms is not None
@@ -346,10 +352,11 @@ class TestOpenRouterClientErrorHandling:
             mock_post.return_value = mock_response
 
             with pytest.raises(AuthenticationError, match="401"):
-                await client.chat_completion(
+                payload = build_chat_completion_payload(
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+                await client.chat_completion(payload=payload)
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -372,10 +379,11 @@ class TestOpenRouterClientErrorHandling:
             mock_post.return_value = mock_response
 
             with pytest.raises(RateLimitError, match="429"):
-                await client.chat_completion(
+                payload = build_chat_completion_payload(
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+                await client.chat_completion(payload=payload)
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -398,10 +406,11 @@ class TestOpenRouterClientErrorHandling:
             mock_post.return_value = mock_response
 
             with pytest.raises(ServerError, match="500"):
-                await client.chat_completion(
+                payload = build_chat_completion_payload(
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+                await client.chat_completion(payload=payload)
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -414,10 +423,11 @@ class TestOpenRouterClientErrorHandling:
             mock_post.side_effect = httpx.TimeoutException("Request timed out")
 
             with pytest.raises(TimeoutError, match="timed out"):
-                await client.chat_completion(
+                payload = build_chat_completion_payload(
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+                await client.chat_completion(payload=payload)
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -430,10 +440,11 @@ class TestOpenRouterClientErrorHandling:
             mock_post.side_effect = httpx.ConnectError("Connection refused")
 
             with pytest.raises(NetworkError, match="Connection refused"):
-                await client.chat_completion(
+                payload = build_chat_completion_payload(
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+                await client.chat_completion(payload=payload)
 
     @pytest.mark.asyncio
     @pytest.mark.domain_rule
@@ -456,10 +467,11 @@ class TestOpenRouterClientErrorHandling:
             mock_post.return_value = mock_response
 
             with pytest.raises(ClientError, match="400"):
-                await client.chat_completion(
+                payload = build_chat_completion_payload(
                     model_id="openai/gpt-4",
                     messages=[{"role": "user", "content": "Question?"}],
                 )
+                await client.chat_completion(payload=payload)
 
 
 class TestOpenRouterClientStreaming:
@@ -490,10 +502,11 @@ class TestOpenRouterClientStreaming:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            response = await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            response = await client.chat_completion(payload=payload)
 
             # Verify content is aggregated correctly
             assert response.content == "Answer is (B)."
@@ -534,10 +547,11 @@ class TestOpenRouterClientStreaming:
             mock_response.aiter_lines = mock_aiter_lines
             mock_post.return_value = mock_response
 
-            response = await client.chat_completion(
+            payload = build_chat_completion_payload(
                 model_id="openai/gpt-4",
                 messages=[{"role": "user", "content": "Question?"}],
             )
+            response = await client.chat_completion(payload=payload)
 
             # Verify only non-empty content is aggregated
             assert response.content == "Answer is (B)."

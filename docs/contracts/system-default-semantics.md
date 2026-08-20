@@ -55,6 +55,7 @@ Implementation: `src/core/special_config_values.py::normalize_special_config_val
 | `--top-p` | `experiment`, `model` | `None` | **Not sent** in API request (API server default) |
 | `--top-k` | `experiment`, `model` | `None` | **Not sent** in API request (API server default) |
 | `--repeat-penalty` | `experiment`, `model` | `None` | **Not sent** in API request (API server default) |
+| `--model-seed` | `experiment`, `model` | `None` | **Not sent** in API request (breaks inheritance from the experiment's own MODEL_SEED — same mechanism as `--provider system-default`) |
 | `--vision` | `experiment`, `model` | `None` | **Not sent** in API request |
 | `--structured` | `experiment`, `model` | `None` | **Not sent** in API request |
 | `--provider-lock` | `experiment` | `None` (treated as not-enabled) | Same effect as `false` — no per-variant PROVIDER resolution is required before execution; see "Provider and Provider-Lock Semantics" below |

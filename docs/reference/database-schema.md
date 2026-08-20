@@ -79,6 +79,7 @@ experiments ──┬── model_variants
   "MODEL_REASONING_EFFORT": "high",
   "MODEL_MAX_TOKENS_TOTAL": 16384,
   "MODEL_TEMPERATURE": null,
+  "MODEL_SEED": 42,
   "MODEL_VISION": false,
   ...
 }
