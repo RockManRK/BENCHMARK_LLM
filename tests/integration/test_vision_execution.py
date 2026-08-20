@@ -156,7 +156,7 @@ class TestVisionExecutionIntegration:
         )
         run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=Prompts(system=None, user="Answer the question."),
             retry_policy=RetryPolicy(max_attempts=1),
             variants=[variant],
@@ -204,7 +204,7 @@ class TestVisionExecutionIntegration:
         )
         run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=Prompts(system=None, user="Answer the question."),
             retry_policy=RetryPolicy(max_attempts=1),
             variants=[variant],
@@ -250,7 +250,7 @@ class TestVisionExecutionIntegration:
         )
         run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=Prompts(system=None, user="Answer the question."),
             retry_policy=RetryPolicy(max_attempts=1),
             variants=[variant],
@@ -295,7 +295,7 @@ class TestVisionExecutionIntegration:
         )
         run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=Prompts(system="You are a medical assistant.", user="Answer carefully."),
             retry_policy=RetryPolicy(max_attempts=1),
             variants=[variant],

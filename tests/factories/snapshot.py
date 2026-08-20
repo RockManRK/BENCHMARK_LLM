@@ -1,44 +1,35 @@
-"""Factory for creating QuestionSnapshot instances in tests."""
+"""Factory for creating QuestionSnapshot instances in tests.
 
-from dataclasses import dataclass
-from typing import Optional, Any, Dict
-import uuid
+Builds the real `src.db.models.QuestionSnapshot` entity — no duplicate/
+parallel dataclass. The real field is `json_question_id` (not
+`question_id`) and `question_position` is required (UNIQUE with
+`experiment_id` — see `src/db/schema.py`); there is no `is_active`.
+"""
+
 import json
+import uuid
+from typing import Any, Optional
 
+from src.db.models import QuestionSnapshot
 
-@dataclass
-class QuestionSnapshot:
-    """QuestionSnapshot entity for testing."""
-    snapshot_id: str
-    experiment_id: str
-    question_id: str
-    question_payload: str  # JSON string
-    created_at: Optional[str] = None
-    is_active: bool = True
+# Positions only need to be distinct per experiment (UNIQUE(experiment_id,
+# question_position) in schema). A wide random range keeps collisions
+# negligible across the handful of snapshots any one test creates, without
+# making the factory stateful.
+_POSITION_RANGE = 1_000_000
 
 
 class SnapshotFactory:
     """Factory for creating QuestionSnapshot instances in tests.
 
-    This factory provides sensible defaults and allows customization
-    through overrides. It returns dataclass instances, not database records.
-
     The question_payload is stored as a JSON string, matching the
-    TO-BE schema design.
+    real schema.
 
     Example:
         # Basic usage
         snapshot = SnapshotFactory.create(
             experiment_id="exp-123",
             question_id="q1",
-        )
-
-        # With custom payload (dict or JSON string)
-        payload = {"stem": "What is 2+2?", "options": ["3", "4", "5", "6"], "answer_key": "B"}
-        snapshot = SnapshotFactory.create(
-            experiment_id="exp-123",
-            question_id="q1",
-            question_payload=payload,  # Can be dict or JSON string
         )
 
         # In a test
@@ -52,36 +43,28 @@ class SnapshotFactory:
     def create(
         experiment_id: str,
         question_id: str,
-        question_payload: Optional[Dict[str, Any] | str] = None,
+        question_payload: Optional[dict[str, Any] | str] = None,
+        question_position: Optional[int] = None,
         created_at: Optional[str] = None,
-        **overrides,
+        **overrides: Any,
     ) -> QuestionSnapshot:
         """
         Create a QuestionSnapshot with defaults.
 
         Args:
             experiment_id: Parent experiment ID (required)
-            question_id: Question identifier (required)
-            question_payload: Question data as dict or JSON string (auto-generated if None)
+            question_id: Original dataset question ID — maps to the real
+                entity's `json_question_id` field.
+            question_payload: Question data as dict or JSON string
+                (auto-generated if None)
+            question_position: 1-based position within the experiment
+                (auto-generated, distinct per call, if None)
             created_at: Creation timestamp (None = database default)
-            **overrides: Any field can be overridden
+            **overrides: `snapshot_id` may be overridden
 
         Returns:
-            QuestionSnapshot instance
-
-        Example:
-            >>> snapshot = SnapshotFactory.create(
-            ...     experiment_id="exp-123",
-            ...     question_id="q1",
-            ... )
-            >>> snapshot.question_id
-            'q1'
-            >>> import json
-            >>> payload = json.loads(snapshot.question_payload)
-            >>> 'stem' in payload
-            True
+            QuestionSnapshot instance (src.db.models.QuestionSnapshot)
         """
-        # Default payload if not provided
         if question_payload is None:
             default_payload = {
                 "stem": f"Question {question_id}: What is the correct answer?",
@@ -90,14 +73,16 @@ class SnapshotFactory:
             }
             question_payload = json.dumps(default_payload)
         elif isinstance(question_payload, dict):
-            # Convert dict to JSON string
             question_payload = json.dumps(question_payload)
+
+        if question_position is None:
+            question_position = uuid.uuid4().int % _POSITION_RANGE
 
         return QuestionSnapshot(
             snapshot_id=overrides.get('snapshot_id', f"snap-{uuid.uuid4().hex[:8]}"),
             experiment_id=experiment_id,
-            question_id=question_id,
+            json_question_id=question_id,
+            question_position=question_position,
             question_payload=question_payload,
-            created_at=overrides.get('created_at', created_at),
-            is_active=overrides.get('is_active', True),
+            created_at=created_at,
         )

@@ -55,7 +55,7 @@ Example:
 
     run = PlanRun(
         run_id="run-001",
-        seed_effective=42,
+        randomization_seed_effective=42,
         prompts_effective=prompts,
         retry_policy=RetryPolicy(max_attempts=3),
         variants=[variant],
@@ -306,11 +306,16 @@ class PlanRun:
     """Single run within an execution plan.
 
     Represents a single run configuration, including the effective
-    seed, prompts, retry policy, and all items to execute.
+    Randomization Seed, prompts, retry policy, and all items to execute.
 
     Attributes:
         run_id: Unique identifier for this run
-        seed_effective: Effective random seed (None = no randomization)
+        randomization_seed_effective: The run's own, already-frozen
+            Randomization Seed (None = no randomization). Renamed
+            2026-08-20 from `seed_effective` — this seed controls only
+            AnswerRandomizer's shuffling of presented options; it is
+            unrelated to Model Seed (sent to the API for inference,
+            planned separately, not yet implemented).
         prompts_effective: Resolved prompt templates
         retry_policy: Retry configuration for this run
         variants: List of model variants to execute
@@ -319,7 +324,7 @@ class PlanRun:
     Example:
         run = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system=None,  # Null-by-default (from ConfigResolver)
                 user="Answer: {question}",
@@ -331,7 +336,7 @@ class PlanRun:
     """
 
     run_id: str
-    seed_effective: int | None
+    randomization_seed_effective: int | None
     prompts_effective: Prompts
     retry_policy: RetryPolicy
     variants: list[PlanVariant]

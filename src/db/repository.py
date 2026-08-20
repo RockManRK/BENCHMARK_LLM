@@ -47,7 +47,7 @@ class ExperimentRepository:
         """
         self.conn = conn
 
-    def save(self, experiment: Experiment) -> None:
+    def save(self, experiment: Experiment, *, commit: bool = True) -> None:
         """Insert or update experiment.
 
         Uses INSERT OR REPLACE for idempotency.
@@ -55,6 +55,11 @@ class ExperimentRepository:
 
         Args:
             experiment: Experiment dataclass to save.
+            commit: Whether to commit immediately (default). Pass False
+                only when the caller is explicitly participating in a
+                src.db.unit_of_work.UnitOfWork scope (the composite
+                --create-experiment + --add-* flow) — see
+                docs/status/composite-flow-unit-of-work-design.md.
         """
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -68,7 +73,8 @@ class ExperimentRepository:
             experiment.config_json,
             experiment.config_hash,
         ))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def get_by_id(self, experiment_id: str) -> Experiment | None:
         """Get experiment by ID.
@@ -167,10 +173,16 @@ class VariantRepository:
         """Initialize with database connection."""
         self.conn = conn
 
-    def save(self, variant: ModelVariant) -> None:
+    def save(self, variant: ModelVariant, *, commit: bool = True) -> None:
         """Insert or update variant.
 
         Does NOT pass created_at - let DB DEFAULT handle it.
+
+        Args:
+            variant: ModelVariant dataclass to save.
+            commit: Whether to commit immediately (default). Pass False
+                only when explicitly participating in a
+                src.db.unit_of_work.UnitOfWork scope.
         """
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -184,7 +196,8 @@ class VariantRepository:
             variant.variant_signature,
             variant.config,
         ))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def get_by_id(self, variant_id: str) -> ModelVariant | None:
         """Get variant by ID."""
@@ -262,11 +275,17 @@ class SnapshotRepository:
         """Initialize with database connection."""
         self.conn = conn
 
-    def save(self, snapshot: QuestionSnapshot) -> None:
+    def save(self, snapshot: QuestionSnapshot, *, commit: bool = True) -> None:
         """Insert or update snapshot.
 
         Does NOT pass created_at - let DB DEFAULT handle it.
         Uses json_question_id and question_position from new schema.
+
+        Args:
+            snapshot: QuestionSnapshot dataclass to save.
+            commit: Whether to commit immediately (default). Pass False
+                only when explicitly participating in a
+                src.db.unit_of_work.UnitOfWork scope.
         """
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -281,7 +300,8 @@ class SnapshotRepository:
             snapshot.question_position,
             snapshot.question_payload,
         ))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def get_by_id(self, snapshot_id: str) -> QuestionSnapshot | None:
         """Get snapshot by ID."""
@@ -359,12 +379,15 @@ class RunRepository:
         """Initialize with database connection."""
         self.conn = conn
 
-    def save(self, run: Run, config: dict) -> None:
+    def save(self, run: Run, config: dict, *, commit: bool = True) -> None:
         """Insert or update run.
 
         Args:
             run: Run dataclass to save.
             config: Configuration dict (will be serialized to JSON).
+            commit: Whether to commit immediately (default). Pass False
+                only when explicitly participating in a
+                src.db.unit_of_work.UnitOfWork scope.
 
         Notes:
             - Does NOT pass created_at - let DB DEFAULT handle it
@@ -383,7 +406,8 @@ class RunRepository:
             run.status,
             run.duration,
         ))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def get_by_id(self, run_id: str) -> Run | None:
         """Get run by ID.

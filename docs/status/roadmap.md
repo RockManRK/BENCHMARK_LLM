@@ -120,9 +120,9 @@ This roadmap is **non-normative**: it describes what the system's maintainers in
 
 ---
 
-#### 7. Experiment Modification (Seed/Prompts)
+#### 7. Experiment Modification (Randomization Seed/Prompts)
 
-**What:** Allow changing seed, system prompt, user prompt on existing experiments  
+**What:** Allow changing Randomization Seed, system prompt, user prompt on existing experiments  
 **Why:** Currently not implemented; limits experiment flexibility  
 **Dependencies:** Config resolution update  
 **Effort:** Small  
@@ -254,7 +254,7 @@ These capabilities were recently implemented:
 | Retry safety | 2026-04 | Centralized retry with backoff |
 | Logging system | 2026-04 | Configurable with rotation |
 | Answer parsing | 2026-04 | Multiple patterns recognized |
-| Answer randomization | 2026-04 | Fisher-Yates with seed control |
+| Answer randomization | 2026-04 | Fisher-Yates with Randomization Seed control |
 | Export service | 2026-04 | JSON with computed fields |
 | Configuration hierarchy | 2026-04 | System → .env → Experiment → Run/Model |
 | Database layer | 2026-04 | 6 tables, constraints, indexes |

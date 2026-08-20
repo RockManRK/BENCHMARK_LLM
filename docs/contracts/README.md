@@ -21,9 +21,9 @@ status: active
 | [idempotency.md](idempotency.md) | Execution & data writes | 2026-04-11 | ✅ Active |
 | [immutability.md](immutability.md) | Snapshots, plans, history | 2026-04-11 | ✅ Active |
 | [configuration-hierarchy.md](configuration-hierarchy.md) | Config resolution | 2026-04-11 | ✅ Active |
-| [system-default-semantics.md](system-default-semantics.md) | system-default behavior | 2026-04-11 | ✅ Active |
+| [system-default-semantics.md](system-default-semantics.md) | system-default behavior | 2026-08-19 | ✅ Active |
 | [data-auditability.md](data-auditability.md) | Data traceability | 2026-04-11 | ✅ Active |
-| [interaction-contracts.md](interaction-contracts.md) | Event emission, UI boundaries | 2026-04-11 | 📝 Placeholder |
+| [interaction-contracts.md](interaction-contracts.md) | Event emission, UI boundaries | 2026-08-18 | 🟡 Partial — CLI Output Boundaries normative (ADR-002); Review UI, Event Emission, Logging Boundaries still placeholder |
 
 ---
 

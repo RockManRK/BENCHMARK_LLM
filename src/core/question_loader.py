@@ -411,7 +411,89 @@ class QuestionLoader:
             
             if source_id is not None:
                 question_copy["source_id"] = str(source_id)
-            
+
             result.append(question_copy)
-        
+
         return result
+
+
+def _normalize_options(options: dict | list) -> list:
+    """Normalize options from dict to list format.
+
+    The dataset stores options as a dict with letter keys:
+        {"A": "text A", "B": "text B", "C": "text C", "D": "text D"}
+
+    But the execution engine expects a list of option texts:
+        ["text A", "text B", "text C", "text D"]
+
+    This function converts dict to list, preserving the order of values.
+
+    Args:
+        options: Options in dict format (from dataset) or list format (already normalized)
+
+    Returns:
+        List of option texts
+
+    Example:
+        >>> _normalize_options({"A": "opt1", "B": "opt2"})
+        ["opt1", "opt2"]
+        >>> _normalize_options(["opt1", "opt2"])
+        ["opt1", "opt2"]
+    """
+    if isinstance(options, dict):
+        return list(options.values())
+    return options
+
+
+def build_question_snapshot_payload(question: dict) -> dict:
+    """Build the canonical `QuestionSnapshot.question_payload` dict for one question.
+
+    The single, shared payload shape for BOTH question-snapshotting entry
+    points — `bcllm --create-experiment X --add-questions ...` (composite,
+    `src/cli/bcllm_experiment.py::_create_question_snapshots`) and
+    `bcllm --experiment X --add-questions ...` (standalone,
+    `src/cli/bcllm_questions.py::add_questions_action`). Both MUST call
+    this function rather than building the dict inline — see
+    docs/status/known-issues.md ("double-wrapped meta field") for why:
+    until 2026-08-19 the two paths built the payload independently and
+    diverged, and the composite path's version double-wrapped `meta`
+    (`{"meta": {...}}` instead of `{...}`), silently breaking
+    `Planner`'s `meta.has_image` lookup for any vision-enabled question
+    added that way.
+
+    Design (per explicit product decision, not inferred):
+    - `meta` is taken **verbatim** from `question.get('meta', {})` — never
+      reconstructed from "whatever fields are left over" (that
+      reconstruction is exactly what caused the double-wrap bug). Kept at
+      exactly one level.
+    - `internal_id`/`source_id` are included as top-level payload keys for
+      self-contained origin traceability (data-auditability), even though
+      `QuestionSnapshot.json_question_id`/`question_position` (the DB
+      columns, set identically by both call sites) already carry the same
+      information redundantly — the payload should be readable on its own
+      without joining back to the row.
+    - Callers serialize with `json.dumps(payload, ensure_ascii=False)` —
+      this function returns the dict, not the JSON string, so it stays
+      testable without string-parsing, but "ensure_ascii=False always" is
+      part of the contract every caller must follow.
+
+    Args:
+        question: A question dict as returned by
+            `QuestionLoader.assign_internal_ids()` — must have `internal_id`
+            and, when the source dataset provided one, `source_id`.
+
+    Returns:
+        A JSON-serializable dict: `stem`, `options` (always a list, dict
+        options normalized via `_normalize_options`), `answer_key`,
+        `assets`, `meta` (verbatim, possibly `{}`), `internal_id`,
+        `source_id`.
+    """
+    return {
+        'stem': question.get('stem', ''),
+        'options': _normalize_options(question.get('options', {})),
+        'answer_key': question.get('answer_key', ''),
+        'assets': question.get('assets', []),
+        'meta': question.get('meta', {}) or {},
+        'internal_id': question.get('internal_id'),
+        'source_id': question.get('source_id'),
+    }

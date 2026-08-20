@@ -44,11 +44,11 @@ from src.core.config_resolver import (
 
 from src.core.question_loader import (
     QuestionLoader,
+    build_question_snapshot_payload,
 )
 
 from src.core.argv_utils import (
     parse_args_normalized,
-    normalize_nulls,
 )
 
 __all__ = [
@@ -78,7 +78,7 @@ __all__ = [
     'ConfigResolver',
     # Question Loader
     'QuestionLoader',
+    'build_question_snapshot_payload',
     # Argv Utils
     'parse_args_normalized',
-    'normalize_nulls',
 ]

@@ -1,0 +1,53 @@
+# Export command cases (area: export). EXP- prefix.
+#
+# --export had ZERO coverage in this suite before these cases — it was
+# the only bcllm command whose sole automated coverage lived in a now-
+# archived argparse-mocked unit test (tests/_arquivados/unit/cli/
+# test_bcllm_export.py). These two cases exist specifically to close that
+# gap before archiving that file (see docs/status/known-issues.md and the
+# Fase 0 test-inventory decision).
+cases:
+  - id: EXP-001
+    name: "--export sem --output-file imprime JSON valido no stdout"
+    area: export
+    profiles: [cli-unit, full]
+    priority: high
+    tags: [creation]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_exp001"]
+      - argv: ["--experiment", "{ns}_exp001", "--add-run"]
+        capture:
+          run_id: "ID: (run_[0-9a-f]+)"
+    command:
+      argv: ["--experiment", "{ns}_exp001", "--run", "{run_id}", "--export"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["\"total_responses\": 0", "\"total_errors\": 0"]
+      no_traceback: true
+
+  - id: EXP-002
+    name: "--export --output-file grava em arquivo e confirma no stdout"
+    area: export
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [creation]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_exp002"]
+      - argv: ["--experiment", "{ns}_exp002", "--add-run"]
+        capture:
+          run_id: "ID: (run_[0-9a-f]+)"
+    command:
+      # Relative path — resolves inside the case's own cwd
+      # (tests_workspace/case_env/<namespace>/), never outside the
+      # sandbox.
+      argv: ["--experiment", "{ns}_exp002", "--run", "{run_id}", "--export", "--output-file", "export_out.json"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["Exported 0 responses and 0 errors to export_out.json"]
+      no_traceback: true

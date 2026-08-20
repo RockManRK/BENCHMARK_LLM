@@ -92,7 +92,7 @@ def _setup_minimal_experiment(conn, name="test-exp", num_questions=4):
         status="pending",
         duration=0,
     )
-    RunRepository(conn).save(run, config={"RUN_RESPONSES_SEED": 42})
+    RunRepository(conn).save(run, config={"RANDOMIZATION_SEED": 42})
 
     return {
         "experiment_id": exp_id,
@@ -476,7 +476,7 @@ class TestConcurrencyCorrectness:
             status="pending",
             duration=0,
         )
-        RunRepository(in_memory_db).save(run, config={"RUN_RESPONSES_SEED": 42})
+        RunRepository(in_memory_db).save(run, config={"RANDOMIZATION_SEED": 42})
 
         # Execute
         mock_client = _make_mock_api_client_with_tracking(latency_ms=50)

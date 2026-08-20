@@ -94,7 +94,7 @@ def _setup_minimal_experiment(conn, name="test-exp", num_questions=3):
         status="pending",
         duration=0,
     )
-    RunRepository(conn).save(run, config={"RUN_RESPONSES_SEED": 42})
+    RunRepository(conn).save(run, config={"RANDOMIZATION_SEED": 42})
 
     return {
         "experiment_id": exp_id,

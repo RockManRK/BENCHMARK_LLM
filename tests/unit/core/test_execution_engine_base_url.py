@@ -57,7 +57,7 @@ def _build_plan(base_url: str | None) -> ExecutionPlan:
     )
     run = PlanRun(
         run_id="run-1",
-        seed_effective=None,
+        randomization_seed_effective=None,
         prompts_effective=Prompts(system=None, user="Answer: {question}"),
         retry_policy=RetryPolicy(max_attempts=1),
         variants=[variant],

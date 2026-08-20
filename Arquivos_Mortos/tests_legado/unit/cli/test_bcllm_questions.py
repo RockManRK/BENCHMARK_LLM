@@ -44,7 +44,7 @@ def test_add_questions_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -70,7 +70,7 @@ def test_add_questions_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -107,7 +107,7 @@ def test_add_questions_idempotent(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -138,7 +138,7 @@ def test_add_questions_invalid_spec(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -170,7 +170,7 @@ def test_list_questions_empty(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -213,7 +213,7 @@ def test_list_questions_with_data(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -257,7 +257,7 @@ def test_list_questions_for_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -298,7 +298,7 @@ def test_remove_question_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -334,7 +334,7 @@ def test_remove_question_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -373,7 +373,7 @@ def test_remove_question_from_wrong_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -407,7 +407,7 @@ class TestAddQuestionsIntegration:
             "--add-questions", "q1,q2",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main(Mode.MODIFY)
                 assert result == 0
@@ -420,7 +420,7 @@ class TestAddQuestionsIntegration:
             "--list-questions",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main(Mode.MODIFY)
                 assert result == 0
@@ -443,7 +443,7 @@ class TestAddQuestionsIntegration:
             "--add-questions", "1-3",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main(Mode.MODIFY)
                 assert result == 0
@@ -474,7 +474,7 @@ class TestRemoveQuestionIntegration:
             "--add-questions", "q1",
         ]
         with patch.object(sys, "argv", add_args):
-            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 questions_main(Mode.MODIFY)
 
@@ -490,7 +490,7 @@ class TestRemoveQuestionIntegration:
             "--remove-question", snapshot_id,
         ]
         with patch.object(sys, "argv", remove_args):
-            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 questions_main(Mode.MODIFY)
 
@@ -504,7 +504,7 @@ class TestRemoveQuestionIntegration:
             "--list-questions",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src.cli.bcllm_questions.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = questions_main(Mode.MODIFY)
                 assert result == 0

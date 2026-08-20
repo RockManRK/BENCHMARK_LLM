@@ -167,7 +167,7 @@ def sample_run(sample_variant, sample_item):
     """Create sample PlanRun."""
     return PlanRun(
         run_id="run-001",
-        seed_effective=42,
+        randomization_seed_effective=42,
         prompts_effective=Prompts(
             system="You are a helpful assistant.",
             user="Answer the question: {question}",
@@ -281,7 +281,7 @@ class TestExecutionEngineDomainRules:
         
         run_with_config = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",
@@ -343,7 +343,7 @@ class TestExecutionEngineExecute:
         
         run_multi = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",
@@ -394,7 +394,7 @@ class TestExecutionEngineExecute:
         # Arrange: Create plan with 2 runs
         run1 = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(system="sys1", user="usr1"),
             retry_policy=RetryPolicy(),
             variants=[sample_variant],
@@ -416,7 +416,7 @@ class TestExecutionEngineExecute:
         
         run2 = PlanRun(
             run_id="run-002",
-            seed_effective=43,
+            randomization_seed_effective=43,
             prompts_effective=Prompts(system="sys2", user="usr2"),
             retry_policy=RetryPolicy(),
             variants=[sample_variant],
@@ -458,7 +458,7 @@ class TestExecutionEngineRandomization:
         # Arrange: Create run with seed
         run_with_seed = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",
@@ -493,7 +493,7 @@ class TestExecutionEngineRandomization:
         # Arrange: Create run with seed=None
         run_no_seed = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",
@@ -540,7 +540,7 @@ class TestExecutionEngineErrorHandling:
         
         run = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",
@@ -580,7 +580,7 @@ class TestExecutionEngineErrorHandling:
         # Arrange
         run = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",
@@ -697,7 +697,7 @@ class TestExecutionEngineIntegration:
         # Arrange
         run = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(
                 system="You are a helpful assistant.",
                 user="Answer the question: {question}",

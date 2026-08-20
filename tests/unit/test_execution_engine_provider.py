@@ -116,7 +116,7 @@ def _build_minimal_plan(
     # Create plan run
     plan_run = PlanRun(
         run_id="run-001",
-        seed_effective=None,
+        randomization_seed_effective=None,
         prompts_effective=prompts,
         retry_policy=RetryPolicy(),
         variants=[variant],
@@ -255,7 +255,7 @@ class TestProviderInRequestPayload:
 
         plan_run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=prompts,
             retry_policy=RetryPolicy(),
             variants=[variant1, variant2],
@@ -384,7 +384,7 @@ class TestProviderInRequestPayload:
 
         plan_run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=prompts,
             retry_policy=RetryPolicy(),
             variants=[variant1, variant2],

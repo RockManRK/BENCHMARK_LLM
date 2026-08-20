@@ -38,7 +38,7 @@ This distinction is critical for future AI agents to correctly assess implementa
 | Show experiment | ⚠️ Partial | Command exists but output is incomplete; insufficient for real inspection |
 | List experiments | ❌ Not implemented | Command not implemented |
 | Remove experiment | ❌ Not implemented | Command not implemented |
-| Modify experiment | ⚠️ Partial | Can add questions/models (works correctly); **cannot** change seed, system prompt, or user prompt (not implemented) |
+| Modify experiment | ⚠️ Partial | Can add questions/models (works correctly); **cannot** change Randomization Seed, system prompt, or user prompt (not implemented) |
 
 **Module:** `src/cli/bcllm_experiment.py`
 
@@ -68,7 +68,7 @@ This distinction is critical for future AI agents to correctly assess implementa
 
 | Capability | Status | Notes |
 |------------|--------|-------|
-| Create run | ✅ Complete | With seed and prompt overrides |
+| Create run | ✅ Complete | With Randomization Seed and prompt overrides |
 | List runs | ✅ Complete | All runs with status |
 | Show run | ✅ Complete | Configuration and status |
 | Remove run | ✅ Complete | Prevents future execution; historical data preserved |
@@ -103,7 +103,7 @@ This distinction is critical for future AI agents to correctly assess implementa
 
 | Capability | Status | Notes |
 |------------|--------|-------|
-| Fisher-Yates shuffle | ✅ Complete | Deterministic with seed |
+| Fisher-Yates shuffle | ✅ Complete | Deterministic with Randomization Seed |
 | Seed control | ✅ Complete | `None` = off, `AUTO` = random, `int` = fixed |
 | Experimental truth tracking | ✅ Complete | Options saved exactly as presented |
 

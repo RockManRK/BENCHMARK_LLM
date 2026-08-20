@@ -7,6 +7,7 @@ This module implements the CLI Module Resolution Contract:
 - Propagates experiment context to action modules
 - Action modules NEVER create experiments
 """
+import argparse
 import os
 import sqlite3
 import sys
@@ -18,30 +19,44 @@ from src.core.mode import Mode
 from src.core.mode_resolver import resolve_mode
 from src.core.module_resolver import resolve_module, has_flag, ADD_ACTION_FLAGS
 from src.core.mode_matrix import validate_mode_matrix, ModeMatrixError
+from src.core.argv_utils import parse_args_normalized, ParserExit
+from src.db.unit_of_work import UnitOfWork
 from src.utils.logging_config import setup_logging, LoggingConfig
 
-# Load .env file at application startup
-# This ensures all environment variables are available for CLI modules
-load_dotenv(".env", override=True)
+
+def _bootstrap_environment() -> None:
+    """Load .env into the process environment.
+
+    Must be called exactly once, only from this module's real CLI
+    entry points below (direct `python bcllm.py` execution, and the
+    installed console script — both call cli_main(), see setup.py) —
+    NEVER at import time. Importing bcllm.py (tests, tooling, any
+    programmatic caller) must have zero side effects: it must never
+    silently overwrite an environment the caller already prepared (e.g.
+    via monkeypatch/os.environ), which `override=True` would otherwise
+    do unconditionally. See docs/status/known-issues.md and
+    docs/status/composite-flow-unit-of-work-design.md point 8/5.
+    """
+    load_dotenv(".env", override=True)
 
 
 def _extract_experiment_name(argv: list[str]) -> str | None:
     """Extract experiment name from argv.
-    
+
     Supports:
     - --create-experiment NAME
     - --create-experiment=NAME
     - --experiment NAME
     - --experiment=NAME
-    
+
     Args:
         argv: Raw command-line arguments.
-        
+
     Returns:
         Experiment name if found, None otherwise.
     """
     args = argv[1:] if len(argv) > 0 else []
-    
+
     for i, arg in enumerate(args):
         # Handle --create-experiment=NAME or --experiment=NAME
         if "=" in arg:
@@ -52,25 +67,196 @@ def _extract_experiment_name(argv: list[str]) -> str | None:
         elif arg in ("--create-experiment", "--experiment"):
             if i + 1 < len(args) and not args[i + 1].startswith("--"):
                 return args[i + 1].strip()
-    
+
     return None
 
 
+def _build_create_argv(argv: list[str], experiment_name: str) -> list[str]:
+    """Build the filtered argv used to parse experiment-creation-time
+    flags (everything except the ADD_* actions themselves) — pure, no
+    I/O. Extracted unchanged from the original inline block so the
+    pre-connection parse phase (_handle_composite_flow) and nothing else
+    depends on this exact filtering logic."""
+    create_argv = ['bcllm', '--create-experiment', experiment_name]
+
+    skip_next = False
+    for i, arg in enumerate(argv[1:], 1):
+        if skip_next:
+            skip_next = False
+            continue
+
+        if arg == '--create-experiment':
+            skip_next = True
+            continue
+
+        if arg.startswith('--create-experiment='):
+            continue
+
+        # Skip ADD_* flags (handled separately)
+        if arg in ADD_ACTION_FLAGS:
+            continue
+
+        # Add other config flags
+        if arg.startswith('--') and arg not in ('--execute',):
+            create_argv.append(arg)
+            if '=' not in arg and i + 1 < len(argv) and not argv[i + 1].startswith('--'):
+                create_argv.append(argv[i + 1])
+                skip_next = True
+
+    return create_argv
+
+
+# Relevant flags forwarded to each action's own filtered argv — see
+# _build_action_argv. "--questions" is a true alias of "--add-questions"
+# (see module_resolver.ADD_ACTION_FLAGS) and must forward the same
+# relevant flags, or a composite flow using the alias would silently
+# drop --where/--exclude/--source-file.
+_ACTION_RELEVANT_FLAGS = {
+    "--add-model": [
+        "--reasoning", "--max-tokens", "--reasoning-tokens",
+        "--max-reasoning",
+        "--temperature", "--top-p", "--top-k", "--repeat-penalty",
+        "--vision", "--structured", "--url", "--provider",
+    ],
+    "--add-questions": ["--where", "--exclude", "--source-file"],
+    "--questions": ["--where", "--exclude", "--source-file"],
+    "--add-run": ["--randomization-seed", "--system-prompt", "--user-prompt"],
+}
+
+
+def _build_action_argv(action_flag: str, argv: list[str], experiment_name: str) -> list[str]:
+    """Build the filtered argv for a single --add-* action — pure, no
+    I/O. Extracted unchanged from the original _execute_all_add_actions
+    inner loop body."""
+    action_argv = ["bcllm", "--experiment", experiment_name]
+    action_relevant = _ACTION_RELEVANT_FLAGS.get(action_flag, [])
+
+    skip_next = False
+    for i, arg in enumerate(argv[1:], 1):
+        if skip_next:
+            skip_next = False
+            continue
+
+        if arg == '--create-experiment':
+            skip_next = True
+            continue
+
+        if arg.startswith('--create-experiment='):
+            continue
+
+        # Special handling for CURRENT --add-* flag only (capture its value)
+        if action_flag == '--add-model' and arg == '--add-model' and i + 1 < len(argv):
+            action_argv.append('--add-model')
+            action_argv.append(argv[i + 1])
+            skip_next = True
+            continue
+
+        if action_flag in ('--add-questions', '--questions') and arg in ('--add-questions', '--questions') and i + 1 < len(argv):
+            action_argv.append(arg)
+            action_argv.append(argv[i + 1])
+            skip_next = True
+            continue
+
+        if action_flag == '--add-run' and arg == '--add-run':
+            action_argv.append('--add-run')
+            continue
+
+        if arg in ADD_ACTION_FLAGS:
+            continue
+
+        is_relevant = any(arg == flag or arg.startswith(f'{flag}=') for flag in action_relevant)
+        if is_relevant:
+            action_argv.append(arg)
+            if '=' not in arg and i + 1 < len(argv) and not argv[i + 1].startswith('--'):
+                action_argv.append(argv[i + 1])
+                skip_next = True
+
+    return action_argv
+
+
+def _parse_all_add_action_requests(argv: list[str], experiment_name: str) -> list[tuple[str, object]]:
+    """Pure: for every requested --add-* action, in the fixed execution
+    order (model -> questions -> run, per ADD_ACTION_FLAGS), build its
+    filtered argv (_build_action_argv) and parse it into a structured
+    Request object via that module's parse_add_*_request() function. No
+    database connection is opened anywhere in this function.
+
+    Raises ParserExit(status) on the FIRST usage error encountered across
+    ANY requested action — per
+    docs/status/composite-flow-unit-of-work-design.md point 3, the
+    composite flow must not open a connection (or acquire its
+    transaction lock) at all if any requested action would fail to
+    parse.
+    """
+    from src.cli import bcllm_model, bcllm_questions, bcllm_run
+
+    add_actions = [flag for flag in ADD_ACTION_FLAGS if has_flag(argv, flag)]
+    parsed: list[tuple[str, object]] = []
+
+    for action_flag in add_actions:
+        action_argv = _build_action_argv(action_flag, argv, experiment_name)
+        if action_flag == "--add-model":
+            request = bcllm_model.parse_add_model_request(action_argv[1:])
+        elif action_flag in ("--add-questions", "--questions"):
+            request = bcllm_questions.parse_add_questions_request(action_argv[1:])
+        elif action_flag == "--add-run":
+            request = bcllm_run.parse_add_run_request(action_argv[1:])
+        else:  # pragma: no cover - unreachable given ADD_ACTION_FLAGS
+            continue
+        parsed.append((action_flag, request))
+
+    return parsed
+
+
+def _execute_action_request(action_flag: str, request: object, conn, logger, *, commit: bool) -> int:
+    """Dispatch an already-parsed Request to its module's run_add_*()
+    (the DB-facing half: dispatch to the shared action + printing) —
+    reusing the exact same code path standalone uses (run_add_model /
+    run_add_questions / run_add_run), just supplying a pre-parsed
+    `request` instead of `argv` so no re-parsing (and no pre-connection
+    work) happens here. See each module's run_add_*() docstring."""
+    if action_flag == "--add-model":
+        from src.cli import bcllm_model
+        exit_code = bcllm_model.run_add_model(conn=conn, commit=commit, request=request)
+    elif action_flag in ("--add-questions", "--questions"):
+        from src.cli import bcllm_questions
+        exit_code = bcllm_questions.run_add_questions(conn=conn, commit=commit, request=request)
+    elif action_flag == "--add-run":
+        from src.cli import bcllm_run
+        exit_code = bcllm_run.run_add_run(conn=conn, commit=commit, request=request)
+    else:
+        logger.error(f"COMPOSITE_FLOW | unknown action_flag={action_flag}")
+        return 1
+
+    logger.info(f"COMPOSITE_FLOW | action={action_flag} completed with exit_code={exit_code}")
+    return exit_code
+
+
 def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tuple[bool, int]:
-    """Handle composite flow: CREATE + ADD_*.
+    """Handle composite flow: CREATE + ADD_*, with real atomicity.
 
     If --create-experiment is present with one or more --add-* actions:
-    1. Create the experiment FIRST
-    2. Execute --add-* actions in sequence (model -> questions -> run),
-       stopping at the first one that fails
-    3. Propagate context to each action
-    4. If any action failed AND this invocation is the one that created
-       the experiment (not a pre-existing one found via TOCTOU handling),
-       roll back: delete the experiment and anything the earlier,
-       successful actions created for it, so a failed composite command
-       never leaves a partially-configured experiment behind — see
-       docs/status/known-issues.md ("Composite --create-experiment +
-       --add-questions is not atomic").
+    1. PURE PARSE PHASE (no connection, no lock): parse and normalize
+       the experiment-creation flags AND every requested --add-*
+       action's flags. Any usage error anywhere in this phase returns
+       immediately — no database connection is ever opened for a usage
+       error. See docs/status/composite-flow-unit-of-work-design.md
+       point 3 for exactly which validations are, and are not, pure
+       enough to live in this phase.
+    2. DB PHASE: open one connection, wrap experiment creation + every
+       requested action in a single src.db.unit_of_work.UnitOfWork
+       (BEGIN IMMEDIATE). Every participating write passes commit=False.
+       On full success, uow.commit() is called once. On any action
+       failure (non-zero exit code, no exception) or any unexpected
+       exception (including one raised by UnitOfWork.__enter__ itself,
+       e.g. a busy-database timeout on BEGIN IMMEDIATE), nothing is
+       committed and the whole transaction rolls back — the experiment
+       row itself included, not just the --add-* actions' rows. No
+       compensating DELETEs exist anymore; see
+       docs/status/composite-flow-unit-of-work-design.md.
+    3. An unexpected exception is NEVER shown to the user with its own
+       text — a generic message is printed to stderr; full details
+       (via exc_info) go only to the technical log.
 
     Args:
         argv: Raw command-line arguments.
@@ -81,8 +267,8 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
         (handled, exit_code). handled=False means this wasn't a composite
         flow at all (caller should fall through to normal routing).
         handled=True means it was handled; exit_code is 0 on full success,
-        non-zero if any --add-* action failed (and, when applicable, was
-        rolled back).
+        non-zero if any --add-* action failed (rolled back) or an
+        unexpected failure occurred (also rolled back, exit code 1).
     """
     # Check if this is a composite flow
     has_create = has_flag(argv, "--create-experiment")
@@ -102,14 +288,8 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
         sys.exit(1)
 
     # =========================================================================
-    # PRECONDITION VALIDATION (BEFORE creating experiment)
+    # PRECONDITION VALIDATION (pure env/config checks, no DB, no lock)
     # =========================================================================
-    # Validate prerequisites to avoid creating partially configured experiments.
-    # This does NOT block ADD_* actions - only validates that required
-    # configuration exists for the benchmark system to function.
-    # =========================================================================
-    
-    # Validate: QUESTIONS_DATASET_PATH required if --add-questions is present
     has_add_questions = has_flag(argv, "--add-questions") or has_flag(argv, "--questions")
     if has_add_questions:
         questions_path = os.getenv("QUESTIONS_DATASET_PATH")
@@ -120,15 +300,7 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
                 file=sys.stderr
             )
             sys.exit(1)
-        
-        logger = setup_logging(LoggingConfig(
-            log_file_path=Path(os.getenv("LOG_FILE_PATH", "./logs/benchmark.log")),
-            log_level=os.getenv("LOG_LEVEL", "INFO")
-        ))
-        logger.info(f"PRECONDITION | QUESTIONS_DATASET_PATH validated: {questions_path}")
-    
-    # Validate: OPENROUTER_API_KEY always required for benchmark system
-    # This is a system-level prerequisite, not action-specific
+
     if not os.getenv("OPENROUTER_API_KEY"):
         print(
             "Error: OPENROUTER_API_KEY must be set in environment\n"
@@ -136,380 +308,171 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
             file=sys.stderr
         )
         sys.exit(1)
-    
-    # =========================================================================
-    # END PRECONDITION VALIDATION
-    # =========================================================================
-
-    # Create the experiment BEFORE dispatching to action module
-    # This ensures the action module can assume the experiment exists
-    from src.cli.database import get_database_connection
-    from src.cli.bcllm_experiment import _create_experiment_with_config, create_parser
-    from src.core.argv_utils import parse_args_normalized
 
     logger = setup_logging(LoggingConfig(
         log_file_path=Path(os.getenv("LOG_FILE_PATH", "./logs/benchmark.log")),
         log_level=os.getenv("LOG_LEVEL", "INFO")
     ))
-
+    if has_add_questions:
+        logger.info(f"PRECONDITION | QUESTIONS_DATASET_PATH validated: {questions_path}")
     logger.info(f"COMPOSITE_FLOW | creating experiment={experiment_name} before action={module_name}")
 
-    conn = get_database_connection()
-    # Only roll back an experiment THIS invocation created — never one
-    # found pre-existing via the TOCTOU handling below, which belongs to
-    # whatever process actually created it.
-    experiment_created_by_us = True
+    # =========================================================================
+    # PURE PARSE PHASE — no connection, no lock. Every usage error across
+    # BOTH experiment-creation flags AND every requested --add-* action is
+    # detected here, before get_database_connection() is ever called.
+    #
+    # What is NOT pre-validated here, and why (see
+    # docs/status/composite-flow-unit-of-work-design.md point 3 for the
+    # full enumeration): experiment "already exists" (needs a DB read);
+    # the TOCTOU concurrent-creation race (needs the real INSERT
+    # attempt); each action's experiment lookup, config-inheritance
+    # resolution, and duplicate/dedup checks (all need the experiment's
+    # committed config_json / existing rows). Experiment-level seed/
+    # prompt config resolution (pure) stays bundled inside
+    # _create_experiment_with_config alongside its DB-dependent existence
+    # check — not split further in this pass (small, deliberate
+    # simplification: that function is also the standalone
+    # --create-experiment path's canonical implementation, and splitting
+    # it has a larger blast radius than the win of pre-validating an
+    # already-rare invalid-seed-at-creation-time case).
+    # =========================================================================
+    from src.cli.bcllm_experiment import _create_experiment_with_config, create_parser as create_experiment_parser
+
+    create_argv = _build_create_argv(argv, experiment_name)
+    exp_parser = create_experiment_parser()
     try:
-        # Filter argv to only include experiment creation flags
-        # Remove --add-* flags as they will be handled separately
-        create_argv = ['bcllm', '--create-experiment', experiment_name]
-        
-        skip_next = False
-        for i, arg in enumerate(argv[1:], 1):
-            if skip_next:
-                skip_next = False
-                continue
-            
-            if arg == '--create-experiment':
-                skip_next = True
-                continue
-            
-            if arg.startswith('--create-experiment='):
-                continue
-            
-            # Skip ADD_* flags (handled later)
-            if arg in ADD_ACTION_FLAGS:
-                continue
-            
-            # Add other config flags
-            if arg.startswith('--') and arg not in ('--execute',):
-                create_argv.append(arg)
-                if '=' not in arg and i + 1 < len(argv) and not argv[i + 1].startswith('--'):
-                    create_argv.append(argv[i + 1])
-                    skip_next = True
-        
-        # Parse filtered CLI args
-        parser = create_parser()
-        args = parse_args_normalized(parser, create_argv[1:])
-
-        # Use shared experiment creation function to ensure consistency
-        # Pass original CLI args so ConfigResolver can apply .env defaults
-        # following CLI > .env > NULL priority chain
-        #
-        # TOCTOU Protection:
-        # Wrap in try/except to handle concurrent experiment creation.
-        # If two processes run the same composite command simultaneously,
-        # both might pass the existence check in _create_experiment_with_config,
-        # but only one will succeed in the INSERT. The other will catch
-        # IntegrityError (DB-level) or ValueError (app-level check) and handle gracefully.
         try:
-            _create_experiment_with_config(experiment_name, args, conn, logger)
-        except ValueError as e:
-            # Application-level check caught existing experiment
-            # This can happen in TOCTOU scenario where another process created it first
-            if "already exists" in str(e):
-                logger.info(
-                    f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name}"
-                )
-                # Continue to execute actions on existing experiment.
-                # It's not ours to roll back if an action fails below.
-                experiment_created_by_us = False
-            else:
-                # Re-raise if it's a different ValueError
-                raise
-        except sqlite3.IntegrityError as e:
-            # Check if it's a unique constraint violation on experiment name
-            error_msg = str(e).lower()
-            if "unique constraint failed" in error_msg and "experiment.name" in error_msg:
-                # Another process created it first - this is expected in concurrent scenarios
-                # Fetch the existing experiment to confirm it exists
-                from src.cli.database import get_database_connection
-                from src.db.repository import ExperimentRepository
+            create_args = parse_args_normalized(exp_parser, create_argv[1:])
+        except (argparse.ArgumentError, ValueError) as e:
+            exp_parser.error(str(e))  # raises ParserExit(2, ...)
+    except ParserExit as e:
+        return True, e.status
 
-                check_conn = get_database_connection()
+    try:
+        add_action_requests = _parse_all_add_action_requests(argv, experiment_name)
+    except ParserExit as e:
+        return True, e.status
+
+    # =========================================================================
+    # DB PHASE — connection opened, transaction acquired only now.
+    # =========================================================================
+    from src.cli.database import get_database_connection
+
+    conn = get_database_connection()
+    try:
+        try:
+            with UnitOfWork(conn, immediate=True) as uow:
+                # Only used for a clearer log message below — no rollback
+                # decision depends on this flag anymore: a real
+                # conn.rollback() only ever undoes what THIS transaction
+                # left uncommitted, which is automatically "what this
+                # invocation did," whether or not the experiment already
+                # existed.
+                experiment_created_by_us = True
+
+                # TOCTOU Protection: two processes racing the same
+                # composite command might both pass the existence check
+                # inside _create_experiment_with_config, but only one
+                # succeeds at the INSERT. The other catches IntegrityError
+                # (DB-level) or ValueError (app-level check) and handles
+                # it gracefully. Confirmed empirically: a UNIQUE-constraint
+                # IntegrityError does NOT poison the surrounding SQLite
+                # transaction — statements after it on the same
+                # connection/transaction still work normally.
                 try:
-                    exp_repo = ExperimentRepository(check_conn)
-                    existing = exp_repo.get_by_name(experiment_name)
-                    if existing:
+                    _create_experiment_with_config(
+                        experiment_name, create_args, conn, logger, commit=False,
+                    )
+                    uow.assert_active()
+                except ValueError as e:
+                    if "already exists" in str(e):
                         logger.info(
-                            f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name} | "
-                            f"experiment_id={existing.experiment_id}"
+                            f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name}"
                         )
-                        # Continue to execute actions on existing experiment
+                        experiment_created_by_us = False
                     else:
-                        # This shouldn't happen - re-raise
+                        # Genuine validation failure at experiment-creation
+                        # time (e.g. an invalid --randomization-seed value). Nothing was
+                        # created yet (the INSERT itself is what raised) —
+                        # uow rolls back on exit (commit() never reached).
+                        print(f"Error: {e}", file=sys.stderr)
+                        return True, 1
+                except sqlite3.IntegrityError as e:
+                    error_msg = str(e).lower()
+                    if "unique constraint failed" in error_msg and "experiment.name" in error_msg:
+                        # Another process created it first — fetch the
+                        # existing experiment (via a SEPARATE connection;
+                        # reads are never blocked by our open BEGIN
+                        # IMMEDIATE transaction, confirmed empirically) to
+                        # confirm it exists.
+                        from src.db.repository import ExperimentRepository
+
+                        check_conn = get_database_connection()
+                        try:
+                            exp_repo = ExperimentRepository(check_conn)
+                            existing = exp_repo.get_by_name(experiment_name)
+                            if existing:
+                                logger.info(
+                                    f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name} | "
+                                    f"experiment_id={existing.experiment_id}"
+                                )
+                                experiment_created_by_us = False
+                            else:
+                                raise
+                        finally:
+                            check_conn.close()
+                    else:
                         raise
-                finally:
-                    check_conn.close()
 
-            # Re-raise if it's a different integrity error
-            raise
+                # Execute --add-* actions in the pre-parsed order,
+                # stopping at the first failure.
+                for action_flag, request in add_action_requests:
+                    logger.info(f"COMPOSITE_FLOW | executing action={action_flag}")
+                    exit_code = _execute_action_request(action_flag, request, conn, logger, commit=False)
+                    if exit_code != 0:
+                        logger.info(
+                            f"COMPOSITE_FLOW | action={action_flag} failed with exit_code={exit_code}; "
+                            f"stopping remaining actions, rolling back"
+                        )
+                        return True, exit_code  # uow rolls back on exit
+                    uow.assert_active()
 
-        # Execute --add-* actions in sequence, stopping at the first failure
-        action_exit_code = _execute_all_add_actions(argv, experiment_name, conn, logger)
-
-        if action_exit_code != 0 and experiment_created_by_us:
-            _rollback_created_experiment(conn, experiment_name, logger)
-
-        return True, action_exit_code  # Composite flow handled
-
+                uow.commit()
+                logger.info(
+                    f"COMPOSITE_FLOW | committed | experiment={experiment_name} | "
+                    f"created_by_us={experiment_created_by_us}"
+                )
+                return True, 0
+        except Exception as e:
+            # Never show the user raw exception text — this can be
+            # anything from a busy-database timeout on BEGIN IMMEDIATE
+            # (UnitOfWork.__enter__), to a commit()/rollback() failure, to
+            # a genuine bug. uow still rolls back for every one of those
+            # (the "commit() never reached" default) except the
+            # BEGIN IMMEDIATE case itself, where no transaction was ever
+            # opened, so there is nothing to roll back. Operational
+            # error, not a usage error: exit code 1.
+            logger.error(
+                f"COMPOSITE_FLOW | unexpected failure, rolled back | experiment={experiment_name} | {e!r}",
+                exc_info=True,
+            )
+            print(
+                "Error: an unexpected failure occurred while setting up the experiment. "
+                "See the technical log for details.",
+                file=sys.stderr,
+            )
+            return True, 1
     finally:
         conn.close()
 
 
-def _rollback_created_experiment(conn: sqlite3.Connection, experiment_name: str, logger) -> None:
-    """Delete an experiment (and anything created for it) after a failed
-    --add-* action during composite --create-experiment flow.
-
-    Only ever called on an experiment THIS invocation just created (the
-    experiment_created_by_us guard in _handle_composite_flow) — never on
-    one found pre-existing via TOCTOU handling.
-
-    Why explicit DELETEs instead of a transaction rollback: each handler
-    (handle_add_model/handle_add_questions/handle_add_run, and the
-    ExperimentRepository save that created the experiment itself) commits
-    its own writes immediately after saving — that's the existing
-    convention throughout src/db/repository.py, unrelated to this fix. By
-    the time a later action fails, everything an earlier successful
-    action wrote is already durably committed; there is no open
-    transaction left for conn.rollback() to undo. Changing every handler
-    to defer commits until the whole composite flow finishes would also
-    change the commit behavior of standalone (non-composite) --add-*
-    invocations, a much larger and riskier change than this task asked
-    for — so this rolls back by deleting the specific rows instead.
-
-    Note: src/db/schema.py (the actual runtime schema — src/db/schema.sql
-    is a separate, stale reference copy, do not trust it) DOES declare ON
-    DELETE CASCADE from model_variants/question_snapshots/runs to
-    experiments, so exp_repo.delete(experiment_id) alone would already
-    remove them. The explicit DELETEs here are redundant with that
-    cascade, not a workaround for its absence — kept for clarity and as a
-    belt-and-suspenders measure, not because cascade is missing.
-
-    Composite flow can only run --add-model/--add-questions/--add-run
-    (ADD_ACTION_FLAGS never includes --execute), so only
-    question_snapshots, model_variants, and runs should reference the
-    experiment at this point — no responses/errors rows should exist yet.
-    That assumption is verified below rather than trusted, and this is
-    the part that actually matters: responses/errors reference
-    runs/model_variants/question_snapshots WITHOUT cascade, so if this
-    assumption is ever violated (e.g. ADD_ACTION_FLAGS grows to include
-    something that can produce responses), a plain cascade-delete of the
-    experiment would either silently orphan those rows or fail outright
-    depending on order — this check refuses to delete anything and logs
-    loudly instead, rather than risk either.
-
-    See docs/status/known-issues.md ("--remove-experiment does a real,
-    undocumented hard cascading delete") for the broader discovery this
-    surfaced: unlike this function (new experiment only, no responses/
-    errors possible yet), the existing --remove-experiment CLI command
-    can hard-delete an arbitrary experiment's snapshots/variants/runs at
-    any time, which is a live tension with docs/contracts/immutability.md
-    and was flagged to the user rather than resolved here.
-    """
-    from src.db.repository import ExperimentRepository
-
-    exp_repo = ExperimentRepository(conn)
-    experiment = exp_repo.get_by_name(experiment_name)
-    if experiment is None:
-        # Nothing to roll back (e.g. the create step itself never
-        # committed a row before the first --add-* action ran).
-        return
-
-    experiment_id = experiment.experiment_id
-    cursor = conn.cursor()
-
-    orphan_responses = cursor.execute(
-        """
-        SELECT COUNT(*) FROM responses resp
-        JOIN runs r ON r.run_id = resp.run_id
-        WHERE r.experiment_id = ?
-        """,
-        (experiment_id,),
-    ).fetchone()[0]
-    orphan_errors = cursor.execute(
-        """
-        SELECT COUNT(*) FROM errors err
-        JOIN runs r ON r.run_id = err.run_id
-        WHERE r.experiment_id = ?
-        """,
-        (experiment_id,),
-    ).fetchone()[0]
-    if orphan_responses or orphan_errors:
-        logger.error(
-            f"COMPOSITE_FLOW_ROLLBACK_ABORTED | experiment={experiment_name} | "
-            f"experiment_id={experiment_id} | responses={orphan_responses} | errors={orphan_errors} | "
-            f"reason=unexpected_responses_or_errors_present_refusing_to_delete_experiment"
-        )
-        return
-
-    cursor.execute("DELETE FROM question_snapshots WHERE experiment_id = ?", (experiment_id,))
-    cursor.execute("DELETE FROM model_variants WHERE experiment_id = ?", (experiment_id,))
-    cursor.execute("DELETE FROM runs WHERE experiment_id = ?", (experiment_id,))
-    conn.commit()
-
-    exp_repo.delete(experiment_id)
-
-    fk_issues = cursor.execute("PRAGMA foreign_key_check").fetchall()
-    if fk_issues:
-        # Should be unreachable given the orphan check above, but this is
-        # a rollback path — verify rather than assume.
-        logger.error(
-            f"COMPOSITE_FLOW_ROLLBACK_INTEGRITY_WARNING | experiment={experiment_name} | "
-            f"experiment_id={experiment_id} | foreign_key_issues={fk_issues}"
-        )
-
-    logger.info(
-        f"COMPOSITE_FLOW_ROLLBACK | experiment={experiment_name} | experiment_id={experiment_id} | "
-        f"reason=add_action_failed"
-    )
-
-
-def _execute_all_add_actions(argv: list[str], experiment_name: str, conn, logger) -> int:
-    """Execute --add-* actions in sequence, stopping at the first failure.
-
-    Execution order: model -> questions -> run
-
-    Args:
-        argv: Raw command-line arguments.
-        experiment_name: Name of the experiment.
-        conn: Database connection.
-        logger: Logger instance.
-
-    Returns:
-        0 if every action succeeded (or there were none to run); the
-        failing action's exit code otherwise. Actions after the first
-        failure are NOT executed — the caller (_handle_composite_flow)
-        rolls back on a non-zero result.
-    """
-    add_actions = [flag for flag in ADD_ACTION_FLAGS if has_flag(argv, flag)]
-
-    if not add_actions:
-        return 0
-
-    logger.info(f"COMPOSITE_FLOW | executing actions={add_actions} in sequence")
-    
-    for action_flag in add_actions:
-        logger.info(f"COMPOSITE_FLOW | executing action={action_flag}")
-        
-        # Build filtered argv for this action
-        action_argv = ["bcllm", "--experiment", experiment_name]
-        
-        # Define relevant flags for each action
-        relevant_flags = {
-            "--add-model": [
-                "--reasoning", "--max-tokens", "--reasoning-tokens",
-                "--temperature", "--top-p", "--top-k", "--repeat-penalty",
-                "--vision", "--structured", "--url", "--provider"
-            ],
-            "--add-questions": [
-                "--where", "--exclude", "--source-file"
-            ],
-            "--add-run": [
-                "--seed", "--system-prompt", "--user-prompt"
-            ]
-        }
-        
-        action_relevant = relevant_flags.get(action_flag, [])
-        
-        skip_next = False
-        for i, arg in enumerate(argv[1:], 1):
-            if skip_next:
-                skip_next = False
-                continue
-            
-            if arg == '--create-experiment':
-                skip_next = True
-                continue
-
-            if arg.startswith('--create-experiment='):
-                continue
-
-            # Special handling for CURRENT --add-* flag only (capture its value)
-            if action_flag == '--add-model' and arg == '--add-model' and i + 1 < len(argv):
-                action_argv.append('--add-model')
-                action_argv.append(argv[i + 1])
-                skip_next = True
-                continue
-
-            if action_flag in ('--add-questions', '--questions') and arg in ('--add-questions', '--questions') and i + 1 < len(argv):
-                action_argv.append(arg)
-                action_argv.append(argv[i + 1])
-                skip_next = True
-                continue
-
-            if action_flag == '--add-run' and arg == '--add-run':
-                action_argv.append('--add-run')
-                continue
-
-            if arg in ADD_ACTION_FLAGS:
-                continue
-
-            is_relevant = any(arg == flag or arg.startswith(f'{flag}=') for flag in action_relevant)
-            if is_relevant:
-                action_argv.append(arg)
-                if '=' not in arg and i + 1 < len(argv) and not argv[i + 1].startswith('--'):
-                    action_argv.append(argv[i + 1])
-                    skip_next = True
-        
-        exit_code = _execute_single_action(action_flag, action_argv, conn, logger)
-        if exit_code != 0:
-            logger.info(
-                f"COMPOSITE_FLOW | action={action_flag} failed with exit_code={exit_code}; "
-                f"stopping remaining actions"
-            )
-            return exit_code
-
-    return 0
-
-
-def _execute_single_action(action_flag: str, argv: list[str], conn, logger) -> int:
-    """Execute a single --add-* action.
-
-    Args:
-        action_flag: The action flag (--add-model, --add-questions, or --add-run).
-        argv: Command-line arguments for this action (should only contain relevant flags).
-        conn: Database connection.
-        logger: Logger instance.
-
-    Returns:
-        The action handler's exit code (0 for success, 1 for error).
-    """
-    if action_flag == "--add-model":
-        from src.cli import bcllm_model
-        # Parse and execute
-        parser = bcllm_model.create_parser()
-        args = parser.parse_args(argv[1:])  # Skip script name
-        exit_code = bcllm_model.handle_add_model(args, conn)
-
-    elif action_flag in ("--add-questions", "--questions"):
-        from src.cli import bcllm_questions
-        # Parse and execute
-        parser = bcllm_questions.create_parser()
-        args = parser.parse_args(argv[1:])  # Skip script name
-        exit_code = bcllm_questions.handle_add_questions(args, conn)
-
-    elif action_flag == "--add-run":
-        from src.cli import bcllm_run
-        # Parse and execute
-        parser = bcllm_run.create_parser()
-        args = parser.parse_args(argv[1:])  # Skip script name
-        exit_code = bcllm_run.handle_add_run(args, conn)
-
-    else:
-        logger.error(f"COMPOSITE_FLOW | unknown action_flag={action_flag}")
-        return 1
-
-    logger.info(f"COMPOSITE_FLOW | action={action_flag} completed with exit_code={exit_code}")
-    return exit_code
-
-
 def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> int:
     """Route to src.cli module and return exit code.
-    
+
     Orchestrates composite flows:
     - If CREATE + ADD_*: creates experiment FIRST, then dispatches to action module
-    
+
     Args:
         module_name: Name of the v2 CLI module to route to.
         mode: The resolved CLI mode (CREATE, MODIFY, EXECUTE, EXPORT, INVALID).
@@ -562,15 +525,15 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
 
 def _route_action_module_with_experiment(module_name: str, mode: Mode, argv: list[str]) -> int:
     """Route to action module with experiment name injected.
-    
+
     For composite flows (CREATE + ADD_*), the experiment is created first,
     then we need to inject --experiment into the arguments for the action module.
-    
+
     Args:
         module_name: Target module name.
         mode: CLI mode.
         argv: Original command-line arguments.
-        
+
     Returns:
         Exit code from module.
     """
@@ -579,35 +542,35 @@ def _route_action_module_with_experiment(module_name: str, mode: Mode, argv: lis
     if not experiment_name:
         print("Error: Composite flow requires experiment name.", file=sys.stderr)
         return 1
-    
+
     # Build modified argv for action module:
     # 1. Remove --create-experiment and its value
     # 2. Add --experiment <name> at the beginning
     modified_argv = ["bcllm"]  # Start with script name
-    
+
     # Add --experiment <name> first
     modified_argv.extend(["--experiment", experiment_name])
-    
+
     # Add remaining arguments, skipping --create-experiment and its value
     skip_next = False
     for i, arg in enumerate(argv[1:], 1):  # Skip script name
         if skip_next:
             skip_next = False
             continue
-        
+
         if arg == "--create-experiment":
             skip_next = True  # Skip the value after --create-experiment
             continue
-        
+
         if arg.startswith("--create-experiment="):
             continue  # Skip --create-experiment=VALUE format
-        
+
         modified_argv.append(arg)
-    
+
     # Save original argv and replace with modified version
     original_argv = sys.argv
     sys.argv = modified_argv
-    
+
     try:
         # Import and call the appropriate module
         if module_name == "bcllm_model":
@@ -629,7 +592,7 @@ def _route_action_module_with_experiment(module_name: str, mode: Mode, argv: lis
 
 def main() -> int:
     """Main entry point — routes with explicit MODE × MODULE validation.
-    
+
     Orchestrates composite flows:
     1. Resolve MODE and MODULE
     2. If CREATE + ADD_*: create experiment FIRST
@@ -668,5 +631,15 @@ def main() -> int:
     return route_to_v2(module, mode, sys.argv)
 
 
+def cli_main() -> int:
+    """The real CLI entry point, shared by direct execution
+    (`python bcllm.py ...`, below) and the installed console script
+    (see setup.py's console_scripts, which points here) — the ONE place
+    _bootstrap_environment() is called. Importing this module never
+    triggers it."""
+    _bootstrap_environment()
+    return main()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli_main())

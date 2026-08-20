@@ -44,7 +44,7 @@ Every response record includes complete provenance:
 Each response carries its complete experimental context:
 
 - **What was presented:** Options are saved exactly as shown to the LLM (including randomization)
-- **What was configured:** Seed, prompts, and model parameters are traceable through run and variant
+- **What was configured:** Randomization Seed, prompts, and model parameters are traceable through run and variant (Model Seed, once implemented, will be traceable through the model variant — see `docs/status/seed-vocabulary-separation-investigation.md`)
 - **What happened:** Full response text, error details, token counts, latency, timestamps
 
 **Rationale:** Scientific reproducibility requires knowing not just the answer, but the complete conditions under which it was generated.

@@ -62,7 +62,7 @@ def _make_plan(num_items: int = 3) -> ExecutionPlan:
 
     run = PlanRun(
         run_id="run-001",
-        seed_effective=42,
+        randomization_seed_effective=42,
         prompts_effective=Prompts(
             system=None,
             user="Answer: {question}",
@@ -494,7 +494,7 @@ class TestAsyncEngineEmptyPlan:
             runs=[
                 PlanRun(
                     run_id="run-empty",
-                    seed_effective=None,
+                    randomization_seed_effective=None,
                     prompts_effective=Prompts(system=None, user="Answer: {question}"),
                     retry_policy=RetryPolicy(),
                     variants=[
@@ -562,7 +562,7 @@ class TestAsyncEngineVariantNotFound:
 
         run = PlanRun(
             run_id="run-001",
-            seed_effective=None,
+            randomization_seed_effective=None,
             prompts_effective=Prompts(system=None, user="Answer: {question}"),
             retry_policy=RetryPolicy(),
             variants=[variant],  # Only "var-existent" exists

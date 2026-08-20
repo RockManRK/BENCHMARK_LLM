@@ -54,7 +54,7 @@ def test_plan_run_is_immutable():
     # Arrange
     run = PlanRun(
         run_id="run-123",
-        seed_effective=42,
+        randomization_seed_effective=42,
         prompts_effective=Prompts(system="System", user="User"),
         retry_policy=RetryPolicy(),
         variants=[],
@@ -192,7 +192,11 @@ def test_plan_creation_with_factories():
     from tests.factories import ExperimentFactory, VariantFactory, SnapshotFactory, RunFactory
 
     # Create base entities using factories
-    experiment = ExperimentFactory.create(name="test-execution-plan")
+    experiment = ExperimentFactory.create(
+        name="test-execution-plan",
+        system_prompt="Test system prompt",
+        user_prompt="Test user prompt",
+    )
     variant = VariantFactory.create(experiment_id=experiment.experiment_id)
     snapshot = SnapshotFactory.create(
         experiment_id=experiment.experiment_id,
@@ -200,14 +204,14 @@ def test_plan_creation_with_factories():
     )
     run = RunFactory.create(
         experiment_id=experiment.experiment_id,
-        seed=42,
+        randomization_seed=42,
         status="pending",
     )
 
     # Build ExecutionPlan components
     prompts = Prompts(
-        system=experiment.system_prompt,
-        user=experiment.user_prompt,
+        system="Test system prompt",
+        user="Test user prompt",
     )
 
     plan_variant = PlanVariant(
@@ -229,13 +233,13 @@ def test_plan_creation_with_factories():
         run_id=run.run_id,
         variant_id=variant.variant_id,
         snapshot_id=snapshot.snapshot_id,
-        question_id=snapshot.question_id,
+        question_id=snapshot.json_question_id,
         question_payload=question_payload,
     )
 
     plan_run = PlanRun(
         run_id=run.run_id,
-        seed_effective=run.seed,
+        randomization_seed_effective=42,
         prompts_effective=prompts,
         retry_policy=RetryPolicy(),
         variants=[plan_variant],

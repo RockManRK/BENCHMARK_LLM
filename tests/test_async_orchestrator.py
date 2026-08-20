@@ -64,7 +64,7 @@ def _make_plan(num_items: int = 2) -> ExecutionPlan:
 
     run = PlanRun(
         run_id="run-001",
-        seed_effective=42,
+        randomization_seed_effective=42,
         prompts_effective=Prompts(
             system=None,
             user="Answer: {question}",
@@ -450,7 +450,7 @@ class TestAsyncOrchestratorLifecycle:
             runs=[
                 PlanRun(
                     run_id="run-001",
-                    seed_effective=42,
+                    randomization_seed_effective=42,
                     prompts_effective=Prompts(system=None, user="Answer: {question}"),
                     retry_policy=RetryPolicy(),
                     variants=[variant],
@@ -458,7 +458,7 @@ class TestAsyncOrchestratorLifecycle:
                 ),
                 PlanRun(
                     run_id="run-002",
-                    seed_effective=99,
+                    randomization_seed_effective=99,
                     prompts_effective=Prompts(system=None, user="Answer: {question}"),
                     retry_policy=RetryPolicy(),
                     variants=[variant],

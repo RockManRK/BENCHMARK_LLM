@@ -56,9 +56,18 @@ _MODULE_MAP = {
 }
 
 # Action flags that define the module (ADD_* actions)
+#
+# "--questions" is a true alias of "--add-questions" (see
+# src/cli/bcllm_questions.py's mutually-exclusive group, dest=add_questions
+# for both) and must resolve identically. It was missing here until
+# 2026-08-18: `bcllm --experiment X --questions "1-5"` silently fell
+# through to bcllm_experiment (via the --experiment context flag) instead
+# of bcllm_questions, discarding the filter/add spec entirely. See
+# docs/status/known-issues.md.
 ADD_ACTION_FLAGS = [
     "--add-model",
     "--add-questions",
+    "--questions",
     "--add-run",
 ]
 

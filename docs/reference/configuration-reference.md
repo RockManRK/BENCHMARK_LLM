@@ -115,13 +115,13 @@ These values serve as defaults when creating runs.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `RUN_RESPONSES_SEED` | `str/int` | `None` | Seed for answer randomization (`AUTO`, `<int>`, or `None` for no randomization) |
+| `RANDOMIZATION_SEED` | `str/int` | `None` | Randomization Seed for answer option shuffling (`AUTO`, `<int>`, or `None` for no randomization) — controls `AnswerRandomizer` only, never sent to the API. Not to be confused with Model Seed (`MODEL_SEED`, a model-variant-level setting sent as the API request's `seed` field — see `docs/status/seed-vocabulary-separation-investigation.md`). |
 | `SYSTEM_PROMPT` | `str` | `None` | System prompt for all runs (None = not sent in API request) |
 | `USER_PROMPT` | `str` | `None` | User prompt template with `{question}`, `{options}` placeholders (None = not sent) |
 
-**Seed Behavior:**
-- `AUTO` → Resolved to random int at run creation time
-- `<int>` → Fixed seed for reproducibility
+**Randomization Seed Behavior:**
+- `AUTO` → Resolved to a deterministic int at run creation time (never at experiment creation, never re-derived at `--execute` time)
+- `<int>` → Fixed seed for reproducibility (`0` is valid, not treated as unset)
 - `None` → No randomization (original order A, B, C, D)
 
 **Prompt Behavior:**
@@ -197,7 +197,7 @@ The `Experiment.config_json` stores these fields:
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `SEED` | `str \| null` | Randomization seed (`"AUTO"`, `null`, or integer) |
+| `RANDOMIZATION_SEED` | `str \| null` | Randomization Seed (`"AUTO"`, `null`, or integer) — `AnswerRandomizer` only, never sent to the API |
 | `SYSTEM_PROMPT` | `str \| null` | System prompt template |
 | `USER_PROMPT` | `str \| null` | User prompt template with `{question}`, `{options}` |
 | `BASE_URL` | `str \| null` | API base URL |
@@ -248,7 +248,7 @@ When an experiment is created:
 
 When a run is created:
 - Run configuration is **frozen** into `Run.config`
-- Run seed, prompts are captured at creation and never change
+- Run's Randomization Seed, prompts are captured at creation and never change
 
 ---
 
@@ -290,7 +290,7 @@ MODEL_VISION=
 STRUCTURED_OUTPUTS=
 
 # Run Defaults
-RUN_RESPONSES_SEED=
+RANDOMIZATION_SEED=
 SYSTEM_PROMPT=
 USER_PROMPT=
 

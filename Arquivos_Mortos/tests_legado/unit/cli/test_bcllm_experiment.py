@@ -39,7 +39,7 @@ def test_create_experiment_success(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--create-experiment", "test-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -74,7 +74,7 @@ def test_create_experiment_name_collision(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--create-experiment", "test-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -95,7 +95,7 @@ def test_create_experiment_invalid_name(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--create-experiment", ""]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -133,7 +133,7 @@ def test_show_experiment_success(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--experiment", "test-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -155,7 +155,7 @@ def test_show_experiment_not_found(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--experiment", "non-existent-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -179,7 +179,7 @@ def test_list_experiments_empty(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--list-experiments"]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -223,7 +223,7 @@ def test_list_experiments_with_data(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--list-experiments"]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -265,7 +265,7 @@ def test_remove_experiment_success(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--remove-experiment", "test-exp-to-remove"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -292,7 +292,7 @@ def test_remove_experiment_not_found(in_memory_db, capsys):
     test_args = ["bcllm_experiment.py", "--remove-experiment", "non-existent-exp"]
     
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             
             # Act
@@ -318,7 +318,7 @@ class TestCreateExperimentIntegration:
         # Create
         create_args = ["bcllm_experiment.py", "--create-experiment", "integration-test"]
         with patch.object(sys, "argv", create_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main(Mode.CREATE)
                 assert result == 0
@@ -326,7 +326,7 @@ class TestCreateExperimentIntegration:
         # Retrieve
         show_args = ["bcllm_experiment.py", "--experiment", "integration-test"]
         with patch.object(sys, "argv", show_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main(Mode.MODIFY)
                 assert result == 0
@@ -340,14 +340,14 @@ class TestCreateExperimentIntegration:
         # Create first
         create_args = ["bcllm_experiment.py", "--create-experiment", "duplicate-test"]
         with patch.object(sys, "argv", create_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main(Mode.CREATE)
                 assert result == 0
 
         # Try to create duplicate
         with patch.object(sys, "argv", create_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main(Mode.CREATE)
                 assert result == 1
@@ -365,14 +365,14 @@ class TestRemoveExperimentIntegration:
         # Create
         create_args = ["bcllm_experiment.py", "--create-experiment", "to-be-removed"]
         with patch.object(sys, "argv", create_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 experiment_main(Mode.CREATE)
 
         # Remove
         remove_args = ["bcllm_experiment.py", "--remove-experiment", "to-be-removed"]
         with patch.object(sys, "argv", remove_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 experiment_main(Mode.CREATE)
 
@@ -382,7 +382,7 @@ class TestRemoveExperimentIntegration:
         # List - should not show removed experiment
         list_args = ["bcllm_experiment.py", "--list-experiments"]
         with patch.object(sys, "argv", list_args):
-            with patch("src.cli.bcllm_experiment.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = experiment_main(Mode.MODIFY)
                 assert result == 0

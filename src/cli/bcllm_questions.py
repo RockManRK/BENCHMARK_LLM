@@ -16,18 +16,29 @@ Usage:
 Exit Codes:
     0: Success
     1: Validation error (not found, invalid input, spec parsing error)
+    2: Usage error (bad/unrecognized argument, FORBIDDEN system-default value,
+       system-default combined with a concrete filter)
+
+--add-questions's single-action pipeline (argv -> parse/normalize/validate
+-> AddQuestionsRequest -> add_questions_action -> AddQuestionsResult) is
+used identically by main() (standalone) and bcllm.py's composite
+--create-experiment flow — see run_add_questions()'s docstring and
+docs/status/known-issues.md ("same action, same path" invariant).
 """
 
 import argparse
 import json
 import sys
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
-from src.core import QuestionLoader
+from src.core import QuestionLoader, build_question_snapshot_payload
+from src.core.argv_utils import parse_args_normalized, has_flag, NonExitingArgumentParser, ParserExit
 from src.core.config_resolver import ConfigResolver
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, ForceSystemDefault, normalize_filter_list_or_system_default
 from src.db.models import QuestionSnapshot
 from src.db.repository import ExperimentRepository, SnapshotRepository
 
@@ -40,7 +51,7 @@ def _validate_expected_mode(mode: Mode) -> None:
 
     Raises:
         SystemExit: If mode is invalid for this module.
-    
+
     Note:
         Mode.INVALID is not accepted. It represents "no valid mode detected"
         and should be caught by dispatcher validation before reaching this module.
@@ -64,9 +75,14 @@ def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for question commands.
 
     Returns:
-        ArgumentParser configured with all question commands.
+        NonExitingArgumentParser configured with all question commands —
+        see src/core/argv_utils.py for why this is NOT a plain
+        argparse.ArgumentParser: --add-questions can run inside bcllm.py's
+        composite flow, where an uncontrolled sys.exit() (argparse's
+        default for both --help and any usage error) would skip the
+        composite flow's experiment rollback.
     """
-    parser = argparse.ArgumentParser(
+    parser = NonExitingArgumentParser(
         prog="bcllm_questions.py",
         description="Question snapshot management",
     )
@@ -130,6 +146,21 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Explicit opt-in classification for system-default recognition — see
+# src/core/special_config_values.py::normalize_special_config_values and
+# docs/contracts/system-default-semantics.md for the full SUPPORTED/
+# FORBIDDEN/NOT_APPLICABLE contract this implements. --where/--exclude
+# are list-typed (action="append") and NOT covered by this scalar
+# mechanism — see normalize_filter_list_or_system_default, called
+# separately in run_add_questions/main().
+SYSTEM_DEFAULT_SUPPORTED = {
+    'add_questions',
+}
+SYSTEM_DEFAULT_FORBIDDEN = {
+    'experiment', 'remove_question', 'source_file',
+}
+
+
 def parse_filter(filter_str: str) -> tuple[str, str]:
     """Parse a filter string into field and value.
 
@@ -145,15 +176,15 @@ def parse_filter(filter_str: str) -> tuple[str, str]:
     if '=' not in filter_str:
         raise ValueError(f"Invalid filter format: {filter_str} (expected field=value)")
 
-    field, value = filter_str.split('=', 1)
-    return field.strip(), value.strip()
+    field_name, value = filter_str.split('=', 1)
+    return field_name.strip(), value.strip()
 
 
 def load_question_source(source_file: str | None = None) -> dict[str, dict]:
     """Load question source from JSON file.
 
     Args:
-        source_file: Path to JSON file. If None, loads from 
+        source_file: Path to JSON file. If None, loads from
                      QUESTIONS_DATASET_PATH env var (via ConfigResolver).
 
     Returns:
@@ -251,13 +282,13 @@ def matches_filters(
         True if question passes all filters, False otherwise.
     """
     if exclude_filters:
-        for field, value in exclude_filters:
-            if _get_nested_field(question, field) == value:
+        for field_name, value in exclude_filters:
+            if _get_nested_field(question, field_name) == value:
                 return False
 
     if include_filters:
-        for field, value in include_filters:
-            if _get_nested_field(question, field) != value:
+        for field_name, value in include_filters:
+            if _get_nested_field(question, field_name) != value:
                 return False
 
     return True
@@ -293,55 +324,96 @@ def filter_questions(
     return filtered
 
 
-def handle_add_questions(args, conn) -> int:
-    """Handle --add-questions command.
+@dataclass(frozen=True)
+class AddQuestionsRequest:
+    """Structured input for add_questions_action — built by
+    run_add_questions() from parsed+normalized+filter-list-normalized CLI
+    args, never argv or argparse.Namespace directly."""
+    experiment: str
+    add_questions: str | ForceSystemDefault
+    where: list[str] | ForceSystemDefault = field(default_factory=list)
+    exclude: list[str] | ForceSystemDefault = field(default_factory=list)
+    source_file: str | None = None
 
-    Args:
-        args: Parsed command-line arguments.
-        conn: Database connection.
 
-    Returns:
-        Exit code (0 for success, 1 for error).
+@dataclass(frozen=True)
+class AddQuestionsResult:
+    """Structured output from add_questions_action.
+
+    exit_code: 0 success, 1 operational/domain error (not found, dataset
+        error, invalid spec/filter), 2 usage error (none originate inside
+        the action today — the contradiction/FORBIDDEN checks all happen
+        earlier, in run_add_questions's parsing step — but the field
+        exists for consistency with the other actions).
+    messages: stdout lines, in order, exactly as the original
+        print()-based handler produced them — including partial progress
+        (e.g. "Added question Q001...") from before a later item fails,
+        which the original did print before returning early.
+    error: single stderr error message, if any.
     """
+    exit_code: int
+    messages: tuple[str, ...] = ()
+    error: str | None = None
+    added_count: int = 0
+    skipped_count: int = 0
+
+
+def add_questions_action(request: AddQuestionsRequest, conn, *, commit: bool = True) -> AddQuestionsResult:
+    """The shared --add-questions action: dataset loading, spec/filter
+    resolution, and the DB writes. Pure — no argv/Namespace, no print(),
+    no sys.exit(). Used identically by the standalone and composite
+    adapters (see run_add_questions).
+
+    commit: whether each snapshot write commits immediately (default).
+        The composite flow (bcllm.py) passes False to participate in its
+        src.db.unit_of_work.UnitOfWork scope — see
+        docs/status/composite-flow-unit-of-work-design.md."""
+    messages: list[str] = []
+
     exp_repo = ExperimentRepository(conn)
     snap_repo = SnapshotRepository(conn)
 
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(request.experiment)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
-        return 1
+        return AddQuestionsResult(exit_code=1, error=f"Experiment not found: {request.experiment}")
 
     loader = QuestionLoader()
 
     try:
-        dataset_path = args.source_file
+        dataset_path = request.source_file
         if not dataset_path:
             resolver = ConfigResolver()
             env_dict = resolver.load_env()
             dataset_path = env_dict.get('QUESTIONS_DATASET_PATH')
             if not dataset_path:
-                print(
-                    "Error: QUESTIONS_DATASET_PATH not set in .env and no --source-file provided. "
-                    "Please configure the dataset path.",
-                    file=sys.stderr
-                )
-                return 1
+                return AddQuestionsResult(exit_code=1, error=(
+                    "QUESTIONS_DATASET_PATH not set in .env and no --source-file provided. "
+                    "Please configure the dataset path."
+                ))
 
         questions = loader.load_dataset(dataset_path)
         questions = loader.assign_internal_ids(questions)
     except FileNotFoundError as e:
-        print(f"Error: Question dataset not found: {e}", file=sys.stderr)
-        return 1
+        return AddQuestionsResult(exit_code=1, error=f"Question dataset not found: {e}")
     except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON in question dataset: {e}", file=sys.stderr)
-        return 1
+        return AddQuestionsResult(exit_code=1, error=f"Invalid JSON in question dataset: {e}")
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        return AddQuestionsResult(exit_code=1, error=str(e))
 
-    question_ids = []
-    if args.add_questions:
-        spec = args.add_questions.strip()
+    question_ids: list[str] = []
+    if request.add_questions is FORCE_SYSTEM_DEFAULT:
+        # Explicit system-default -> select ALL available questions. No
+        # .env fallback applies here (unlike the composite --create-experiment
+        # path's DEFAULT_QUESTIONS) — the mutex group always requires an
+        # explicit --add-questions value in this standalone flow, so there
+        # is no "not specified" case to fall back from. See
+        # docs/contracts/system-default-semantics.md.
+        for q in questions:
+            qid = q.get('source_id') or q.get('id') or str(q.get('internal_id', ''))
+            if qid and qid not in question_ids:
+                question_ids.append(qid)
+    elif request.add_questions:
+        spec = request.add_questions.strip()
         try:
             selected = loader.parse_question_spec(spec, questions)
             for q in selected:
@@ -349,44 +421,42 @@ def handle_add_questions(args, conn) -> int:
                 if qid and qid not in question_ids:
                     question_ids.append(qid)
         except ValueError as e:
-            print(f"Error: Invalid question specification: {e}", file=sys.stderr)
-            print("Valid formats:", file=sys.stderr)
-            print("  --questions \"1, 3, 5\"    (comma-separated, quote if spaces)", file=sys.stderr)
-            print("  --questions \"1-10\"       (range)", file=sys.stderr)
-            print("  --questions \"1, 3-5, Q10\" (mixed)", file=sys.stderr)
-            return 1
+            return AddQuestionsResult(exit_code=1, error=(
+                f"Invalid question specification: {e}\n"
+                "Valid formats:\n"
+                "  --questions \"1, 3, 5\"    (comma-separated, quote if spaces)\n"
+                "  --questions \"1-10\"       (range)\n"
+                "  --questions \"1, 3-5, Q10\" (mixed)"
+            ))
 
     if not question_ids:
-        print("Error: No valid question IDs found in spec", file=sys.stderr)
-        return 1
+        return AddQuestionsResult(exit_code=1, error="No valid question IDs found in spec")
 
     questions_index = {q.get('source_id') or q.get('id'): q for q in questions}
 
-    include_filters = []
-    exclude_filters = []
+    include_filters: list[tuple[str, str]] = []
+    exclude_filters: list[tuple[str, str]] = []
 
-    if args.where:
-        for filter_str in args.where:
+    if request.where and request.where is not FORCE_SYSTEM_DEFAULT:
+        for filter_str in request.where:
             try:
                 include_filters.append(parse_filter(filter_str))
             except ValueError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                return 1
+                return AddQuestionsResult(exit_code=1, error=str(e), messages=tuple(messages))
 
-    if args.exclude:
-        for filter_str in args.exclude:
+    if request.exclude and request.exclude is not FORCE_SYSTEM_DEFAULT:
+        for filter_str in request.exclude:
             try:
                 exclude_filters.append(parse_filter(filter_str))
             except ValueError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                return 1
+                return AddQuestionsResult(exit_code=1, error=str(e), messages=tuple(messages))
 
     if include_filters or exclude_filters:
         original_count = len(question_ids)
         question_ids = filter_questions(question_ids, questions_index, include_filters, exclude_filters)
         filtered_count = original_count - len(question_ids)
         if filtered_count > 0:
-            print(f"  ({filtered_count} questions filtered out)")
+            messages.append(f"  ({filtered_count} questions filtered out)")
 
     added_count = 0
     skipped_count = 0
@@ -395,27 +465,25 @@ def handle_add_questions(args, conn) -> int:
         existing = snap_repo.get_by_experiment_and_question(experiment.experiment_id, qid)
         if existing:
             skipped_count += 1
-            print(f"Question {qid} already exists (skipped)")
+            messages.append(f"Question {qid} already exists (skipped)")
             continue
 
         if qid not in questions_index:
-            print(f"Error: Question ID not found: {qid}", file=sys.stderr)
-            return 1
+            return AddQuestionsResult(
+                exit_code=1, error=f"Question ID not found: {qid}",
+                messages=tuple(messages), added_count=added_count, skipped_count=skipped_count,
+            )
 
         question_data = questions_index[qid]
         question_position = question_data.get('internal_id')
 
         if question_position is None:
-            print(f"Error: Question missing internal_id: {qid}", file=sys.stderr)
-            return 1
+            return AddQuestionsResult(
+                exit_code=1, error=f"Question missing internal_id: {qid}",
+                messages=tuple(messages), added_count=added_count, skipped_count=skipped_count,
+            )
 
-        payload = {
-            "stem": question_data.get("stem", ""),
-            "options": list(question_data.get("options", {}).values()) if isinstance(question_data.get("options"), dict) else question_data.get("options", []),
-            "answer_key": question_data.get("answer_key", ""),
-            "assets": question_data.get("assets", []),
-            "meta": question_data.get("meta", {}),
-        }
+        payload = build_question_snapshot_payload(question_data)
 
         snapshot = QuestionSnapshot(
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
@@ -425,13 +493,112 @@ def handle_add_questions(args, conn) -> int:
             question_payload=json.dumps(payload, ensure_ascii=False),
         )
 
-        snap_repo.save(snapshot)
+        snap_repo.save(snapshot, commit=commit)
         added_count += 1
-        print(f"✓ Added question {qid} (position {question_position})")
+        messages.append(f"✓ Added question {qid} (position {question_position})")
 
-    print(f"\nSummary: {added_count} added, {skipped_count} skipped")
+    messages.append(f"\nSummary: {added_count} added, {skipped_count} skipped")
 
-    return 0
+    return AddQuestionsResult(
+        exit_code=0, messages=tuple(messages), added_count=added_count, skipped_count=skipped_count,
+    )
+
+
+def parse_add_questions_request(argv: list[str]) -> AddQuestionsRequest:
+    """Pure: argv -> parse/normalize/validate (scalar system-default AND
+    the list-aware --where/--exclude path) -> AddQuestionsRequest. No
+    database connection is opened. Raises ParserExit(status) for any
+    usage error.
+
+    Shared by run_add_questions (standalone) and bcllm.py's composite
+    flow, which calls this for every requested --add-* action BEFORE
+    opening a database connection or acquiring the composite flow's
+    transaction lock — see
+    docs/status/composite-flow-unit-of-work-design.md point 3.
+    """
+    parser = create_parser()
+    try:
+        args = parse_args_normalized(
+            parser, argv,
+            supported=SYSTEM_DEFAULT_SUPPORTED,
+            forbidden=SYSTEM_DEFAULT_FORBIDDEN,
+        )
+        where = normalize_filter_list_or_system_default(args.where)
+        exclude = normalize_filter_list_or_system_default(args.exclude)
+    except (argparse.ArgumentError, ValueError) as e:
+        parser.error(str(e))  # raises ParserExit(2, ...)
+
+    return AddQuestionsRequest(
+        experiment=args.experiment,
+        add_questions=args.add_questions,
+        where=where,
+        exclude=exclude,
+        source_file=args.source_file,
+    )
+
+
+def run_add_questions(
+    argv: list[str] | None = None, conn=None, *,
+    commit: bool = True, request: AddQuestionsRequest | None = None,
+) -> int:
+    """Single entry point for the --add-questions action: parsing,
+    system-default normalization/classification (scalar AND the list-
+    aware --where/--exclude path), request construction, dispatch to
+    add_questions_action, and result presentation (printing) — used
+    identically by main() (standalone, real sys.argv) and bcllm.py's
+    composite flow. Both go through this exact same code, so a fix here
+    applies to both callers automatically — no divergent duplicate logic
+    to keep in sync.
+
+    Never lets argparse's own sys.exit() escape (create_parser() returns
+    a NonExitingArgumentParser) — always returns an exit code.
+
+    A usage error NEVER opens a database connection: when `conn` is not
+    supplied, get_database_connection() is only called AFTER parsing
+    succeeds, never before.
+
+    Args:
+        argv: Argument strings for THIS action only (no program name).
+            Ignored if `request` is given directly.
+        conn: An already-open connection to reuse — the composite flow
+            passes its own, shared across multiple actions in one
+            invocation, and this function does NOT close it. When None
+            (standalone), this function opens (after a successful parse)
+            and closes its own connection.
+        commit: Passed straight to add_questions_action — see its
+            docstring.
+        request: A pre-parsed AddQuestionsRequest. When given, `argv` is
+            ignored entirely and no parsing happens here — used by the
+            composite flow, which pre-parses every requested action's
+            argv (via parse_add_questions_request) before ever opening a
+            connection, then calls this function only for its DB-facing
+            half (dispatch + printing), reusing this exact same code
+            path rather than duplicating it.
+
+    Returns:
+        0 success, 1 operational/domain error, 2 usage error.
+    """
+    if request is None:
+        try:
+            request = parse_add_questions_request(argv)
+        except ParserExit as e:
+            return e.status
+
+    owns_conn = conn is None
+    if owns_conn:
+        conn = get_database_connection()
+    try:
+        result = add_questions_action(request, conn, commit=commit)
+
+        for line in result.messages:
+            print(line)
+        if result.exit_code != 0:
+            print(f"Error: {result.error}", file=sys.stderr)
+
+        return result.exit_code
+    finally:
+        if owns_conn:
+            conn.close()
 
 
 def handle_list_questions(args, conn) -> int:
@@ -504,23 +671,45 @@ def handle_remove_question(args, conn) -> int:
 
 def main(mode: Mode) -> int:
     """Main entry point.
-    
+
     Args:
         mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+
     Returns:
-        Exit code (0 for success, 1 for error).
+        Exit code (0 for success, 1 for error, 2 for usage error).
     """
     _validate_expected_mode(mode)
+    argv = sys.argv[1:]
+
+    # --add-questions/--questions delegate to the exact same single-action
+    # pipeline the composite flow uses (see run_add_questions's docstring)
+    # — peeked via has_flag before parsing, mirroring how bcllm.py's
+    # composite flow already decides which action to run.
+    if has_flag(argv, '--add-questions') or has_flag(argv, '--questions'):
+        return run_add_questions(argv)
+
+    # --list-questions / --remove-question have no composite-flow
+    # counterpart — parsed and dispatched directly, same shape as before,
+    # just adapted to NonExitingArgumentParser.
     parser = create_parser()
-    args = parser.parse_args()
+    try:
+        try:
+            args = parse_args_normalized(
+                parser, argv,
+                supported=SYSTEM_DEFAULT_SUPPORTED,
+                forbidden=SYSTEM_DEFAULT_FORBIDDEN,
+            )
+        except (argparse.ArgumentError, ValueError) as e:
+            parser.error(str(e))
+    except ParserExit as e:
+        if e.status != 0:
+            return e.status
+        return 0  # --help or other clean parser exit
 
     conn = get_database_connection()
 
     try:
-        if args.add_questions:
-            return handle_add_questions(args, conn)
-        elif args.list_questions:
+        if args.list_questions:
             return handle_list_questions(args, conn)
         elif args.remove_question:
             return handle_remove_question(args, conn)

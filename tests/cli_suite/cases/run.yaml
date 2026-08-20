@@ -26,7 +26,7 @@ cases:
           equals: 1
 
   - id: RN-002
-    name: run herda seed do experimento quando nao especificado
+    name: run herda randomization seed do experimento quando nao especificado
     area: run
     profiles: [cli-unit, contracts, full]
     priority: high
@@ -35,7 +35,7 @@ cases:
       env: env_valid_minimal
       dataset: dataset_small_valid
     setup:
-      - ["--create-experiment", "{ns}_rn002", "--seed", "77"]
+      - ["--create-experiment", "{ns}_rn002", "--randomization-seed", "77"]
     command:
       argv: ["--experiment", "{ns}_rn002", "--add-run"]
     expect:
@@ -44,7 +44,7 @@ cases:
     db:
       assertions:
         - query: >-
-            SELECT json_extract(r.config, '$.RUN_RESPONSES_SEED')
+            SELECT json_extract(r.config, '$.RANDOMIZATION_SEED')
             FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id
             WHERE e.name = ?
           params: ["{ns}_rn002"]
@@ -80,10 +80,10 @@ cases:
       env: env_valid_minimal
       dataset: dataset_small_valid
     setup:
-      - ["--create-experiment", "{ns}_rn004", "--seed", "55"]
+      - ["--create-experiment", "{ns}_rn004", "--randomization-seed", "55"]
       - argv: ["--experiment", "{ns}_rn004", "--add-run"]
         capture:
-          # bcllm_run.py: "✓ Run created for '...' (ID: run_xxxxxxxx, Seed: ...)"
+          # bcllm_run.py: "✓ Run created for '...' (ID: run_xxxxxxxx, Randomization Seed: ...)"
           run_id: "ID: (run_[0-9a-f]+)"
       - ["--experiment", "{ns}_rn004", "--remove-run", "{run_id}"]
     command:
@@ -99,9 +99,9 @@ cases:
         - query: "SELECT status FROM runs WHERE run_id = ?"
           params: ["{run_id}"]
           equals: "removed"
-        - query: "SELECT json_extract(config, '$.RUN_RESPONSES_SEED') FROM runs WHERE run_id = ?"
+        - query: "SELECT json_extract(config, '$.RANDOMIZATION_SEED') FROM runs WHERE run_id = ?"
           params: ["{run_id}"]
-          equals: 55  # config survived intact — frozen seed still there, not deleted
+          equals: 55  # config survived intact — frozen randomization seed still there, not deleted
 
   - id: RN-005
     name: "run removido nao e reativado por --execute --run <id> (regressao)"
@@ -144,3 +144,116 @@ cases:
             WHERE resp.run_id = ?
           params: ["{run_id}"]
           equals: 0  # must NOT have actually executed anything
+
+  - id: RN-006
+    name: "--list-runs lista os runs do experimento"
+    area: run
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [listing]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn006"]
+      - ["--experiment", "{ns}_rn006", "--add-run"]
+    command:
+      argv: ["--experiment", "{ns}_rn006", "--list-runs"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["pending"]
+      no_traceback: true
+
+  - id: RN-007
+    name: "--run <id> mostra detalhes de um run normal (nao removido)"
+    area: run
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [show]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn007", "--randomization-seed", "9"]
+      - argv: ["--experiment", "{ns}_rn007", "--add-run"]
+        capture:
+          run_id: "ID: (run_[0-9a-f]+)"
+    command:
+      # Positive-path counterpart of RN-004 (which only shows a REMOVED
+      # run) — this one shows a normal pending run.
+      argv: ["--experiment", "{ns}_rn007", "--run", "{run_id}"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["pending"]
+      no_traceback: true
+
+  - id: RN-008
+    name: "--run system-default e FORBIDDEN, exit 2 (regressao)"
+    area: run
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn008"]
+    command:
+      # Fixed 2026-08-19: --run is an identity selector (a run ID), not a
+      # configuration value. Before this fix, --run system-default was
+      # silently swept by the old default=None heuristic into the falsy
+      # FORCE_SYSTEM_DEFAULT sentinel, so `elif args.run:` never fired and
+      # the command fell through to help output (exit 1) instead of any
+      # honest error. Now explicitly classified FORBIDDEN — rejected at
+      # parse time, exit 2. See docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_rn008", "--run", "system-default"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true
+
+  - id: RN-009
+    name: "--randomization-seed system-default interrompe a heranca do Experiment, resolve para None"
+    area: run
+    profiles: [cli-unit, contracts, full]
+    priority: high
+    tags: [inheritance, system-default, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      # Experiment has a real seed configured — a naive/buggy inheritance
+      # would leak it into the run despite the explicit system-default.
+      - ["--create-experiment", "{ns}_rn009", "--randomization-seed", "77"]
+    command:
+      argv: ["--experiment", "{ns}_rn009", "--add-run", "--randomization-seed", "system-default"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT json_extract(r.config, '$.RANDOMIZATION_SEED')
+            FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_rn009"]
+          equals: null
+
+  - id: RN-010
+    name: "--randomization-seed invalido e usage error, exit 2, nada persistido"
+    area: run
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [negative, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_rn010"]
+    command:
+      argv: ["--experiment", "{ns}_rn010", "--add-run", "--randomization-seed", "not-a-number"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [runs]

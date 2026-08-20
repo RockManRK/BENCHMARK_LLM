@@ -47,7 +47,7 @@ def _setup_basic_experiment_data(conn):
     
     # Insert run
     run_config = json.dumps({
-        "RUN_RESPONSES_SEED": 42,
+        "RANDOMIZATION_SEED": 42,
     })
     cursor.execute("""
         INSERT INTO runs (run_id, experiment_id, config, status)

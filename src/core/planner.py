@@ -8,7 +8,8 @@ Key responsibilities:
 - Validate experiment exists and has models/snapshots
 - Read experiment, runs, variants, snapshots from DB
 - Resolve effective prompts (run.config overrides experiment.config)
-- Resolve effective seed (run.config overrides experiment.config)
+- Read the run's own, already-frozen Randomization Seed (no fallback to
+  experiment.config — that inheritance happened once, at run creation)
 - Build ExecutionPlan with deduplicated items per run
 - Apply run ID filters when specified
 - Apply question ID filters when specified
@@ -19,7 +20,7 @@ Database schema (TO-BE):
 - experiments: config_json (contains SYSTEM_PROMPT, USER_PROMPT, etc.)
 - model_variants: config (JSON with MODEL_* keys)
 - question_snapshots: question_payload (JSON)
-- runs: config (JSON with RUN_RESPONSES_SEED, SYSTEM_PROMPT, USER_PROMPT)
+- runs: config (JSON with RANDOMIZATION_SEED, SYSTEM_PROMPT, USER_PROMPT)
 - responses: execution results
 - errors: error records
 
@@ -29,13 +30,19 @@ The Planner is READ-ONLY:
 - Explicit validation only
 - All execution decisions explicit in ExecutionPlan
 
-Prompt resolution chain:
-1. Run config (RUN_RESPONSES_SEED, SYSTEM_PROMPT, USER_PROMPT)
+Prompt resolution chain (prompts DO still fall back to the experiment —
+unlike Randomization Seed below, this is unchanged):
+1. Run config (SYSTEM_PROMPT, USER_PROMPT)
 2. Experiment config (fallback)
 
-Seed resolution chain:
-1. Run config.RUN_RESPONSES_SEED
-2. Experiment config.RUN_RESPONSES_SEED (fallback)
+Randomization Seed: NO fallback chain at the Planner. Experiment -> Run
+inheritance happens exactly once, at Run creation
+(ConfigResolver.resolve_randomization_seed_for_run) — the Planner only
+reads the Run's own, already-frozen RANDOMIZATION_SEED
+(_resolve_randomization_seed_effective) and never re-derives it from the
+experiment. See docs/status/known-issues.md for the bug this fixed: the
+Planner used to re-apply Experiment -> Run fallback at every --execute,
+silently overriding a Run's own explicit "don't randomize" decision.
 """
 
 import sqlite3
@@ -86,7 +93,8 @@ class Planner:
 
     Configuration resolution:
     - Prompts: run.config.SYSTEM_PROMPT/USER_PROMPT > experiment.config
-    - Seed: run.config.RUN_RESPONSES_SEED > experiment.config
+    - Randomization Seed: run.config.RANDOMIZATION_SEED only — already
+      frozen at run creation, no fallback to experiment.config here
     - Model config: variant.config (MODEL_* keys)
 
     Attributes:
@@ -142,7 +150,7 @@ class Planner:
 
         Notes:
             - Prompts resolved from: run.config > experiment.config
-            - Seed resolved from: run.config > experiment.config
+            - Randomization Seed read from run.config only (already frozen)
             - Model config from: variant.config (MODEL_* keys)
         """
         # Log plan build start
@@ -429,8 +437,9 @@ class Planner:
         # Resolve effective prompts (run overrides experiment)
         prompts_effective = self._resolve_prompts_effective(experiment_row, run_row)
 
-        # Resolve effective seed (run overrides experiment)
-        seed_effective = self._resolve_seed_effective(experiment_row, run_row)
+        # The run's own, already-frozen Randomization Seed — resolved
+        # ONCE at run creation, never recomputed or inherited here.
+        randomization_seed_effective = self._resolve_randomization_seed_effective(run_row)
 
         # Build plan variants
         plan_variants = [
@@ -452,7 +461,7 @@ class Planner:
         # Create plan run with specified retry policy
         plan_run = PlanRun(
             run_id=run_row["run_id"],
-            seed_effective=seed_effective,
+            randomization_seed_effective=randomization_seed_effective,
             prompts_effective=prompts_effective,
             retry_policy=retry_policy,
             variants=plan_variants,
@@ -493,9 +502,9 @@ class Planner:
         """Resolve effective prompts for run.
 
         Run-level prompts override experiment-level prompts.
-        
+
         Resolution chain:
-        1. Run config (RUN_RESPONSES_SEED, SYSTEM_PROMPT, USER_PROMPT)
+        1. Run config (SYSTEM_PROMPT, USER_PROMPT)
         2. Experiment config_json (fallback)
         
         Prompts are stored in JSON columns as:
@@ -528,92 +537,131 @@ class Planner:
             user=user_prompt,
         )
 
-    def _resolve_seed_effective(
+    def _resolve_randomization_seed_effective(
         self,
-        experiment_row: sqlite3.Row,
         run_row: sqlite3.Row,
     ) -> int | None:
-        """Resolve effective seed for run.
+        """Return the Run's own, already-frozen Randomization Seed.
 
-        Run-level seed overrides experiment-level seed.
+        Renamed and re-scoped 2026-08-20 (seed vocabulary separation
+        checkpoint) from `_resolve_seed_effective`, which incorrectly
+        re-applied Experiment -> Run inheritance at execution time —
+        `run_config.get("RUN_RESPONSES_SEED")` returning `None` is
+        ALWAYS ambiguous between "key absent" and "explicitly resolved
+        to no-randomization," and the old code treated both as "fall
+        back to the experiment," silently overriding a Run's own frozen
+        decision on every `--execute`. See docs/status/known-issues.md.
 
-        Resolution chain:
-        1. Run config.RUN_RESPONSES_SEED
-        2. Experiment config.RUN_RESPONSES_SEED (fallback)
+        CONTRATO ARQUITETURAL DE SEED (Randomization Seed):
 
-        Seed is stored in run.config JSON column as RUN_RESPONSES_SEED.
+        Herança Experiment -> Run acontece EXATAMENTE UMA VEZ, na
+        criação do Run (ConfigResolver.resolve_randomization_seed_for_run).
+        O Planner NUNCA recalcula ou reaplica essa herança — ele apenas
+        lê a decisão já congelada. Por isso este método recebe somente
+        `run_row`, não `experiment_row`: reintroduzir o experiment aqui
+        seria reabrir exatamente o bug que esta reescrita corrige.
 
-        CONTRATO ARQUITETURAL DE SEED:
-
-        Este método é a ÚNICA fonte de verdade para normalização de seed.
-        Após este método, seed_effective é GARANTIDAMENTE int | None.
-
-        Por que a normalização acontece aqui:
-        - O planner é o ponto onde configs do banco são lidos e resolvidos
-        - Configs podem conter strings ("OFF", "NULL", etc.) ou ints
-        - Após resolução, todas as camadas downstream assumem contrato limpo
-        - Outras camadas NÃO devem repetir normalização
-
-        Regras de conversão:
-        - "OFF", "NULL", "NONE", "" → None (randomização DESLIGADA)
-        - strings numéricas ("42") → int (randomização LIGADA)
-        - int → int (mantido)
-        - qualquer valor inválido → None
-
-        Este é um contrato arquitetural, não uma convenção informal.
+        Regras, para um Run válido:
+        - A chave RANDOMIZATION_SEED DEVE estar presente em run.config —
+          todo Run criado pelo fluxo real sempre a inclui explicitamente
+          (mesmo quando o valor é `None`). Chave ausente é erro de
+          integridade de dados, não uma herança pendente.
+        - `None` → decisão final e congelada de NÃO randomizar.
+        - `int` (incluindo 0) → decisão final e congelada de randomizar
+          com esse seed.
+        - A string `"AUTO"` é inválida aqui — AUTO só existe no
+          Experiment e deve ter sido resolvida a um inteiro concreto na
+          criação do Run; encontrá-la em um Run persistido é erro de
+          integridade de dados.
+        - Nenhuma sentinela textual (`"OFF"`/`"NULL"`/`"NONE"`/`""`) é
+          reconhecida — nunca foram, e não são mais, uma representação
+          válida de "sem randomização"; somente `None`/JSON `null`.
 
         Args:
-            experiment_row: Experiment database row
-            run_row: Run database row (has config column with RUN_RESPONSES_SEED)
+            run_row: Run database row (has config column with
+                RANDOMIZATION_SEED).
 
         Returns:
-            Effective seed (int | None only — never string or other type)
+            The run's own randomization seed (int | None only).
+
+        Raises:
+            PlannerValidationError: if RANDOMIZATION_SEED is missing
+                from the run's config entirely, or holds any value other
+                than an int or None (including the literal "AUTO" or any
+                retired textual sentinel).
         """
         import json
 
-        # Parse run config
         run_config_str = run_row["config"] if "config" in run_row.keys() else "{}"
         run_config = json.loads(run_config_str) if run_config_str else {}
 
-        # Run seed takes precedence
-        run_seed = run_config.get("RUN_RESPONSES_SEED")
-        if run_seed is not None:
-            return self._normalize_seed_value(run_seed)
+        if "RANDOMIZATION_SEED" not in run_config:
+            run_id = run_row["run_id"] if "run_id" in run_row.keys() else "?"
+            raise PlannerValidationError(
+                f"Run {run_id} is missing RANDOMIZATION_SEED in its config. "
+                "Every run created through the normal flow always includes this "
+                "key explicitly (even when its value is null) — a missing key "
+                "means the run's data is invalid, not that it should inherit "
+                "the experiment's seed. Randomization Seed inheritance happens "
+                "exactly once, at run creation; the Planner never re-derives it."
+            )
 
-        # Fallback to experiment config
-        exp_config_str = experiment_row["config_json"] if "config_json" in experiment_row.keys() else "{}"
-        exp_config = json.loads(exp_config_str) if exp_config_str else {}
-        return self._normalize_seed_value(exp_config.get("RUN_RESPONSES_SEED"))
+        return self._normalize_randomization_seed_value(
+            run_config["RANDOMIZATION_SEED"],
+            run_id=run_row["run_id"] if "run_id" in run_row.keys() else "?",
+        )
 
-    def _normalize_seed_value(self, seed_value) -> int | None:
-        """Normalize seed value to int | None.
+    def _normalize_randomization_seed_value(self, seed_value, *, run_id: str) -> int | None:
+        """Validate an already-frozen Run's RANDOMIZATION_SEED.
 
-        This is the ONLY method that handles string seeds.
-        All other code assumes seed is already int | None.
+        Renamed and re-scoped 2026-08-20 from `_normalize_seed_value`,
+        which silently tolerated textual sentinels
+        (`"OFF"`/`"NULL"`/`"NONE"`/`""`) and any other unparseable value
+        by returning `None` — masking data-integrity problems as
+        ordinary "randomization disabled." Since Randomization Seed is
+        resolved to a clean `int | None` once, at run creation
+        (`ConfigResolver.resolve_randomization_seed_for_run`), this
+        method's only real job now is to confirm that contract actually
+        held — not to re-parse strings.
 
         Args:
-            seed_value: Raw seed value from config (may be str, int, or None)
+            seed_value: Raw value read from run.config["RANDOMIZATION_SEED"].
+            run_id: For error messages only.
 
         Returns:
-            int if valid seed, None if disabled or invalid.
+            int if a valid seed, None if randomization is disabled.
+
+        Raises:
+            PlannerValidationError: for anything other than `None` or a
+                plain `int` — including `bool` (a `bool` is technically
+                an `int` subclass in Python but is never a valid seed
+                here), the literal string `"AUTO"`, and any other value.
         """
         if seed_value is None:
             return None
 
+        if isinstance(seed_value, bool):
+            raise PlannerValidationError(
+                f"Run {run_id} has RANDOMIZATION_SEED={seed_value!r} (a bool) — "
+                "expected an integer or null."
+            )
+
         if isinstance(seed_value, int):
             return seed_value
 
-        if isinstance(seed_value, str):
-            normalized = seed_value.strip().upper()
-            if normalized in ("OFF", "NULL", "NONE", ""):
-                return None
-            try:
-                return int(seed_value)
-            except ValueError:
-                return None
+        if seed_value == "AUTO":
+            raise PlannerValidationError(
+                f"Run {run_id} has RANDOMIZATION_SEED='AUTO' — AUTO is only valid "
+                "at Experiment level and must be resolved to a concrete integer at "
+                "Run creation. Finding it on a persisted Run is a data-integrity bug, "
+                "not something to silently resolve here."
+            )
 
-        # Any other type → disable randomization
-        return None
+        raise PlannerValidationError(
+            f"Run {run_id} has invalid RANDOMIZATION_SEED {seed_value!r} "
+            f"(type {type(seed_value).__name__}) — expected an integer or null. "
+            "Textual sentinels ('OFF'/'NULL'/'NONE'/'') are not supported."
+        )
 
     def _build_model_config(self, variant_row: sqlite3.Row) -> ModelConfig:
         """Build ModelConfig from variant row.

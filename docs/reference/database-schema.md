@@ -45,7 +45,7 @@ experiments ──┬── model_variants
 **config_json contents:**
 ```json
 {
-  "RUN_RESPONSES_SEED": "AUTO",
+  "RANDOMIZATION_SEED": "AUTO",
   "SYSTEM_PROMPT": null,
   "USER_PROMPT": null,
   "BASE_URL": "https://openrouter.ai/api/v1",
@@ -132,7 +132,7 @@ experiments ──┬── model_variants
 **config contents:**
 ```json
 {
-  "RUN_RESPONSES_SEED": 42,
+  "RANDOMIZATION_SEED": 42,
   "SYSTEM_PROMPT": "You are a helpful assistant.",
   "USER_PROMPT": "Answer the question:"
 }

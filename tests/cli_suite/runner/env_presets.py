@@ -50,7 +50,7 @@ BASE_ENV: dict[str, str] = {
     "MODEL_REPEAT_PENALTY": "",
     "MODEL_VISION": "false",
     "STRUCTURED_OUTPUTS": "false",
-    "RUN_RESPONSES_SEED": "AUTO",
+    "RANDOMIZATION_SEED": "AUTO",
     "SYSTEM_PROMPT": "",
     "USER_PROMPT": "Select the correct answer by providing only the letter (A, B, C, or D).",
 }
@@ -67,8 +67,8 @@ PRESETS: dict[str, EnvPreset] = {
         "SYSTEM_PROMPT": "You are a careful test assistant.",
     }),
     "env_no_url": EnvPreset(overrides={"BASE_URL": None}),
-    "env_seed_44": EnvPreset(overrides={"RUN_RESPONSES_SEED": "44"}),
-    "env_seed_zero": EnvPreset(overrides={"RUN_RESPONSES_SEED": "0"}),
+    "env_seed_44": EnvPreset(overrides={"RANDOMIZATION_SEED": "44"}),
+    "env_seed_zero": EnvPreset(overrides={"RANDOMIZATION_SEED": "0"}),
     "env_prompts": EnvPreset(overrides={
         "SYSTEM_PROMPT": "You are a helpful assistant.",
         "USER_PROMPT": "Answer: {question}\n{options}",
@@ -76,7 +76,16 @@ PRESETS: dict[str, EnvPreset] = {
     "env_provider_lock": EnvPreset(overrides={"AUTO_PROVIDER_LOCK": "true"}),
     "env_invalid_values": EnvPreset(overrides={
         "MODEL_TEMPERATURE": "not-a-number",
-        "RUN_RESPONSES_SEED": "not-a-seed",
+        "RANDOMIZATION_SEED": "not-a-seed",
+    }),
+    "env_questions_status_filters": EnvPreset(overrides={
+        # QUESTIONS_STATUS_ADD/EXCLUDE set so cases can prove --where/
+        # --exclude system-default explicitly bypasses this .env fallback
+        # at bootstrap (--create-experiment), rather than just applying an
+        # empty concrete filter — see docs/status/known-issues.md's
+        # system-default gap entry and docs/contracts/system-default-semantics.md.
+        "QUESTIONS_STATUS_ADD": "status=valid",
+        "QUESTIONS_STATUS_EXCLUDE": "status=annulled",
     }),
 }
 

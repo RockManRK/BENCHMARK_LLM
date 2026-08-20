@@ -22,6 +22,7 @@ from unittest.mock import patch
 from src.core.export_service import ExportService, ExportedResponse, ExportedError, ExportResult
 from src.db.repository import ResponseRepository, RunRepository, ExperimentRepository
 from src.db.models import Response, Run, Experiment
+from src.db.schema import create_schema
 
 
 # =============================================================================
@@ -38,86 +39,11 @@ def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
     conn = sqlite3.connect(':memory:')
     conn.row_factory = sqlite3.Row
 
-    # Create full TO-BE schema
-    conn.executescript("""
-        CREATE TABLE experiments (
-            experiment_id TEXT PRIMARY KEY,
-            name TEXT UNIQUE NOT NULL,
-            description TEXT,
-            config_json TEXT NOT NULL DEFAULT '{}',
-            config_hash TEXT NOT NULL DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE model_variants (
-            variant_id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            model_id TEXT NOT NULL,
-            variant_signature TEXT NOT NULL,
-            config TEXT NOT NULL DEFAULT '{}',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE question_snapshots (
-            snapshot_id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            json_question_id TEXT NOT NULL,
-            question_position INTEGER NOT NULL,
-            question_payload TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE runs (
-            run_id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            config TEXT NOT NULL DEFAULT '{}',
-            status TEXT NOT NULL DEFAULT 'pending',
-            duration INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE responses (
-            response_id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            variant_id TEXT NOT NULL,
-            snapshot_id TEXT NOT NULL,
-            model_id TEXT NOT NULL,
-            question_id TEXT NOT NULL,
-            status TEXT,
-            finish_reason TEXT,
-            error_details TEXT,
-            response_text TEXT,
-            selected_answer TEXT,
-            is_correct BOOLEAN,
-            parse_confidence TEXT DEFAULT 'unknown',
-            review_status TEXT,
-            manual_answer TEXT,
-            raw_response TEXT,
-            cost REAL,
-            input_tokens INTEGER,
-            response_tokens INTEGER,
-            reasoning_tokens INTEGER,
-            effective_tokens INTEGER,
-            latency_ms INTEGER,
-            started_at TIMESTAMP,
-            finished_at TIMESTAMP,
-            UNIQUE(run_id, variant_id, snapshot_id)
-        );
-
-        CREATE TABLE errors (
-            error_id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            variant_id TEXT NOT NULL,
-            snapshot_id TEXT NOT NULL,
-            question_id TEXT NOT NULL,
-            error_type TEXT NOT NULL,
-            error_message TEXT NOT NULL,
-            attempt_count INTEGER NOT NULL DEFAULT 1,
-            stack_trace TEXT,
-            occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.commit()
+    # Use the real schema (src/db/schema.py) instead of a private copy —
+    # a hand-rolled duplicate here had drifted (missing errors.response_id/
+    # attempt_number in particular, causing "no such column: response_id"
+    # in export_run()'s error query).
+    create_schema(conn)
 
     yield conn
 
@@ -447,11 +373,11 @@ class TestExportService:
         cursor = in_memory_db.cursor()
         cursor.execute("""
             INSERT INTO errors (
-                error_id, run_id, variant_id, snapshot_id, question_id,
+                error_id, response_id, run_id, variant_id, snapshot_id, question_id,
                 error_type, error_message, attempt_count, occurred_at
             )
             VALUES (
-                'err-001', 'run-test-001', 'var-abc-123', 'snap-xyz-789',
+                'err-001', 'resp-001', 'run-test-001', 'var-abc-123', 'snap-xyz-789',
                 'Q001', 'timeout', 'Request timed out after 30s', 3,
                 '2024-01-01 10:00:00'
             )

@@ -74,6 +74,18 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Explicit opt-in classification for system-default recognition — see
+# src/core/special_config_values.py::normalize_special_config_values and
+# docs/contracts/system-default-semantics.md for the full SUPPORTED/
+# FORBIDDEN/NOT_APPLICABLE contract this implements. --resolve-providers
+# is a boolean flag (NOT_APPLICABLE); --experiment is FORBIDDEN for
+# consistency with every other module's identity-selector flags — see
+# docs/status/known-issues.md (Essence Guardian finding, 2026-08-19).
+SYSTEM_DEFAULT_FORBIDDEN = {
+    'experiment',
+}
+
+
 def handle_resolve_providers(args, conn) -> int:
     """Resolve providers for all variants with PROVIDER=null in the experiment.
 
@@ -198,7 +210,12 @@ def main(mode: Mode) -> int:
     """
     _validate_expected_mode(mode)
     parser = create_parser()
-    args = parse_args_normalized(parser)
+    try:
+        args = parse_args_normalized(parser, forbidden=SYSTEM_DEFAULT_FORBIDDEN)
+    except argparse.ArgumentError as e:
+        # See src/cli/bcllm_model.py::main for why this is caught here
+        # rather than inside parse_args_normalized itself.
+        parser.error(str(e))
 
     conn = get_database_connection()
 

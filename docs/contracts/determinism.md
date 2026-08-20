@@ -1,7 +1,7 @@
 ---
 type: normative
 audience: ai
-last-validated: 2026-04-11
+last-validated: 2026-08-18
 status: active
 ---
 
@@ -29,35 +29,48 @@ When an experiment is created:
 
 **Implementation:** `Experiment.config_json` stores complete configuration snapshot
 
-### 2. Seed-Based Randomization
+### 2. Randomization Seed
 
-Answer option randomization is controlled by the `seed` parameter with **three-state behavior**:
+Answer option randomization is controlled by the Randomization Seed
+(`--randomization-seed`/`RANDOMIZATION_SEED` — see
+`docs/status/seed-vocabulary-separation-investigation.md` for why this is
+called out by full name: it is a distinct concept from the unrelated
+Model Seed, which is sent as the API request's `seed` field and never
+touches `AnswerRandomizer`) with **three-state behavior**:
 
-#### Seed States
+#### Randomization Seed States
 
-| Seed Value | Meaning | Where Valid |
+| Value | Meaning | Where Valid |
 |------------|---------|-------------|
-| `seed = None` | Randomization **OFF** (use original order A, B, C, D) | Experiment, Run |
-| `seed = AUTO` | Resolve to random integer at **run creation time** | Experiment only |
-| `seed = <integer>` | Randomization **ON** with deterministic shuffle | Experiment, Run |
+| `None` | Randomization **OFF** (use original order A, B, C, D) | Experiment, Run |
+| `AUTO` | Resolve to a deterministic integer at **run creation time** | Experiment only |
+| `<integer>` | Randomization **ON** with deterministic shuffle | Experiment, Run |
 
 #### Experiment → Run Resolution
 
-At **experiment level**, seed can be `None`, `AUTO`, or an integer:
+At **experiment level**, the Randomization Seed can be `None`, `AUTO`, or an integer:
 - `None` → Randomization disabled for all runs (unless overridden at run level)
-- `AUTO` → Placeholder meaning "generate a random seed when each run is created"
+- `AUTO` → Placeholder meaning "resolve to a concrete seed when each run is created"
 - `<integer>` → Fixed seed for all runs (unless overridden at run level)
 
-At **run creation time**, `AUTO` is resolved into a **random integer**:
+At **run creation time**, `AUTO` is resolved into a **deterministic integer**
+derived from the run and experiment IDs (SHA-256 of `f"{experiment_id}:{run_id}"`) —
+not a random draw, so the resolved value is reproducible from those IDs alone:
 ```python
 # Contract: AUTO resolution happens ONLY at run creation
 if experiment_seed == "AUTO":
-    run_seed = random.randint(0, MAX_INT)  # Resolved once, frozen forever
+    run_seed = _generate_randomization_seed_from_run(run_id, experiment_id)  # deterministic, frozen forever
 else:
     run_seed = experiment_seed  # None or int, passed through
 ```
 
-**Critical:** By the time a run exists, its seed is **always** either `None` or an `int`. The value `AUTO` never exists at run level.
+**Critical:** By the time a run exists, its Randomization Seed is **always**
+either `None` or an `int`. The value `AUTO` never exists at run level — and
+once frozen, the Planner reads the run's own stored value at `--execute`
+time and never recomputes or re-inherits it (fixed 2026-08-20, see
+`docs/status/known-issues.md`: `Planner._resolve_randomization_seed_effective`
+used to silently re-apply Experiment→Run inheritance on every execute,
+overriding an explicit frozen `None` decision).
 
 #### Randomization Decision
 
@@ -120,18 +133,27 @@ When `PROVIDER_LOCK=true` and `PROVIDER` is resolved for a model variant, the pr
 
 ---
 
-## Seed Inheritance
+## Randomization Seed Inheritance
 
-Seed values follow the configuration hierarchy:
+Randomization Seed values follow the configuration hierarchy:
 
 ```
-System defaults → .env → Experiment → Run
+System defaults → .env → Experiment → Run → CLI --randomization-seed
 ```
 
-- **Experiment seed:** Can be `None`, `AUTO`, or an integer. Can be changed after creation (does not affect existing runs)
-- **Run seed:** Frozen at run creation; always `None` or `int` (never `AUTO`)
-- **AUTO resolution:** Happens at run creation time only; the resolved integer is frozen into the run
-- **System default:** `None` means randomization disabled (use original order)
+(Fixed 2026-08-18 — this chain previously omitted CLI, the same gap
+found and fixed in `configuration-hierarchy.md`'s three per-key chains;
+see ADR-002, Decision 4. Not a behavior change: `resolve_randomization_seed()`
+already checks `cli_value` first — only the documented chain was incomplete.
+This chain is written lowest-to-highest precedence, so CLI is appended
+at the end, not the start; `configuration-hierarchy.md`'s chains are
+written highest-to-lowest, so CLI is prepended there instead — same
+precedence, opposite notation.)
+
+- **Experiment's Randomization Seed:** Can be `None`, `AUTO`, or an integer. Frozen at creation, exactly like every other Experiment config value — **cannot be changed** after creation (corrected 2026-08-20; this line previously and incorrectly claimed it could be changed — see `docs/status/known-issues.md`)
+- **Run's Randomization Seed:** Frozen at run creation; always `None` or `int` (never `AUTO`); once frozen, this is the run's final decision and nothing downstream (including the Planner at `--execute` time) may recompute or override it
+- **AUTO resolution:** Happens at run creation time only, via a deterministic hash of the run and experiment IDs; the resolved integer is frozen into the run
+- **System default:** `None` means randomization disabled (use original order). Textual sentinels (`"OFF"`/`"NULL"`/`"NONE"`/`""`) are retired — only Python `None`/JSON `null` represents "no randomization"
 
 ---
 

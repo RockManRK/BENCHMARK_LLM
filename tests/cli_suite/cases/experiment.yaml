@@ -95,16 +95,16 @@ cases:
       no_traceback: true
 
   - id: CE-005
-    name: criar experimento com seed inteira explicita
+    name: criar experimento com randomization seed inteira explicita
     area: experiment
     profiles: [cli-unit, full]
     priority: normal
-    tags: [creation, seed]
+    tags: [creation, randomization-seed]
     fixture:
       env: env_valid_minimal
       dataset: dataset_small_valid
     command:
-      argv: ["--create-experiment", "{ns}_ce005", "--seed", "42"]
+      argv: ["--create-experiment", "{ns}_ce005", "--randomization-seed", "42"]
     expect:
       exit_code: 0
       no_traceback: true
@@ -115,22 +115,22 @@ cases:
           equals: 1
 
   - id: CE-006
-    name: "seed 0 deve ser preservada como valida (nao tratada como falsy)"
+    name: "randomization seed 0 deve ser preservada como valida (nao tratada como falsy)"
     area: experiment
     profiles: [cli-unit, contracts, full]
     priority: high
-    tags: [creation, seed, contracts]
+    tags: [creation, randomization-seed, contracts]
     fixture:
       env: env_valid_minimal
       dataset: dataset_small_valid
     command:
-      argv: ["--create-experiment", "{ns}_ce006", "--seed", "0"]
+      argv: ["--create-experiment", "{ns}_ce006", "--randomization-seed", "0"]
     expect:
       exit_code: 0
       no_traceback: true
     db:
       assertions:
-        - query: "SELECT json_extract(config_json, '$.RUN_RESPONSES_SEED') FROM experiments WHERE name = ?"
+        - query: "SELECT json_extract(config_json, '$.RANDOMIZATION_SEED') FROM experiments WHERE name = ?"
           params: ["{ns}_ce006"]
           equals: 0
 
@@ -162,3 +162,113 @@ cases:
           params: ["{ns}_ce007"]
           equals: 1  # untouched — the disabled command must not delete anything
       unchanged_tables: [experiments, model_variants, question_snapshots, runs]
+
+  - id: CE-008
+    name: "deprecated 'null' literal exits 2 with a clean message, not a traceback (regressao)"
+    area: experiment
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [negative, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Fixed 2026-08-18: parse_args_normalized() -> normalize_nulls_explicit()
+      # raises argparse.ArgumentError for the deprecated 'null' literal
+      # (src/core/null_semantics.py) AFTER parser.parse_args() already
+      # returned — outside argparse's own exception handling, so it used
+      # to propagate as an uncaught traceback instead of a clean usage
+      # error. Each of the 4 CLI modules that call parse_args_normalized
+      # now catches ArgumentError at the main() call site and routes it
+      # through parser.error() — argparse's own mechanism, exit code 2,
+      # same as every other invalid-argument error. See
+      # docs/status/known-issues.md. (parse_args_normalized itself still
+      # raises ArgumentError for direct/unit callers — that part is
+      # unchanged and intentional, see its docstring.)
+      argv: ["--create-experiment", "{ns}_ce008", "--randomization-seed", "null"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["deprecated"]
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_ce008"]
+          equals: 0
+
+  - id: CE-009
+    name: "--provider-lock em experimento existente esta desabilitado deliberadamente"
+    area: experiment
+    profiles: [cli-unit, contracts, regression, full]
+    priority: high
+    tags: [contracts, immutability, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ce009"]
+    command:
+      # User decision, 2026-08-18 (Fase 3, item 8): rewriting a frozen
+      # experiment's config_json/config_hash post-creation — even for a
+      # single field — contradicts docs/contracts/immutability.md.
+      # Disabled rather than formalized as an exception. See
+      # docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_ce009", "--provider-lock", "true"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["disabled"]
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT json_extract(config_json, '$.PROVIDER_LOCK') FROM experiments WHERE name = ?"
+          params: ["{ns}_ce009"]
+          equals: 0  # unchanged from creation-time default (AUTO_PROVIDER_LOCK=false in env_valid_minimal) — config_json must not have been rewritten
+      unchanged_tables: [experiments]
+
+  - id: CE-010
+    name: "--url system-default e FORBIDDEN, exit 2 (regressao, era exit 1 antes)"
+    area: experiment
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Before 2026-08-19: handle_create_experiment manually checked
+      # `args.url is FORCE_SYSTEM_DEFAULT` and returned 1. Reclassified
+      # FORBIDDEN per the approved 3-category system — now rejected at
+      # parse time via normalize_special_config_values, exit 2. Intentional
+      # behavior change, not a regression. See docs/status/known-issues.md.
+      argv: ["--create-experiment", "{ns}_ce010", "--url", "system-default"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true
+    db:
+      assertions:
+        - query: "SELECT COUNT(*) FROM experiments WHERE name = ?"
+          params: ["{ns}_ce010"]
+          equals: 0
+
+  - id: CE-011
+    name: "--create-experiment system-default e FORBIDDEN, exit 2 (regressao do bug 'blanket sweep')"
+    area: experiment
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Fixed 2026-08-19: before this fix, ANY optional argparse argument
+      # with default=None/required=False (the old _is_nullable_arg
+      # heuristic) was silently normalized, including --create-experiment
+      # itself — 'system-default' as an experiment NAME silently became
+      # the FORCE_SYSTEM_DEFAULT sentinel instead of a literal name. Now
+      # explicitly classified FORBIDDEN. See docs/status/known-issues.md.
+      argv: ["--create-experiment", "system-default"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true

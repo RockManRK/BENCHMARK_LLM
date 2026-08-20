@@ -12,10 +12,12 @@ Test Pattern:
 - Mark domain rules with @pytest.mark.domain_rule
 """
 
+import json
 import pytest
 import sys
 from unittest.mock import patch
 
+from src.core.mode import Mode
 from src.db import create_schema
 from src.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
@@ -56,7 +58,7 @@ def test_create_run_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -82,7 +84,7 @@ def test_create_run_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -118,7 +120,7 @@ def test_create_run_no_models(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -155,7 +157,7 @@ def test_create_run_no_snapshots(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -197,7 +199,7 @@ def test_create_run_with_seed(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -230,7 +232,7 @@ def test_list_runs_empty(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -273,7 +275,7 @@ def test_list_runs_with_data(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -321,7 +323,7 @@ def test_list_runs_for_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -363,7 +365,7 @@ def test_show_run_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -395,7 +397,7 @@ def test_show_run_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -435,7 +437,7 @@ def test_show_run_wrong_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
@@ -483,7 +485,7 @@ class TestCreateRunIntegration:
             "--seed", "999",
         ]
         with patch.object(sys, "argv", create_args):
-            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main(Mode.MODIFY)
                 assert result == 0
@@ -496,7 +498,7 @@ class TestCreateRunIntegration:
             "--list-runs",
         ]
         with patch.object(sys, "argv", list_args):
-            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main(Mode.MODIFY)
                 assert result == 0
@@ -525,7 +527,7 @@ class TestCreateRunIntegration:
             "--create-run",
         ]
         with patch.object(sys, "argv", create_args):
-            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main(Mode.MODIFY)
                 assert result == 1
@@ -558,7 +560,7 @@ class TestShowRunIntegration:
             "--run", run.run_id,
         ]
         with patch.object(sys, "argv", show_args):
-            with patch("src.cli.bcllm_run.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 result = run_main(Mode.MODIFY)
                 assert result == 0
@@ -591,6 +593,10 @@ def _insert_snapshot(conn, snapshot: QuestionSnapshot) -> None:
 
 
 def _insert_run(conn, run: Run) -> None:
-    """Insert run directly into database."""
+    """Insert run directly into database.
+
+    RunRepository.save() takes `config` as a separate dict argument
+    rather than reading Run.config (see src/db/repository.py).
+    """
     repo = RunRepository(conn)
-    repo.save(run)
+    repo.save(run, config=json.loads(run.config))

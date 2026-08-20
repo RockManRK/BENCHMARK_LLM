@@ -17,13 +17,13 @@ The ExecutionEngine is initialized with:
 IMPORTANT - Randomization Contract:
     Randomização de alternativas é uma decisão experimental explícita.
 
-    - seed = None significa randomização DESLIGADA (NÃO embaralhar)
-    - seed = int significa randomização LIGADA (embaralhar deterministicamente)
-    - seed NÃO é uma flag - é apenas parâmetro do RNG
+    - randomization_seed_effective = None significa randomização DESLIGADA (NÃO embaralhar)
+    - randomization_seed_effective = int significa randomização LIGADA (embaralhar deterministicamente)
+    - randomization_seed_effective NÃO é uma flag - é apenas parâmetro do RNG
     - A decisão de randomizar é feita EXCLUSIVAMENTE com:
-        randomization_enabled = (seed_effective is not None)
-    - NUNCA usar checagens truthy (if seed_effective)
-    - seed = 0 NÃO deve desligar randomização
+        randomization_enabled = (randomization_seed_effective is not None)
+    - NUNCA usar checagens truthy (if randomization_seed_effective)
+    - randomization_seed_effective = 0 NÃO deve desligar randomização
 
     O que foi apresentado à LLM é a verdade experimental:
     - Opções são salvas EXATAMENTE como apresentadas
@@ -306,15 +306,15 @@ class ExecutionEngine:
             logger=self._logger
         )
 
-        # Apply randomization seed if set
+        # Apply Randomization Seed if set
         # Contract: Generate option_letter_map ONCE per run for determinism.
         # All items in the same run share the exact same mapping.
-        seed = run.seed_effective
+        seed = run.randomization_seed_effective
         run_option_map: Optional[dict[str, str]] = None
         if seed is not None:
             assert isinstance(seed, int), (
-                f"seed_effective must be int, got {type(seed).__name__}. "
-                f"Seed normalization must happen in Planner._resolve_seed_effective()."
+                f"randomization_seed_effective must be int, got {type(seed).__name__}. "
+                f"Seed normalization must happen in Planner._resolve_randomization_seed_effective()."
             )
             # Generate the option map once using the run seed
             # Use the first item's options as the reference for shuffling
@@ -447,7 +447,7 @@ class ExecutionEngine:
             """
 
             # Determine if randomization is enabled (explicit check, not truthy)
-            randomization_enabled = run.seed_effective is not None
+            randomization_enabled = run.randomization_seed_effective is not None
 
             # Start with original options
             original_options = list(item.question_payload.options)
@@ -475,7 +475,7 @@ class ExecutionEngine:
                     # in normal operation after Issue 1 fix)
                     randomized = self.randomizer.randomize_options(
                         original_options,
-                        seed=run.seed_effective,
+                        seed=run.randomization_seed_effective,
                     )
                     options = randomized["options"]
                     option_letter_map = {}
@@ -748,7 +748,7 @@ class ExecutionEngine:
                 "request_json": request_json,
                 # Experimental context
                 "randomization_enabled": randomization_enabled,
-                "randomization_seed": run.seed_effective,
+                "randomization_seed": run.randomization_seed_effective,
                 "options_presented": options,
                 "correct_option_presented": correct_option_presented,
                 "option_letter_map": option_letter_map,

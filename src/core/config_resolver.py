@@ -9,7 +9,7 @@ All configuration values flow through this resolver to ensure:
 - Auditable configuration resolution
 - Null-by-default for prompts (no fallback strings)
 
-CRITICAL: Seed AUTO resolution happens at RUN_CREATION only, never at experiment level.
+CRITICAL: Randomization Seed AUTO resolution happens at RUN_CREATION only, never at experiment level.
 CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly use system default" - no fallback to .env.
 
 ARCHITECTURAL NOTE:
@@ -24,7 +24,73 @@ from typing import Optional
 
 import os
 
-from .null_semantics import FORCE_SYSTEM_DEFAULT
+from .special_config_values import FORCE_SYSTEM_DEFAULT
+
+
+def parse_randomization_seed_strict(value: str | int | None) -> int | str | None:
+    """Parse a --randomization-seed / RANDOMIZATION_SEED value strictly —
+    the single shared implementation for both experiment-level
+    (`resolve_randomization_seed`) and run-level
+    (`resolve_randomization_seed_for_run`) resolution.
+
+    Renamed 2026-08-20 (seed vocabulary separation checkpoint) from
+    `parse_seed_value_strict` — this parses ONLY the Randomization Seed
+    (the AnswerRandomizer's seed, controls presented option order). It
+    is not used for, and must never be reused by, Model Seed (the
+    seed sent to the API for inference) — Model Seed has no AUTO concept
+    and uses `parse_int_or_system_default` instead, the same generic
+    parser every other model-level integer flag uses.
+
+    `value` is usually a string (from argparse or the experiment's own
+    frozen config), but an already-resolved `int` is accepted and passed
+    through unchanged too — some callers (e.g. programmatic/test
+    callers, not the real CLI) build the config dict with an already-int
+    seed rather than a CLI string.
+
+    Returns:
+        - `None` if `value` is `None` or empty/whitespace-only (means
+          "not specified" — callers decide what that implies).
+        - `"AUTO"` if `value` is `'AUTO'` (case-insensitive). `AUTO` is
+          only ever valid at the Experiment level — callers resolving a
+          Run's seed must reject it if it somehow reaches them already
+          resolved as a Run value (it must never be persisted on a Run).
+        - `int` if `value` parses as an integer, or is already one (`0`
+          and negative values are valid).
+
+    Raises:
+        ValueError: for any other, non-empty, unparseable text (or a
+            value that's neither `str` nor `int`) — including the
+            retired textual sentinels `"OFF"`/`"NULL"`/`"NONE"` (never
+            valid input; a real seed is representable only as `None`,
+            an integer, or, at the Experiment level only, `"AUTO"`).
+            Callers MUST surface this as a usage error, never swallow it
+            back into `None`.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, int):
+        return value
+
+    if not isinstance(value, str):
+        raise ValueError(
+            f"Invalid randomization seed value: {value!r}. Expected an integer, 'AUTO', 'system-default', or empty."
+        )
+
+    if not value.strip():
+        return None
+
+    stripped = value.strip()
+
+    if stripped.upper() == "AUTO":
+        return "AUTO"
+
+    try:
+        return int(stripped)
+    except ValueError:
+        raise ValueError(
+            f"Invalid randomization seed value: {value!r}. Expected an integer, 'AUTO', 'system-default', or empty."
+        )
 
 
 class ConfigResolver:
@@ -41,7 +107,7 @@ class ConfigResolver:
     Example:
         >>> resolver = ConfigResolver()
         >>> resolver.load_env()
-        >>> seed = resolver.resolve_seed(cli_value=None, env_key="RANDOM_SEED", experiment_name="exp1")
+        >>> seed = resolver.resolve_randomization_seed(cli_value=None, env_key="RANDOMIZATION_SEED", experiment_name="exp1")
         >>> prompt = resolver.resolve_prompt(cli_value="Custom prompt", env_key="SYSTEM_PROMPT", default=None)
     """
 
@@ -65,7 +131,7 @@ class ConfigResolver:
         Example:
             >>> resolver = ConfigResolver()
             >>> env_values = resolver.load_env()
-            >>> print(env_values.get("RANDOM_SEED"))
+            >>> print(env_values.get("RANDOMIZATION_SEED"))
         """
         # Create a cached snapshot of os.environ
         # The .env file was already loaded by bcllm.py at startup
@@ -128,13 +194,14 @@ class ConfigResolver:
 
         return default
 
-    def resolve_seed(
+    def resolve_randomization_seed(
         self,
         cli_value: str | None,
         env_key: str,
         experiment_name: str
     ) -> int | str | None:
-        """Resolve seed value for experiment level (does NOT resolve AUTO).
+        """Resolve Randomization Seed for experiment level (does NOT
+        resolve AUTO). Renamed 2026-08-20 from `resolve_seed`.
 
         Resolution order:
         1. CLI value (if provided and not "AUTO")
@@ -143,13 +210,20 @@ class ConfigResolver:
         4. None (no randomization)
 
         CRITICAL: This method does NOT resolve AUTO to a number.
-        AUTO resolution happens only in resolve_seed_for_run().
+        AUTO resolution happens only in resolve_randomization_seed_for_run(),
+        once, at Run creation.
         CRITICAL: FORCE_SYSTEM_DEFAULT means "explicitly null" - no fallback.
 
         Args:
-            cli_value: Value from CLI --seed flag (already parsed), or None.
-            env_key: Key to look up in .env (e.g., "RANDOM_SEED").
-            experiment_name: Experiment name for AUTO generation.
+            cli_value: Value from CLI --randomization-seed flag (already
+                parsed), or None.
+            env_key: Key to look up in .env — "RANDOMIZATION_SEED" in
+                production; kept as a parameter for testability.
+            experiment_name: Experiment name (unused by this method
+                directly; kept for call-site symmetry with the run-level
+                resolver, which needs run_id/experiment_id for AUTO
+                generation — experiment-level resolution never generates
+                a number, so it needs no id of its own).
 
         Returns:
             Integer seed, "AUTO" string, or None for no randomization.
@@ -159,55 +233,34 @@ class ConfigResolver:
             >>> resolver = ConfigResolver()
             >>> resolver.load_env()
             >>> # Integer value: returns integer
-            >>> resolver.resolve_seed("42", "RANDOM_SEED", "exp1")
+            >>> resolver.resolve_randomization_seed("42", "RANDOMIZATION_SEED", "exp1")
             42
             >>> # AUTO: returns "AUTO" string (NOT resolved)
-            >>> resolver.resolve_seed("AUTO", "RANDOM_SEED", "exp1")
+            >>> resolver.resolve_randomization_seed("AUTO", "RANDOMIZATION_SEED", "exp1")
             'AUTO'
             >>> # None: returns None
-            >>> resolver.resolve_seed(None, "RANDOM_SEED", "exp1")
+            >>> resolver.resolve_randomization_seed(None, "RANDOMIZATION_SEED", "exp1")
             None
             >>> # FORCE_SYSTEM_DEFAULT: no fallback to .env
-            >>> resolver.resolve_seed(FORCE_SYSTEM_DEFAULT, "RANDOM_SEED", "exp1")
+            >>> resolver.resolve_randomization_seed(FORCE_SYSTEM_DEFAULT, "RANDOMIZATION_SEED", "exp1")
             None
         """
-        def parse_seed_value(value: str) -> int | str | None:
-            """Parse a seed value string.
-
-            Returns:
-                - int if value is a valid integer
-                - "AUTO" if value is "AUTO" (case-insensitive)
-                - None if value is empty or whitespace
-            """
-            if value is None or not value.strip():
-                return None
-
-            value_stripped = value.strip()
-
-            if value_stripped.upper() == "AUTO":
-                return "AUTO"
-
-            try:
-                return int(value_stripped)
-            except ValueError:
-                return None
-
         # Check CLI value first
         if cli_value is not None and cli_value is not FORCE_SYSTEM_DEFAULT:
-            parsed = parse_seed_value(cli_value)
+            parsed = parse_randomization_seed_strict(cli_value)
             if parsed == "AUTO":
                 return "AUTO"
             if isinstance(parsed, int):
                 return parsed
-        
+
         # CLI was FORCE_SYSTEM_DEFAULT → return None (no fallback)
         if cli_value is FORCE_SYSTEM_DEFAULT:
             return None
-        
+
         # CLI was None (not specified) → check .env
         env_value = self.env_dict.get(env_key)
         if env_value is not None:
-            parsed = parse_seed_value(env_value)
+            parsed = parse_randomization_seed_strict(env_value)
             if parsed == "AUTO":
                 return "AUTO"
             if isinstance(parsed, int):
@@ -215,96 +268,98 @@ class ConfigResolver:
 
         return None
 
-    def resolve_seed_for_run(
+    def resolve_randomization_seed_for_run(
         self,
-        cli_value: str | None,
-        env_key: str,
+        cli_value: str | int | None,
+        experiment_seed: str | int | None,
         run_id: str,
-        experiment_id: str
+        experiment_id: str,
     ) -> int | None:
-        """Resolve seed value for RUN_CREATION (AUTO is resolved here).
+        """The single canonical resolution for a Run's RANDOMIZATION_SEED
+        — the only place AUTO is ever resolved to a number, and the only
+        method `build_run_config_dict` delegates to for this (no more
+        inline duplicate logic there).
+
+        Renamed and re-scoped 2026-08-20 from `resolve_seed_for_run`,
+        which took an `env_key`/consulted `self.env_dict` — WRONG for
+        run-level resolution, which must NEVER consult `.env` (only CLI
+        and the frozen experiment config; see
+        `docs/contracts/configuration-hierarchy.md`'s "Run configuration
+        is frozen at creation" and "no .env consultation after
+        experiment creation"). That mismatch is exactly why this method
+        had zero production callers before this rename —
+        `build_run_config_dict` needed inheritance from the *experiment*,
+        not `.env`, so it grew its own separate, inline copy instead of
+        ever calling this one. This version takes the experiment's
+        already-resolved seed value directly, not an env_key.
 
         Resolution order:
-        1. CLI value (if provided and not "AUTO")
-        2. .env value (if key exists and not "AUTO")
-        3. "AUTO" from CLI or .env: generate deterministic seed from run_id + experiment_id
-        4. None (no randomization)
-
-        CRITICAL: This is the ONLY place where AUTO is resolved to a number.
+        1. `cli_value` provided (not None, not FORCE_SYSTEM_DEFAULT):
+           parse strictly; "AUTO" resolves to a fresh deterministic
+           integer; otherwise use the integer (including 0) as-is.
+        2. `cli_value` is FORCE_SYSTEM_DEFAULT (system-default): break
+           inheritance entirely, resolve to None — regardless of what
+           the experiment has configured.
+        3. `cli_value` is None (flag omitted): inherit `experiment_seed`.
+           - `experiment_seed` is None (or missing): resolve to None —
+             inheriting "nothing configured" must never invent a seed.
+           - `experiment_seed` is "AUTO": resolve to a fresh
+             deterministic integer (the ONLY place AUTO ever becomes a
+             number — it can never reach a persisted Run as the string
+             "AUTO").
+           - `experiment_seed` is an int (or int-parseable string): use
+             it as-is.
+        4. Any unparseable text, in `cli_value` or in `experiment_seed`,
+           raises ValueError — a usage error the caller must surface,
+           never silently coerced to None.
 
         Args:
-            cli_value: Value from CLI --seed flag (already parsed), or None.
-            env_key: Key to look up in .env (e.g., "RANDOM_SEED").
+            cli_value: Value from CLI --randomization-seed flag (already
+                parsed by argparse to str, int, FORCE_SYSTEM_DEFAULT, or
+                None), or None if the flag was omitted.
+            experiment_seed: The experiment's own resolved
+                RANDOMIZATION_SEED value (int, "AUTO", or None) — read
+                directly from the experiment's frozen config_json by the
+                caller; this method never reads `.env` or the DB itself.
             run_id: Run ID for AUTO generation.
             experiment_id: Experiment ID for AUTO generation.
 
         Returns:
-            Integer seed, or None for no randomization.
-            If cli_value or env value is "AUTO", generates deterministic seed.
+            int | None — never "AUTO", never any other string.
 
         Example:
             >>> resolver = ConfigResolver()
-            >>> resolver.load_env()
-            >>> # AUTO: generates deterministic seed from run + experiment
-            >>> resolver.resolve_seed_for_run("AUTO", "RANDOM_SEED", "run_abc123", "exp_xyz789")
+            >>> # AUTO inherited from experiment: generates deterministic seed
+            >>> resolver.resolve_randomization_seed_for_run(None, "AUTO", "run_abc123", "exp_xyz789")
             <hash-based integer>
+            >>> # system-default breaks inheritance even if experiment has a seed
+            >>> resolver.resolve_randomization_seed_for_run(FORCE_SYSTEM_DEFAULT, 42, "run_abc123", "exp_xyz789")
+
+            >>> # nothing configured anywhere: None, not an invented seed
+            >>> resolver.resolve_randomization_seed_for_run(None, None, "run_abc123", "exp_xyz789")
+
         """
-        def parse_seed_value(value: str) -> int | str | None:
-            """Parse a seed value string.
-
-            Returns:
-                - int if value is a valid integer
-                - "AUTO" if value is "AUTO" (case-insensitive)
-                - None if value is empty or whitespace
-            """
-            if value is None or not value.strip():
-                return None
-
-            value_stripped = value.strip()
-
-            if value_stripped.upper() == "AUTO":
-                return "AUTO"
-
-            try:
-                return int(value_stripped)
-            except ValueError:
-                return None
+        if cli_value is FORCE_SYSTEM_DEFAULT:
+            return None
 
         if cli_value is not None:
-            parsed = parse_seed_value(cli_value)
+            parsed = parse_randomization_seed_strict(cli_value)
             if parsed == "AUTO":
-                return self._generate_seed_from_run(run_id, experiment_id)
-            if isinstance(parsed, int):
-                return parsed
+                return self._generate_randomization_seed_from_run(run_id, experiment_id)
+            return parsed  # int, including 0
 
-        env_value = self.env_dict.get(env_key)
-        if env_value is not None:
-            parsed = parse_seed_value(env_value)
-            if parsed == "AUTO":
-                return self._generate_seed_from_run(run_id, experiment_id)
-            if isinstance(parsed, int):
-                return parsed
+        # cli_value omitted -> inherit from the experiment
+        if experiment_seed is None:
+            return None
 
-        return None
+        parsed = parse_randomization_seed_strict(experiment_seed)
+        if parsed == "AUTO":
+            return self._generate_randomization_seed_from_run(run_id, experiment_id)
+        return parsed  # int, including 0
 
-    def _generate_seed_from_name(self, experiment_name: str) -> int:
-        """Generate deterministic seed from experiment name.
-
-        Uses SHA-256 hash of the experiment name to generate a
-        deterministic, reproducible seed value.
-
-        Args:
-            experiment_name: Name of the experiment.
-
-        Returns:
-            Positive integer seed derived from hash of experiment name.
-        """
-        hash_bytes = hashlib.sha256(experiment_name.encode()).digest()
-        seed = int.from_bytes(hash_bytes[:8], byteorder='big')
-        return seed % (2**31)
-
-    def _generate_seed_from_run(self, run_id: str, experiment_id: str) -> int:
-        """Generate deterministic seed from run and experiment IDs.
+    def _generate_randomization_seed_from_run(self, run_id: str, experiment_id: str) -> int:
+        """Generate deterministic Randomization Seed from run and
+        experiment IDs. Renamed 2026-08-20 from `_generate_seed_from_run`.
 
         Uses SHA-256 hash of combined run_id and experiment_id to generate
         a deterministic, reproducible seed value.
@@ -417,9 +472,9 @@ class ConfigResolver:
         Returns:
             Dictionary with 16 configuration keys (3 EXPERIMENT + 10 MODEL + 3 RUN).
         """
-        resolved_seed = self.resolve_seed(
-            cli_value=getattr(cli_args, 'seed', None),
-            env_key="RUN_RESPONSES_SEED",
+        resolved_randomization_seed = self.resolve_randomization_seed(
+            cli_value=getattr(cli_args, 'randomization_seed', None),
+            env_key="RANDOMIZATION_SEED",
             experiment_name=getattr(cli_args, 'create_experiment', 'default')
         )
 
@@ -485,7 +540,11 @@ class ConfigResolver:
             "STRUCTURED_OUTPUTS": self._resolve_bool_cli_or_env(getattr(cli_args, 'structured', None), "STRUCTURED_OUTPUTS"),
 
             # RUN keys (3) - Resolved from CLI/.env as defaults for runs
-            "RUN_RESPONSES_SEED": resolved_seed if resolved_seed is not None else "OFF",
+            # Real None (JSON null) means "no randomization" — no textual
+            # sentinel. "AUTO" (the string) is the only special value
+            # ever stored here; resolved to a concrete int only once, at
+            # Run creation (resolve_randomization_seed_for_run).
+            "RANDOMIZATION_SEED": resolved_randomization_seed,
             "SYSTEM_PROMPT": self.resolve_prompt(
                 cli_value=getattr(cli_args, 'system_prompt', None),
                 env_key="SYSTEM_PROMPT",
@@ -547,7 +606,11 @@ class ConfigResolver:
         """Build complete configuration dictionary for run creation.
 
         Includes ALL run-level keys from contract, even if null.
-        Seed AUTO is resolved here (at RUN_CREATION).
+        Randomization Seed AUTO is resolved here (at RUN_CREATION) — see
+        resolve_randomization_seed_for_run, the single canonical
+        implementation this delegates to (no inline duplicate logic here
+        anymore, as of the 2026-08-20 seed vocabulary separation
+        checkpoint).
         Resolution order: CLI > experiment > NULL (NO .env consultation)
 
         Args:
@@ -557,7 +620,7 @@ class ConfigResolver:
 
         Returns:
             Dictionary with ALL run-level configuration keys:
-            - RUN_RESPONSES_SEED: int | None (AUTO resolved here)
+            - RANDOMIZATION_SEED: int | None (AUTO resolved here)
             - SYSTEM_PROMPT: str | None
             - USER_PROMPT: str | None
         """
@@ -565,28 +628,12 @@ class ConfigResolver:
 
         exp_config = json.loads(experiment.config_json) if experiment.config_json else {}
 
-        cli_seed = getattr(cli_args, 'seed', None)
-        if cli_seed == "AUTO":
-            resolved_seed = self._generate_seed_from_run(run_id, experiment.experiment_id)
-        elif cli_seed is not None and cli_seed is not FORCE_SYSTEM_DEFAULT:
-            try:
-                resolved_seed = int(cli_seed)
-            except ValueError:
-                resolved_seed = None
-        elif cli_seed is FORCE_SYSTEM_DEFAULT:
-            # Explicit system-default: no randomization, regardless of experiment config
-            resolved_seed = None
-        else:
-            exp_seed = exp_config.get("RUN_RESPONSES_SEED")
-            if exp_seed is None or exp_seed == "AUTO":
-                resolved_seed = self._generate_seed_from_run(run_id, experiment.experiment_id)
-            elif exp_seed is not None:
-                try:
-                    resolved_seed = int(exp_seed)
-                except ValueError:
-                    resolved_seed = None
-            else:
-                resolved_seed = None
+        resolved_randomization_seed = self.resolve_randomization_seed_for_run(
+            cli_value=getattr(cli_args, 'randomization_seed', None),
+            experiment_seed=exp_config.get("RANDOMIZATION_SEED"),
+            run_id=run_id,
+            experiment_id=experiment.experiment_id,
+        )
 
         resolved_system_prompt = self._resolve_cli_or_experiment(
             cli_value=getattr(cli_args, 'system_prompt', None),
@@ -601,7 +648,7 @@ class ConfigResolver:
         )
 
         return {
-            "RUN_RESPONSES_SEED": resolved_seed,
+            "RANDOMIZATION_SEED": resolved_randomization_seed,
             "SYSTEM_PROMPT": resolved_system_prompt,
             "USER_PROMPT": resolved_user_prompt,
         }

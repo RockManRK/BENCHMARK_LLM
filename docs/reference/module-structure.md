@@ -45,7 +45,7 @@ src/
 │   ├── async_orchestrator.py # Async execution bridge
 │   ├── async_writer.py   # Async result writer
 │   ├── config_resolver.py # Configuration resolution
-│   ├── null_semantics.py  # FORCE_SYSTEM_DEFAULT constant
+│   ├── special_config_values.py  # FORCE_SYSTEM_DEFAULT constant
 │   ├── mode.py           # CLI mode enumeration
 │   ├── mode_resolver.py  # Mode resolution from argv
 │   ├── mode_matrix.py    # Mode validation matrix
@@ -61,7 +61,8 @@ src/
 │   ├── __init__.py
 │   ├── models.py         # Entity dataclasses
 │   ├── repository.py     # Repository pattern (CRUD operations)
-│   └── schema.py         # Schema creation SQL
+│   ├── schema.py         # Schema creation SQL
+│   └── unit_of_work.py   # UnitOfWork — composite CREATE-flow transaction boundary only
 ├── review/               # Review UI
 │   ├── __init__.py
 │   └── review_ui.py      # TUI for manual review
@@ -148,7 +149,7 @@ src/
 | Module | Responsibility |
 |--------|---------------|
 | `config_resolver.py` | Centralized config resolution with hierarchy |
-| `null_semantics.py` | `FORCE_SYSTEM_DEFAULT` constant for bypassing inheritance |
+| `special_config_values.py` | `FORCE_SYSTEM_DEFAULT` constant for bypassing inheritance |
 | `mode.py` | CLI mode enumeration (CREATE, MODIFY, EXECUTE, EXPORT, INVALID) |
 | `mode_resolver.py` | Resolves mode from argv |
 | `mode_matrix.py` | Validates mode + command combinations |
@@ -171,6 +172,7 @@ src/
 | `models.py` | Entity dataclasses (Experiment, ModelVariant, QuestionSnapshot, Run, Response, Error) |
 | `repository.py` | Repository pattern for CRUD operations (ExperimentRepository, ResponseRepository, etc.) |
 | `schema.py` | Complete schema SQL; `create_schema()` function |
+| `unit_of_work.py` | `UnitOfWork` — explicit transaction boundary for the composite `--create-experiment` + `--add-*` CLI flow only (`bcllm.py::_handle_composite_flow`). Never used by `ResponseRepository`/`ResultWriter`/`--execute` — see `docs/status/composite-flow-unit-of-work-design.md`. |
 
 **Key Design:** Schema created programmatically, no migration scripts.
 

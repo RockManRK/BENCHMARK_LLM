@@ -288,7 +288,7 @@ class AsyncOrchestrator:
         # All items with the same option_count share the same mapping.
         # Maps are derived from run_seed so that re-execution is consistent.
         run_option_maps: dict[int, dict[str, str]] = {}
-        seed = run.seed_effective
+        seed = run.randomization_seed_effective
 
         def _get_option_map(option_count: int) -> dict[str, str] | None:
             """Get or create the option map for a given option count."""

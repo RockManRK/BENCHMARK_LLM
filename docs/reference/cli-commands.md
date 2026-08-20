@@ -38,7 +38,7 @@ bcllm --create-experiment <name> [options]
 **Options:**
 | Flag | Description | System-Default |
 |------|-------------|----------------|
-| `--seed <value>` | Seed for randomization (`AUTO`, `<int>`, `system-default`) | From `.env` RUN_RESPONSES_SEED |
+| `--randomization-seed <value>` | Randomization Seed — controls only `AnswerRandomizer`'s option shuffling, never sent to the API (`AUTO`, `<int>`, `system-default`) | From `.env` RANDOMIZATION_SEED |
 | `--system-prompt <text>` | System prompt template | From `.env` SYSTEM_PROMPT |
 | `--user-prompt <text>` | User prompt template with `{question}`, `{options}` placeholders | From `.env` USER_PROMPT |
 | `--url <base_url>` | API base URL | From `.env` BASE_URL |
@@ -91,9 +91,8 @@ bcllm --experiment <name> [options]
 **Modification Rules:**
 - Can add questions: `--add-questions <spec>`
 - Can add models: `--add-model <model_id>`
-- Can change seed (doesn't affect existing runs)
-- Can change prompts (doesn't affect existing runs)
-- Can modify `--provider-lock` setting (requires `--experiment <name>`)
+- Can modify `--provider-lock` setting (requires `--experiment <name>`) — the one genuine exception to the freeze below; see `docs/status/known-issues.md` for the immutability tension this creates
+- **Cannot** change the experiment's Randomization Seed or prompts after creation — corrected 2026-08-20: this table previously (incorrectly) listed both as changeable. No CLI path modifies them; the experiment's `config_json` is frozen at creation like everything else except `--provider-lock` above.
 - Cannot change name
 
 **Provider Lock Modification:**
@@ -288,7 +287,7 @@ bcllm --experiment <name> --create-run [options]
 **Options:**
 | Flag | Description | Inheritance |
 |------|-------------|-------------|
-| `--seed <value>` | Seed for this run (`AUTO`, `<int>`, `system-default`) | From experiment |
+| `--randomization-seed <value>` | Randomization Seed for this run (`AUTO`, `<int>`, `system-default`) — `AUTO` is resolved to a concrete integer once, here, at run creation | From experiment |
 | `--system-prompt <text>` | System prompt override | From experiment |
 | `--user-prompt <text>` | User prompt override | From experiment |
 
@@ -321,7 +320,7 @@ bcllm --experiment <name> --remove-run <run_id>
 
 **Purpose:** Remove run (prevents future execution; historical data preserved)
 
-**Mechanism (as of 2026-08-17):** Soft delete — sets `status='removed'` rather than deleting the row, so the run's frozen config/seed/prompts stay legible for audit. `Planner._get_runs()` excludes `status='removed'` both for `--execute` (no `--run` given) and for `--execute --run <id>` naming this run explicitly — the latter needed its own fix (`status != 'removed'` had to be added to that branch too; it originally had no status filter at all, see [status/known-issues.md](../status/known-issues.md)) and its own regression test, since the two code paths are independent.
+**Mechanism (as of 2026-08-17):** Soft delete — sets `status='removed'` rather than deleting the row, so the run's frozen config/Randomization Seed/prompts stay legible for audit. `Planner._get_runs()` excludes `status='removed'` both for `--execute` (no `--run` given) and for `--execute --run <id>` naming this run explicitly — the latter needed its own fix (`status != 'removed'` had to be added to that branch too; it originally had no status filter at all, see [status/known-issues.md](../status/known-issues.md)) and its own regression test, since the two code paths are independent.
 
 **Note:** Use `?` as `<run_id>` to see interactive selection menu
 

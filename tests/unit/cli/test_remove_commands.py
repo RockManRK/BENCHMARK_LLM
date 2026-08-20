@@ -63,11 +63,11 @@ def _make_run(conn, experiment_id: str) -> Run:
     run = Run(
         run_id=f"run_{uuid.uuid4().hex[:8]}",
         experiment_id=experiment_id,
-        config=json.dumps({"RUN_RESPONSES_SEED": None}),
+        config=json.dumps({"RANDOMIZATION_SEED": None}),
         status="pending",
         duration=0,
     )
-    RunRepository(conn).save(run, {"RUN_RESPONSES_SEED": None})
+    RunRepository(conn).save(run, {"RANDOMIZATION_SEED": None})
     return run
 
 
@@ -141,7 +141,7 @@ class TestRemoveRunSoftDelete:
 
         row = conn.execute("SELECT config FROM runs WHERE run_id = ?", (run.run_id,)).fetchone()
         assert row is not None
-        assert json.loads(row["config"]) == {"RUN_RESPONSES_SEED": None}
+        assert json.loads(row["config"]) == {"RANDOMIZATION_SEED": None}
 
     def test_removed_run_excluded_from_executable_runs(self, conn):
         """Planner._get_runs() only selects status IN ('pending', 'failed',

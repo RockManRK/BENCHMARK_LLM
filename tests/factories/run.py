@@ -1,36 +1,38 @@
-"""Factory for creating Run instances in tests."""
+"""Factory for creating Run instances in tests.
 
-from dataclasses import dataclass
-from typing import Optional, Literal
+Builds the real `src.db.models.Run` entity — no duplicate/parallel
+dataclass. `Run` only has `run_id`, `experiment_id`, `config`, `status`,
+`duration`, `created_at`; there is no top-level `randomization_seed`/
+`started_at`/`finished_at` (those either live inside `config` —
+Randomization Seed, prompts — or don't exist at Run level at all in the
+current schema; `started_at`/`finished_at` are Response-level fields, not
+Run-level). Convenience kwargs (`randomization_seed`, `system_prompt`,
+`user_prompt`) are folded into `config` under the real config-hierarchy
+keys (`RANDOMIZATION_SEED`, `SYSTEM_PROMPT`, `USER_PROMPT` — see
+`src/core/config_resolver.py::build_run_config_dict`). This is the
+Randomization Seed only (controls AnswerRandomizer) — unrelated to Model
+Seed (sent to the API for inference, a model_variant-level concern, not
+implemented on this factory).
+"""
+
+import json
 import uuid
+from typing import Any, Literal, Optional
 
-
-@dataclass
-class Run:
-    """Run entity for testing."""
-    run_id: str
-    experiment_id: str
-    seed: Optional[int]
-    status: Literal['pending', 'completed', 'failed', 'partial_failed'] = 'pending'
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
-    created_at: Optional[str] = None
+from src.db.models import Run
 
 
 class RunFactory:
     """Factory for creating Run instances in tests.
 
-    This factory provides sensible defaults and allows customization
-    through overrides. It returns dataclass instances, not database records.
-
     Example:
         # Basic usage - pending run
         run = RunFactory.create(experiment_id="exp-123")
 
-        # Completed run with seed
+        # Completed run with a Randomization Seed
         run = RunFactory.create(
             experiment_id="exp-123",
-            seed=42,
+            randomization_seed=42,
             status="completed",
         )
 
@@ -44,47 +46,53 @@ class RunFactory:
     @staticmethod
     def create(
         experiment_id: str,
-        seed: Optional[int] = None,
-        status: Literal['pending', 'completed', 'failed', 'partial_failed'] = 'pending',
-        started_at: Optional[str] = None,
-        finished_at: Optional[str] = None,
+        randomization_seed: Optional[int] = None,
+        system_prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None,
+        status: Literal['pending', 'completed', 'failed', 'partial_failed', 'removed'] = 'pending',
+        duration: int = 0,
+        run_id: Optional[str] = None,
         created_at: Optional[str] = None,
-        **overrides,
+        config: Optional[str] = None,
     ) -> Run:
         """
         Create a Run with defaults.
 
         Args:
             experiment_id: Parent experiment ID (required)
-            seed: Random seed for answer shuffling (None = no randomization)
+            randomization_seed: Folded into config["RANDOMIZATION_SEED"]
+                (None = no randomization; always explicitly present as a
+                key, per the frozen-at-creation contract — never
+                "missing")
+            system_prompt: Folded into config["SYSTEM_PROMPT"]
+            user_prompt: Folded into config["USER_PROMPT"]
             status: Run status (default: 'pending')
-            started_at: Execution start timestamp
-            finished_at: Execution end timestamp
+            duration: Accumulated execution time in milliseconds
+            run_id: Unique ID (auto-generated if not provided)
             created_at: Creation timestamp
-            **overrides: Any field can be overridden
+            config: Full config JSON string — overrides
+                randomization_seed/system_prompt/user_prompt entirely
+                when provided
 
         Returns:
-            Run instance
-
-        Example:
-            >>> run = RunFactory.create(
-            ...     experiment_id="exp-123",
-            ...     seed=42,
-            ...     status="pending",
-            ... )
-            >>> run.experiment_id
-            'exp-123'
-            >>> run.seed
-            42
-            >>> run.status
-            'pending'
+            Run instance (src.db.models.Run)
         """
+        if run_id is None:
+            run_id = f"run-{uuid.uuid4().hex[:8]}"
+
+        if config is None:
+            config_dict: dict[str, Any] = {
+                "RANDOMIZATION_SEED": randomization_seed,
+                "SYSTEM_PROMPT": system_prompt,
+                "USER_PROMPT": user_prompt,
+            }
+            config = json.dumps(config_dict)
+
         return Run(
-            run_id=overrides.get('run_id', f"run-{uuid.uuid4().hex[:8]}"),
+            run_id=run_id,
             experiment_id=experiment_id,
-            seed=seed,
+            config=config,
             status=status,
-            started_at=started_at,
-            finished_at=finished_at,
+            duration=duration,
             created_at=created_at,
         )

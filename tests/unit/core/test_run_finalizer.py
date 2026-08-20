@@ -50,7 +50,7 @@ def _seed_run(conn, run_id: str, status: str = "pending") -> None:
 def _seed_experiment(conn, experiment_id: str = "exp-test") -> None:
     """Insert an experiment row for testing (FK target for runs, variants, snapshots)."""
     import json
-    config = json.dumps({"RUN_RESPONSES_SEED": 42})
+    config = json.dumps({"RANDOMIZATION_SEED": 42})
     conn.execute(
         "INSERT INTO experiments (experiment_id, name, config_json, config_hash) VALUES (?, ?, ?, ?)",
         (experiment_id, "test-experiment", config, "hash-test"),

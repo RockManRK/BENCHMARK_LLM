@@ -255,9 +255,13 @@ def _insert_snapshot(conn, snapshot: QuestionSnapshot) -> None:
 
 
 def _insert_run(conn, run: Run) -> None:
-    """Insert run directly into database."""
+    """Insert run directly into database.
+
+    RunRepository.save() takes `config` as a separate dict argument
+    rather than reading Run.config (see src/db/repository.py).
+    """
     repo = RunRepository(conn)
-    repo.save(run)
+    repo.save(run, config=json.loads(run.config))
 
 
 # =============================================================================
@@ -282,7 +286,7 @@ def test_export_to_stdout_success(in_memory_db, setup_export_test_data, capsys):
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -321,7 +325,7 @@ def test_export_to_stdout_includes_experiment_name(in_memory_db, setup_export_te
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -355,7 +359,7 @@ def test_export_to_file_success(in_memory_db, setup_export_test_data, capsys, tm
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -391,7 +395,7 @@ def test_export_to_file_creates_parent_directories(in_memory_db, setup_export_te
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -420,7 +424,7 @@ def test_export_to_file_prints_confirmation(in_memory_db, setup_export_test_data
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -452,7 +456,7 @@ def test_export_json_validity(in_memory_db, setup_export_test_data, capsys):
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -482,7 +486,7 @@ def test_export_json_structure(in_memory_db, setup_export_test_data, capsys):
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -528,7 +532,7 @@ def test_export_determinism(in_memory_db, setup_export_test_data, capsys):
     args = Args()
 
     # Act: Export twice
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         handle_export(args, in_memory_db, Mode.EXPORT)
         captured1 = capsys.readouterr()
@@ -564,7 +568,7 @@ def test_export_determinism_response_order(in_memory_db, setup_export_test_data,
     args = Args()
 
     # Act: Export multiple times
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         handle_export(args, in_memory_db, Mode.EXPORT)
         captured1 = capsys.readouterr()
@@ -604,7 +608,7 @@ def test_export_experiment_not_found(in_memory_db, capsys):
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -631,7 +635,7 @@ def test_export_run_not_found(in_memory_db, setup_export_test_data, capsys):
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -669,7 +673,7 @@ def test_export_run_wrong_experiment(in_memory_db, setup_export_test_data, capsy
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -704,7 +708,7 @@ def test_export_run_with_no_responses(in_memory_db, setup_export_test_data, caps
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -737,7 +741,7 @@ def test_export_run_with_no_errors(in_memory_db, setup_export_test_data, capsys)
     args = Args()
 
     # Act
-    with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+    with patch("src.cli.database.sqlite3.connect") as mock_connect:
         mock_connect.return_value = in_memory_db
         result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -775,7 +779,7 @@ class TestExportIntegration:
         args = Args()
 
         # Act
-        with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             result = handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -807,7 +811,7 @@ class TestExportIntegration:
         args = Args()
 
         # Act
-        with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -845,7 +849,7 @@ class TestExportIntegration:
         args = Args()
 
         # Act
-        with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
             handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -895,7 +899,7 @@ class TestExportLogging:
 
         # Act
         with caplog.at_level(logging.INFO, logger='benchmark_llm'):
-            with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 handle_export(args, in_memory_db, Mode.EXPORT)
 
@@ -926,7 +930,7 @@ class TestExportLogging:
 
         # Act
         with caplog.at_level(logging.INFO, logger='benchmark_llm'):
-            with patch("src.cli.bcllm_export.sqlite3.connect") as mock_connect:
+            with patch("src.cli.database.sqlite3.connect") as mock_connect:
                 mock_connect.return_value = in_memory_db
                 handle_export(args, in_memory_db, Mode.EXPORT)
 

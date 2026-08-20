@@ -1,42 +1,37 @@
-"""Factory for creating Experiment instances in tests."""
+"""Factory for creating Experiment instances in tests.
 
-from dataclasses import dataclass
-from typing import Optional
+Builds the real `src.db.models.Experiment` entity — no duplicate/parallel
+dataclass. `Experiment` only has `experiment_id`, `name`, `description`,
+`config_json`, `config_hash`, `created_at`; there is no top-level
+`system_prompt`/`user_prompt`/`is_active`. Convenience kwargs
+(`system_prompt`, `user_prompt`, `randomization_seed`) are folded into
+`config_json` under the real config-hierarchy keys (`SYSTEM_PROMPT`,
+`USER_PROMPT`, `RANDOMIZATION_SEED` — see
+`src/core/config_resolver.py`) instead of being passed as fields the
+entity does not have. This is the Randomization Seed only (controls
+AnswerRandomizer) — unrelated to Model Seed (sent to the API for
+inference, a model_variant-level concern, not implemented on this
+factory).
+"""
+
+import json
 import uuid
+from typing import Any, Optional
 
-
-@dataclass
-class Experiment:
-    """Experiment entity for testing.
-    
-    Matches src.db.models.Experiment structure.
-    """
-    experiment_id: str
-    name: str
-    description: Optional[str] = None
-    config_json: str = "{}"
-    config_hash: str = ""
-    system_prompt: str = ""
-    user_prompt: str = ""
-    created_at: Optional[str] = None
-    is_active: bool = True
+from src.db.models import Experiment
 
 
 class ExperimentFactory:
     """Factory for creating Experiment instances in tests.
 
-    This factory provides sensible defaults and allows customization
-    through overrides. It returns dataclass instances, not database records.
-
     Example:
         # Basic usage
-        experiment = ExperimentFactory.create(name="my-experiment")
+        experiment = ExperimentFactory.create(name="test-exp")
 
         # With overrides
         experiment = ExperimentFactory.create(
             name="custom-experiment",
             system_prompt="Custom system prompt",
-            is_active=False,
         )
 
         # In a test
@@ -49,36 +44,32 @@ class ExperimentFactory:
     @staticmethod
     def create(
         name: Optional[str] = None,
-        system_prompt: str = "You are a helpful assistant.",
-        user_prompt: str = "Answer the following question.",
+        system_prompt: Optional[str] = "You are a helpful assistant.",
+        user_prompt: Optional[str] = "Answer the following question.",
+        randomization_seed: Optional[int] = None,
         experiment_id: Optional[str] = None,
         description: Optional[str] = None,
-        config_json: str = "{}",
+        config_json: Optional[str] = None,
         config_hash: str = "",
-        is_active: bool = True,
+        extra_config: Optional[dict[str, Any]] = None,
     ) -> Experiment:
-        """
-        Create an Experiment with defaults.
+        """Create an Experiment with sensible defaults.
 
         Args:
-            name: Experiment name (auto-generated if None)
-            system_prompt: System prompt template
-            user_prompt: User prompt template
-            experiment_id: Unique ID (auto-generated if None)
+            name: Experiment name (auto-generated if not provided)
+            system_prompt: Folded into config_json["SYSTEM_PROMPT"]
+            user_prompt: Folded into config_json["USER_PROMPT"]
+            randomization_seed: Folded into config_json["RANDOMIZATION_SEED"]
+            experiment_id: Unique ID (auto-generated if not provided)
             description: Optional description
-            config_json: Frozen configuration snapshot
+            config_json: Full config JSON string — overrides system_prompt/
+                user_prompt/randomization_seed/extra_config entirely when provided
             config_hash: SHA-256 hash of protocol config
-            is_active: Whether the experiment is active
+            extra_config: Additional config-hierarchy keys to merge in
+                (e.g. {"PROVIDER_LOCK": True})
 
         Returns:
-            Experiment instance
-
-        Example:
-            >>> exp = ExperimentFactory.create(name="math-benchmark")
-            >>> exp.name
-            'math-benchmark'
-            >>> exp.is_active
-            True
+            Experiment instance (src.db.models.Experiment)
         """
         if name is None:
             name = f"test-experiment-{uuid.uuid4().hex[:8]}"
@@ -86,13 +77,20 @@ class ExperimentFactory:
         if experiment_id is None:
             experiment_id = f"exp-{uuid.uuid4().hex[:8]}"
 
+        if config_json is None:
+            config: dict[str, Any] = {
+                "SYSTEM_PROMPT": system_prompt,
+                "USER_PROMPT": user_prompt,
+                "RANDOMIZATION_SEED": randomization_seed,
+            }
+            if extra_config:
+                config.update(extra_config)
+            config_json = json.dumps(config)
+
         return Experiment(
             experiment_id=experiment_id,
             name=name,
             description=description,
             config_json=config_json,
             config_hash=config_hash,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            is_active=is_active,
         )

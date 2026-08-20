@@ -164,6 +164,8 @@ not temporal execution order.
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [ADR-001](adr-001-provider-locking.md) | Provider Selection & Locking for OpenRouter | Accepted | 2026-04-14 |
+| [ADR-002](adr-002-cli-presentation.md) | CLI Presentation Architecture (Typer/Rich migration, Fase 1) | Accepted | 2026-08-18 |
+| [ADR-003](adr-003-pre-production-data-scope.md) | Pre-Production Local Data Has No Compatibility Guarantee — Contracts Still Apply | Accepted | 2026-08-19 |
 
 ---
 

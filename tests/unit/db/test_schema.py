@@ -61,10 +61,7 @@ class TestSchemaCreation:
             "description": "TEXT",
             "config_json": "TEXT",
             "config_hash": "TEXT",
-            "system_prompt": "TEXT",
-            "user_prompt": "TEXT",
             "created_at": "TIMESTAMP",
-            "is_active": "BOOLEAN",
         }
 
         for col, col_type in expected_columns.items():
@@ -87,7 +84,6 @@ class TestSchemaCreation:
             "variant_signature": "TEXT",
             "config": "TEXT",
             "created_at": "TIMESTAMP",
-            "is_active": "BOOLEAN",
         }
 
         for col, col_type in expected_columns.items():
@@ -103,10 +99,10 @@ class TestSchemaCreation:
         expected_columns = {
             "snapshot_id": "TEXT",
             "experiment_id": "TEXT",
-            "question_id": "TEXT",
+            "json_question_id": "TEXT",
+            "question_position": "INTEGER",
             "question_payload": "TEXT",
             "created_at": "TIMESTAMP",
-            "is_active": "BOOLEAN",
         }
 
         for col, col_type in expected_columns.items():
@@ -122,12 +118,10 @@ class TestSchemaCreation:
         expected_columns = {
             "run_id": "TEXT",
             "experiment_id": "TEXT",
-            "seed": "INTEGER",
+            "config": "TEXT",
             "status": "TEXT",
-            "started_at": "TIMESTAMP",
-            "finished_at": "TIMESTAMP",
+            "duration": "INTEGER",
             "created_at": "TIMESTAMP",
-            "is_active": "BOOLEAN",
         }
 
         for col, col_type in expected_columns.items():
@@ -174,16 +168,17 @@ class TestSchemaCreation:
 
         expected_columns = {
             "error_id": "TEXT",
+            "response_id": "TEXT",
             "run_id": "TEXT",
             "variant_id": "TEXT",
             "snapshot_id": "TEXT",
-            "model_id": "TEXT",
             "question_id": "TEXT",
             "error_type": "TEXT",
             "error_message": "TEXT",
+            "attempt_number": "INTEGER",
             "attempt_count": "INTEGER",
             "stack_trace": "TEXT",
-            "created_at": "TIMESTAMP",
+            "occurred_at": "TIMESTAMP",
         }
 
         for col, col_type in expected_columns.items():
@@ -245,7 +240,7 @@ class TestConstraints:
 
     @pytest.mark.domain_rule("question_snapshots must have unique constraint")
     def test_question_snapshots_has_unique_constraint(self, in_memory_conn):
-        """Verify question_snapshots has UNIQUE constraint on (experiment_id, question_id)."""
+        """Verify question_snapshots has UNIQUE constraint on (experiment_id, question_position)."""
         cursor = in_memory_conn.cursor()
 
         cursor.execute(
@@ -253,7 +248,7 @@ class TestConstraints:
         )
         sql = cursor.fetchone()[0]
 
-        assert "UNIQUE(experiment_id, question_id)" in sql
+        assert "UNIQUE(experiment_id, question_position)" in sql
 
 
 class TestIndexes:
@@ -269,20 +264,25 @@ class TestIndexes:
         indexes = {row[0] for row in cursor.fetchall()}
 
         expected_indexes = {
-            "idx_experiments_active",
             "idx_variants_by_experiment",
             "idx_snapshots_by_experiment",
             "idx_runs_by_experiment",
             "idx_runs_pending",
-            "idx_runs_active",
             "idx_responses_by_run",
             "idx_errors_by_run",
+            "idx_errors_by_response",
         }
 
         assert (
             indexes == expected_indexes
         ), f"Missing indexes: {expected_indexes - indexes}"
 
+    @pytest.mark.skip(
+        reason="Tests a retired feature: experiments has no is_active column "
+        "and no idx_experiments_active index — soft delete for experiments "
+        "was removed (see src/db/schema.py module docstring, 'NO soft "
+        "delete (is_active removed from all tables)')."
+    )
     @pytest.mark.domain_rule("partial index for active experiments")
     def test_partial_index_on_experiments(self, in_memory_conn):
         """Verify partial index on experiments(is_active) WHERE is_active = TRUE."""

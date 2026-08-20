@@ -132,3 +132,144 @@ cases:
             WHERE e.name = ?
           params: ["{ns}_am005"]
           equals: 2
+
+  - id: AM-006
+    name: "--list-models lista as variantes do experimento"
+    area: model
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [listing]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am006"]
+      - ["--experiment", "{ns}_am006", "--add-model", "test/success"]
+    command:
+      argv: ["--experiment", "{ns}_am006", "--list-models"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["test/success"]
+      no_traceback: true
+
+  - id: AM-007
+    name: "--remove-model em id inexistente falha sem tocar o banco"
+    area: model
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [negative]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am007"]
+    command:
+      argv: ["--experiment", "{ns}_am007", "--remove-model", "var_doesnotexist"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["not found"]
+      no_traceback: true
+    db:
+      unchanged_tables: [model_variants]
+
+  - id: AM-008
+    name: "system-default funciona nas 7 flags numericas + --reasoning (regressao)"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am008"]
+    command:
+      # Fixed 2026-08-19: these 7 flags used plain type=int/type=float
+      # instead of parse_int_or_system_default/parse_float_or_system_default
+      # (src/core/special_config_values.py), so 'system-default' failed
+      # outright with "invalid int/float value" (exit 2) instead of being
+      # recognized. --reasoning had the same bug via choices=[...] missing
+      # 'system-default'. See docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_am008", "--add-model", "test/success",
+             "--max-reasoning", "system-default",
+             "--max-tokens", "system-default",
+             "--reasoning", "system-default",
+             "--repeat-penalty", "system-default",
+             "--temperature", "system-default",
+             "--top-k", "system-default",
+             "--top-p", "system-default",
+             "--reasoning-tokens", "system-default"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_MAX_TOKENS_REASONING')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am008"]
+          equals: null  # system-default -> None, not sent in API request
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_REASONING_EFFORT')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am008"]
+          equals: null
+        - query: >-
+            SELECT json_extract(mv.config, '$.MODEL_TEMPERATURE')
+            FROM model_variants mv
+            JOIN experiments e ON e.experiment_id = mv.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_am008"]
+          equals: null
+
+  - id: AM-009
+    name: "--url system-default e agora FORBIDDEN, exit 2 (mudanca de comportamento aprovada)"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am009"]
+    command:
+      # Before 2026-08-19: --url system-default was SUPPORTED-but-manually-
+      # rejected in handle_add_model (print + return 1, exit 1). Reclassified
+      # FORBIDDEN per the approved 3-category system (SUPPORTED/FORBIDDEN/
+      # NOT_APPLICABLE) — now rejected at parse time via
+      # normalize_special_config_values, exit 2. Intentional behavior
+      # change, not a regression — see docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_am009", "--add-model", "test/success", "--url", "system-default"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true
+    db:
+      unchanged_tables: [model_variants]
+
+  - id: AM-010
+    name: "--experiment system-default e FORBIDDEN em bcllm_model.py (consistencia, achado do Essence Guardian)"
+    area: model
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Essence Guardian (2026-08-19, entry [15]): --experiment is
+      # required=True here, so it was never vulnerable to the OLD
+      # blanket-sweep bug, but the general "identity selectors reject
+      # system-default explicitly" principle applies uniformly — this
+      # module hadn't been classifying it at all until this fix. See
+      # docs/status/known-issues.md and docs/contracts/system-default-semantics.md.
+      argv: ["--experiment", "system-default", "--list-models"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true

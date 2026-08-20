@@ -88,7 +88,7 @@ def _make_plan(num_items: int = 3) -> ExecutionPlan:
 
     run = PlanRun(
         run_id="run-001",
-        seed_effective=42,
+        randomization_seed_effective=42,
         prompts_effective=Prompts(
             system=None,
             user="Answer: {question}",
@@ -527,7 +527,7 @@ class TestIntegrationAsyncMultiVariant:
 
         run = PlanRun(
             run_id="run-001",
-            seed_effective=42,
+            randomization_seed_effective=42,
             prompts_effective=Prompts(system=None, user="Answer: {question}"),
             retry_policy=RetryPolicy(),
             variants=[variant1, variant2],

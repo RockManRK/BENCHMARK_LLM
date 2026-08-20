@@ -18,33 +18,33 @@ class TestFactories:
 
     def test_experiment_factory_creates_instance(self):
         """ExperimentFactory should create Experiment instances with defaults."""
+        import json
         experiment = ExperimentFactory.create(name="test-experiment")
-        
+        config = json.loads(experiment.config_json)
+
         assert experiment.name == "test-experiment"
-        assert experiment.system_prompt == "You are a helpful assistant."
-        assert experiment.user_prompt == "Answer the question."
-        assert experiment.is_active is True
+        assert config["SYSTEM_PROMPT"] == "You are a helpful assistant."
+        assert config["USER_PROMPT"] == "Answer the following question."
         assert experiment.experiment_id.startswith("exp-")
 
     def test_experiment_factory_accepts_overrides(self):
         """ExperimentFactory should accept field overrides."""
+        import json
         experiment = ExperimentFactory.create(
             name="custom-exp",
             system_prompt="Custom system prompt",
-            is_active=False,
         )
-        
+        config = json.loads(experiment.config_json)
+
         assert experiment.name == "custom-exp"
-        assert experiment.system_prompt == "Custom system prompt"
-        assert experiment.is_active is False
+        assert config["SYSTEM_PROMPT"] == "Custom system prompt"
 
     def test_variant_factory_creates_instance(self):
         """VariantFactory should create ModelVariant instances with defaults."""
         variant = VariantFactory.create(experiment_id="exp-123")
-        
+
         assert variant.experiment_id == "exp-123"
         assert variant.model_id == "openai/gpt-4"
-        assert variant.is_active is True
         assert variant.variant_id.startswith("var-")
 
     def test_variant_factory_requires_experiment_id(self):
@@ -61,8 +61,7 @@ class TestFactories:
         )
         
         assert snapshot.experiment_id == "exp-123"
-        assert snapshot.question_id == "q1"
-        assert snapshot.is_active is True
+        assert snapshot.json_question_id == "q1"
         assert snapshot.snapshot_id.startswith("snap-")
         # Default payload should be valid JSON
         import json
@@ -90,22 +89,26 @@ class TestFactories:
 
     def test_run_factory_creates_pending_run(self):
         """RunFactory should create Run instances with pending status by default."""
+        import json
         run = RunFactory.create(experiment_id="exp-123")
-        
+        config = json.loads(run.config)
+
         assert run.experiment_id == "exp-123"
         assert run.status == "pending"
-        assert run.seed is None
+        assert config["RANDOMIZATION_SEED"] is None
         assert run.run_id.startswith("run-")
 
     def test_run_factory_creates_run_with_seed(self):
         """RunFactory should create Run instances with custom seed."""
+        import json
         run = RunFactory.create(
             experiment_id="exp-123",
-            seed=42,
+            randomization_seed=42,
             status="completed",
         )
-        
-        assert run.seed == 42
+        config = json.loads(run.config)
+
+        assert config["RANDOMIZATION_SEED"] == 42
         assert run.status == "completed"
 
 
@@ -126,8 +129,8 @@ class TestFixtures:
         # Insert data
         cursor = in_memory_db.cursor()
         cursor.execute(
-            "INSERT INTO experiments (experiment_id, name, system_prompt, user_prompt) VALUES (?, ?, ?, ?)",
-            ("exp-test", "test", "prompt", "prompt"),
+            "INSERT INTO experiments (experiment_id, name, config_json, config_hash) VALUES (?, ?, ?, ?)",
+            ("exp-test", "test", "{}", ""),
         )
         in_memory_db.commit()
         

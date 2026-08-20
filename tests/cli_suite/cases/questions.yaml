@@ -80,10 +80,22 @@ cases:
       # same day: bcllm.py's composite flow now propagates the failing
       # action's real exit code and rolls back (deletes) the experiment
       # it just created. See docs/status/known-issues.md Resolved Issues.
+      #
+      # Updated 2026-08-19 (same-action-same-path checkpoint): the
+      # composite flow now runs --add-questions through the exact same
+      # parse/normalize pipeline as standalone (run_add_questions), so
+      # the deprecated 'null' literal is now rejected at the usage-error
+      # layer (exit 2, argparse's own message) instead of reaching the
+      # old domain-level "Invalid question specification" check (exit 1)
+      # — the composite flow used to bypass normalization entirely, which
+      # is exactly the bug this checkpoint fixed. This is not a new
+      # semantic decision: standalone --experiment X --add-questions null
+      # already behaved this way before this fix; composite now matches
+      # it, per the "same adapter, same action" invariant.
       argv: ["--create-experiment", "{ns}_aq003", "--add-questions", "null"]
     expect:
-      exit_code: 1
-      stderr_contains: ["Error: Invalid question specification"]
+      exit_code: 2
+      stderr_contains: ["'null' literal is deprecated"]
       no_traceback: true
     db:
       assertions:
@@ -107,10 +119,17 @@ cases:
       # BOTH the variant and the experiment, not just stop at the
       # experiment row — a single-action case like AQ-003 can't catch a
       # rollback that only cleans up the LAST action's own table.
+      #
+      # Updated 2026-08-19 (same-action-same-path checkpoint) — see AQ-003's
+      # comment: exit code and message updated to match the now-consistent
+      # standalone/composite --add-questions null rejection (usage error,
+      # exit 2). The rollback assertion below (both the variant AND the
+      # experiment must be gone) is the actual point of this case and is
+      # unaffected by that change.
       argv: ["--create-experiment", "{ns}_aq004", "--add-model", "test/success", "--add-questions", "null"]
     expect:
-      exit_code: 1
-      stderr_contains: ["Error: Invalid question specification"]
+      exit_code: 2
+      stderr_contains: ["'null' literal is deprecated"]
       no_traceback: true
     db:
       assertions:
@@ -126,3 +145,145 @@ cases:
             WHERE experiment_id NOT IN (SELECT experiment_id FROM experiments)
           params: []
           equals: 0
+
+  - id: AQ-005
+    name: "--list-questions lista os snapshots do experimento"
+    area: questions
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [listing]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_aq005", "--add-questions", "1"]
+    command:
+      argv: ["--experiment", "{ns}_aq005", "--list-questions"]
+    expect:
+      exit_code: 0
+      stdout_contains: ["Questions in experiment:"]
+      no_traceback: true
+
+  - id: AQ-006
+    name: "--remove-question em id inexistente falha sem tocar o banco"
+    area: questions
+    profiles: [cli-unit, full]
+    priority: normal
+    tags: [negative]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_aq006"]
+    command:
+      argv: ["--experiment", "{ns}_aq006", "--remove-question", "snap_doesnotexist"]
+    expect:
+      exit_code: 1
+      stderr_contains: ["not found"]
+      no_traceback: true
+    db:
+      unchanged_tables: [question_snapshots]
+
+  - id: AQ-007
+    name: "--add-questions system-default no fluxo standalone seleciona todas as perguntas (regressao item 1)"
+    area: questions
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [system-default, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_aq007", "--add-questions", "1"]
+    command:
+      # Fixed 2026-08-19 (Fase 4 marco 4A): handle_add_questions had no
+      # branch for FORCE_SYSTEM_DEFAULT at all — see docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_aq007", "--add-questions", "system-default"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        # 1 baseline (from setup) + 9 more from dataset_small_valid = 10 total.
+        - query: >-
+            SELECT COUNT(*) FROM question_snapshots qs
+            JOIN experiments e ON e.experiment_id = qs.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_aq007"]
+          equals: 10
+
+  - id: AQ-008
+    name: "--where system-default combinado com filtro concreto e rejeitado, exit 2, nada gravado"
+    area: questions
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [system-default, regression, negative]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_aq008"]
+    command:
+      # system-default must appear alone — combined with a concrete filter
+      # is a contradiction (apply no filter vs. apply this filter), exit 2,
+      # rejected before any DB write. See docs/status/known-issues.md and
+      # docs/contracts/system-default-semantics.md.
+      argv: ["--experiment", "{ns}_aq008", "--add-questions", "1-3", "--where", "system-default", "--where", "status=valid"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true
+    db:
+      unchanged_tables: [question_snapshots]
+
+  - id: AQ-009
+    name: "--source-file system-default e FORBIDDEN, exit 2 (regressao)"
+    area: questions
+    profiles: [cli-unit, regression, full]
+    priority: normal
+    tags: [system-default, regression, negative]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_aq009"]
+    command:
+      # --source-file is structural (a file path that must be provided
+      # explicitly), same reasoning as --url. Classified FORBIDDEN.
+      argv: ["--experiment", "{ns}_aq009", "--add-questions", "1", "--source-file", "system-default"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true
+    db:
+      unchanged_tables: [question_snapshots]
+
+  - id: AQ-010
+    name: "--where system-default no fluxo composto ignora QUESTIONS_STATUS_ADD/EXCLUDE do .env (bootstrap)"
+    area: questions
+    profiles: [cli-unit, regression, full]
+    priority: high
+    tags: [system-default, regression]
+    fixture:
+      env: env_questions_status_filters
+      dataset: dataset_filters
+    command:
+      # dataset_filters has 9 questions: 7 status=valid, 2 status=annulled.
+      # env_questions_status_filters sets QUESTIONS_STATUS_ADD=status=valid
+      # and QUESTIONS_STATUS_EXCLUDE=status=annulled — if either .env
+      # fallback were consulted (bug), only the 7 valid ones would land.
+      # --where system-default must explicitly bypass QUESTIONS_STATUS_ADD;
+      # --exclude system-default must explicitly bypass QUESTIONS_STATUS_EXCLUDE.
+      # All 9 questions must be added. See docs/status/known-issues.md.
+      argv: ["--create-experiment", "{ns}_aq010", "--where", "system-default", "--exclude", "system-default"]
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM question_snapshots qs
+            JOIN experiments e ON e.experiment_id = qs.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_aq010"]
+          equals: 9

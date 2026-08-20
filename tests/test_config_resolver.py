@@ -2,10 +2,14 @@
 
 Tests cover:
 - resolve_prompt() with CLI, .env, and default values
-- resolve_seed() with CLI, .env, AUTO, and None values
+- resolve_randomization_seed() with CLI, .env, AUTO, and None values
+  (Randomization Seed only — controls AnswerRandomizer; unrelated to
+  Model Seed, the seed sent to the API for inference, not yet
+  implemented — see docs/status/seed-vocabulary-separation-investigation.md)
+- resolve_randomization_seed_for_run() — the canonical Run-creation-time
+  resolver (AUTO resolution, Experiment -> Run inheritance)
 - load_env() behavior
 - resolve_config_dict() integration
-- _generate_seed_from_name() determinism
 """
 
 import pytest
@@ -147,17 +151,19 @@ class TestResolvePrompt:
         assert result == "env_value"
 
 
-class TestResolveSeed:
-    """Test cases for the resolve_seed method (EXPERIMENT level - does NOT resolve AUTO)."""
+class TestResolveRandomizationSeed:
+    """Test cases for the resolve_randomization_seed method (EXPERIMENT
+    level - does NOT resolve AUTO). Renamed 2026-08-20 from
+    TestResolveSeed/resolve_seed (seed vocabulary separation checkpoint)."""
 
     def test_integer_value_returns_integer(self) -> None:
         """Test that integer seed value is returned."""
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value="42",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -168,9 +174,9 @@ class TestResolveSeed:
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value="AUTO",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -179,11 +185,11 @@ class TestResolveSeed:
     def test_auto_from_env_returns_auto_string(self) -> None:
         """Test that AUTO from .env returns 'AUTO' string (NOT resolved at experiment level)."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RANDOM_SEED": "AUTO"}
+        resolver.env_dict = {"RANDOMIZATION_SEED": "AUTO"}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value=None,
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -192,11 +198,11 @@ class TestResolveSeed:
     def test_cli_auto_takes_priority_over_env_integer(self) -> None:
         """Test that CLI AUTO takes priority over .env integer."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RANDOM_SEED": "42"}
+        resolver.env_dict = {"RANDOMIZATION_SEED": "42"}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value="AUTO",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -205,11 +211,11 @@ class TestResolveSeed:
     def test_cli_integer_takes_priority_over_env_auto(self) -> None:
         """Test that CLI integer takes priority over .env AUTO."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RANDOM_SEED": "AUTO"}
+        resolver.env_dict = {"RANDOMIZATION_SEED": "AUTO"}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value="42",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -220,9 +226,9 @@ class TestResolveSeed:
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value=None,
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -233,9 +239,9 @@ class TestResolveSeed:
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value="",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -246,9 +252,9 @@ class TestResolveSeed:
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result = resolver.resolve_seed(
+        result = resolver.resolve_randomization_seed(
             cli_value="   ",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -259,21 +265,21 @@ class TestResolveSeed:
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result1 = resolver.resolve_seed(
+        result1 = resolver.resolve_randomization_seed(
             cli_value="AUTO",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
-        result2 = resolver.resolve_seed(
+        result2 = resolver.resolve_randomization_seed(
             cli_value="auto",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
-        result3 = resolver.resolve_seed(
+        result3 = resolver.resolve_randomization_seed(
             cli_value="Auto",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="test_exp"
         )
 
@@ -284,15 +290,15 @@ class TestResolveSeed:
         resolver = ConfigResolver()
         resolver.env_dict = {}
 
-        result1 = resolver.resolve_seed(
+        result1 = resolver.resolve_randomization_seed(
             cli_value="AUTO",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="exp1"
         )
 
-        result2 = resolver.resolve_seed(
+        result2 = resolver.resolve_randomization_seed(
             cli_value="AUTO",
-            env_key="RANDOM_SEED",
+            env_key="RANDOMIZATION_SEED",
             experiment_name="exp2"
         )
 
@@ -331,56 +337,30 @@ class TestLoadEnv:
         assert isinstance(resolver.env_dict, dict)
 
 
-class TestGenerateSeedFromName:
-    """Test cases for the _generate_seed_from_name helper method."""
-
-    def test_same_name_produces_same_seed(self) -> None:
-        """Test that the same experiment name always produces the same seed."""
-        resolver = ConfigResolver()
-
-        seed1 = resolver._generate_seed_from_name("test_experiment")
-        seed2 = resolver._generate_seed_from_name("test_experiment")
-
-        assert seed1 == seed2
-
-    def test_different_names_produce_different_seeds(self) -> None:
-        """Test that different experiment names produce different seeds."""
-        resolver = ConfigResolver()
-
-        seed1 = resolver._generate_seed_from_name("experiment_1")
-        seed2 = resolver._generate_seed_from_name("experiment_2")
-
-        assert seed1 != seed2
-
-    def test_seed_is_positive_integer(self) -> None:
-        """Test that generated seed is always a positive integer."""
-        resolver = ConfigResolver()
-
-        seed = resolver._generate_seed_from_name("any_experiment")
-
-        assert isinstance(seed, int)
-        assert seed > 0
-        assert seed < (2 ** 31)
-
-
-class TestResolveSeedForRun:
-    """Test cases for resolve_seed_for_run method (AUTO resolution at RUN level)."""
+class TestResolveRandomizationSeedForRun:
+    """Test cases for resolve_randomization_seed_for_run — the canonical
+    Run-creation-time resolver (AUTO resolution happens here, and only
+    here). Renamed and re-scoped 2026-08-20 from resolve_seed_for_run,
+    which took an env_key/consulted .env — wrong for run-level
+    resolution, which only ever inherits from the Experiment's own
+    already-resolved seed, never .env directly. The new signature takes
+    `experiment_seed` (the experiment's resolved value) instead of an
+    env_key."""
 
     def test_auto_generates_deterministic_seed_from_run_id(self) -> None:
         """Test that AUTO generates deterministic seed from run_id + experiment_id."""
         resolver = ConfigResolver()
-        resolver.env_dict = {}
 
-        result1 = resolver.resolve_seed_for_run(
+        result1 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_abc123",
             experiment_id="exp_xyz789"
         )
 
-        result2 = resolver.resolve_seed_for_run(
+        result2 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_abc123",
             experiment_id="exp_xyz789"
         )
@@ -392,18 +372,17 @@ class TestResolveSeedForRun:
     def test_different_runs_produce_different_seeds(self) -> None:
         """Test that different run IDs produce different seeds."""
         resolver = ConfigResolver()
-        resolver.env_dict = {}
 
-        result1 = resolver.resolve_seed_for_run(
+        result1 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_001",
             experiment_id="exp_xyz789"
         )
 
-        result2 = resolver.resolve_seed_for_run(
+        result2 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_002",
             experiment_id="exp_xyz789"
         )
@@ -413,18 +392,17 @@ class TestResolveSeedForRun:
     def test_different_experiments_produce_different_seeds(self) -> None:
         """Test that different experiment IDs produce different seeds."""
         resolver = ConfigResolver()
-        resolver.env_dict = {}
 
-        result1 = resolver.resolve_seed_for_run(
+        result1 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_abc123",
             experiment_id="exp_001"
         )
 
-        result2 = resolver.resolve_seed_for_run(
+        result2 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_abc123",
             experiment_id="exp_002"
         )
@@ -434,25 +412,36 @@ class TestResolveSeedForRun:
     def test_integer_cli_value_returns_integer(self) -> None:
         """Test that integer CLI value is returned as-is."""
         resolver = ConfigResolver()
-        resolver.env_dict = {}
 
-        result = resolver.resolve_seed_for_run(
+        result = resolver.resolve_randomization_seed_for_run(
             cli_value="42",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_001",
             experiment_id="exp_001"
         )
 
         assert result == 42
 
-    def test_cli_auto_overrides_env_integer(self) -> None:
-        """Test that CLI AUTO generates seed even when .env has integer."""
+    def test_zero_cli_value_is_valid_and_preserved(self) -> None:
+        """Seed 0 must not be treated as falsy/unset."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RUN_RESPONSES_SEED": "123"}
 
-        result = resolver.resolve_seed_for_run(
+        result = resolver.resolve_randomization_seed_for_run(
+            cli_value="0",
+            experiment_seed=123,
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert result == 0
+
+    def test_cli_auto_overrides_experiment_integer(self) -> None:
+        """Test that CLI AUTO generates seed even when the experiment has an integer."""
+        resolver = ConfigResolver()
+
+        result = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=123,
             run_id="run_001",
             experiment_id="exp_001"
         )
@@ -460,14 +449,13 @@ class TestResolveSeedForRun:
         assert isinstance(result, int)
         assert result != 123
 
-    def test_env_auto_generates_seed(self) -> None:
-        """Test that AUTO from .env generates deterministic seed."""
+    def test_inherited_auto_from_experiment_generates_seed(self) -> None:
+        """Test that AUTO inherited from the experiment generates a deterministic seed."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RUN_RESPONSES_SEED": "AUTO"}
 
-        result = resolver.resolve_seed_for_run(
+        result = resolver.resolve_randomization_seed_for_run(
             cli_value=None,
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed="AUTO",
             run_id="run_001",
             experiment_id="exp_001"
         )
@@ -475,42 +463,102 @@ class TestResolveSeedForRun:
         assert isinstance(result, int)
         assert result > 0
 
-    def test_none_returns_none(self) -> None:
-        """Test that None CLI and missing .env returns None."""
+    def test_none_cli_and_none_experiment_returns_none(self) -> None:
+        """Test that omitted CLI value and nothing configured on the experiment returns None."""
         resolver = ConfigResolver()
-        resolver.env_dict = {}
 
-        result = resolver.resolve_seed_for_run(
+        result = resolver.resolve_randomization_seed_for_run(
             cli_value=None,
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_001",
             experiment_id="exp_001"
         )
 
         assert result is None
 
+    def test_inherited_none_from_experiment_resolves_to_none_not_auto_generated(self) -> None:
+        """Regression: inheriting an explicit None from the experiment must
+        resolve to None — it must NEVER silently invent a random seed.
+        This is the exact case the pre-fix inline logic in
+        build_run_config_dict got wrong (`if exp_seed is None: <generate
+        a seed anyway>`), which only ever looked correct before because
+        None was always substituted with the "OFF" string sentinel
+        before reaching this point — a sentinel that no longer exists."""
+        resolver = ConfigResolver()
+
+        result = resolver.resolve_randomization_seed_for_run(
+            cli_value=None,
+            experiment_seed=None,
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert result is None
+
+    def test_system_default_breaks_inheritance_even_with_experiment_seed(self) -> None:
+        """system-default (FORCE_SYSTEM_DEFAULT) must resolve to None
+        regardless of what the experiment has configured."""
+        from src.core.special_config_values import FORCE_SYSTEM_DEFAULT
+
+        resolver = ConfigResolver()
+
+        result = resolver.resolve_randomization_seed_for_run(
+            cli_value=FORCE_SYSTEM_DEFAULT,
+            experiment_seed=42,
+            run_id="run_001",
+            experiment_id="exp_001"
+        )
+
+        assert result is None
+
+    def test_invalid_cli_value_raises_value_error(self) -> None:
+        """An unparseable --randomization-seed must be a usage error, never silently None."""
+        resolver = ConfigResolver()
+
+        with pytest.raises(ValueError):
+            resolver.resolve_randomization_seed_for_run(
+                cli_value="not-a-number",
+                experiment_seed=None,
+                run_id="run_001",
+                experiment_id="exp_001"
+            )
+
+    def test_invalid_inherited_experiment_value_raises_value_error(self) -> None:
+        """An invalid inherited experiment value must also be a usage
+        error, never silently coerced to None — pre-production, no
+        legacy data means every reachable experiment_seed is already
+        clean, but this guards against a bug producing garbage."""
+        resolver = ConfigResolver()
+
+        with pytest.raises(ValueError):
+            resolver.resolve_randomization_seed_for_run(
+                cli_value=None,
+                experiment_seed="not-a-number",
+                run_id="run_001",
+                experiment_id="exp_001"
+            )
+
     def test_auto_case_insensitive_for_run(self) -> None:
         """Test that AUTO is case-insensitive for run-level resolution."""
         resolver = ConfigResolver()
-        resolver.env_dict = {}
 
-        result1 = resolver.resolve_seed_for_run(
+        result1 = resolver.resolve_randomization_seed_for_run(
             cli_value="AUTO",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_001",
             experiment_id="exp_001"
         )
 
-        result2 = resolver.resolve_seed_for_run(
+        result2 = resolver.resolve_randomization_seed_for_run(
             cli_value="auto",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_001",
             experiment_id="exp_001"
         )
 
-        result3 = resolver.resolve_seed_for_run(
+        result3 = resolver.resolve_randomization_seed_for_run(
             cli_value="Auto",
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed=None,
             run_id="run_001",
             experiment_id="exp_001"
         )
@@ -543,13 +591,13 @@ class TestBuildExperimentConfigDict:
             "MODEL_TOP_P": "0.9",
             "MODEL_VISION": "true",
             "STRUCTURED_OUTPUTS": "false",
-            "RUN_RESPONSES_SEED": "42",
+            "RANDOMIZATION_SEED": "42",
             "SYSTEM_PROMPT": "Test system prompt",
             "USER_PROMPT": "Test user prompt",
         }
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
             url = None
@@ -579,7 +627,7 @@ class TestBuildExperimentConfigDict:
             "MODEL_TOP_P",
             "MODEL_VISION",
             "STRUCTURED_OUTPUTS",
-            "RUN_RESPONSES_SEED",
+            "RANDOMIZATION_SEED",
             "SYSTEM_PROMPT",
             "USER_PROMPT",
             "PROVIDER_LOCK",
@@ -601,7 +649,7 @@ class TestBuildExperimentConfigDict:
         }
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             experiment_name = "test_exp"
 
         result = resolver.build_experiment_config_dict(MockArgs())
@@ -623,13 +671,13 @@ class TestBuildExperimentConfigDict:
             "QUESTIONS_DATASET_PATH": "/path",
             "BASE_URL": "https://api.example.com",
             "MODEL_TEMPERATURE": "0.7",
-            "RUN_RESPONSES_SEED": "42",
+            "RANDOMIZATION_SEED": "42",
             "SYSTEM_PROMPT": "test",
             "USER_PROMPT": "test",
         }
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             experiment_name = "test_exp"
 
         result = resolver.build_experiment_config_dict(MockArgs())
@@ -657,13 +705,13 @@ class TestBuildExperimentConfigDict:
             "MODEL_VISION": "",
             "STRUCTURED_OUTPUTS": "",
             "BASE_URL": "",
-            "RUN_RESPONSES_SEED": "",
+            "RANDOMIZATION_SEED": "",
             "SYSTEM_PROMPT": "",
             "USER_PROMPT": "",
         }
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
             url = None
@@ -773,13 +821,13 @@ class TestBuildRunConfigDict:
         """Test that run config has all 3 expected keys."""
         resolver = ConfigResolver()
         resolver.env_dict = {
-            "RUN_RESPONSES_SEED": "42",
+            "RANDOMIZATION_SEED": "42",
             "SYSTEM_PROMPT": "Test system",
             "USER_PROMPT": "Test user",
         }
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
 
@@ -789,18 +837,28 @@ class TestBuildRunConfigDict:
 
         result = resolver.build_run_config_dict(MockArgs(), MockExperiment())
 
-        expected_keys = {"RUN_RESPONSES_SEED", "SYSTEM_PROMPT", "USER_PROMPT"}
+        expected_keys = {"RANDOMIZATION_SEED", "SYSTEM_PROMPT", "USER_PROMPT"}
 
         assert set(result.keys()) == expected_keys
         assert len(result) == 3
 
-    def test_auto_seed_resolved_at_run_level(self) -> None:
-        """Test that AUTO seed is resolved to integer at run creation."""
+    def test_nothing_configured_anywhere_resolves_to_none_never_auto_generated(self) -> None:
+        """Regression: build_run_config_dict never consults .env (by
+        design — 'Resolution order: CLI > experiment > NULL (NO .env
+        consultation)', unchanged) — and, since the 2026-08-20 seed
+        vocabulary separation checkpoint, an experiment with NOTHING
+        configured for RANDOMIZATION_SEED (empty config_json) must
+        resolve a new run's seed to None, not silently auto-generate a
+        random one. This used to pass for the wrong reason: the old
+        inline logic treated "no key in experiment config" the same as
+        "AUTO", auto-generating a seed regardless of .env — exactly the
+        bug docs/status/known-issues.md's Planner entry and this
+        checkpoint's canonical resolve_randomization_seed_for_run fixed."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RUN_RESPONSES_SEED": "AUTO"}
+        resolver.env_dict = {"RANDOMIZATION_SEED": "AUTO"}  # must be ignored — no .env consultation
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
 
@@ -810,17 +868,16 @@ class TestBuildRunConfigDict:
 
         result = resolver.build_run_config_dict(MockArgs(), MockExperiment())
 
-        # AUTO should be resolved to an integer
-        assert isinstance(result["RUN_RESPONSES_SEED"], int)
-        assert result["RUN_RESPONSES_SEED"] > 0
+        # Nothing configured anywhere -> None, never an invented seed.
+        assert result["RANDOMIZATION_SEED"] is None
 
     def test_run_seed_is_per_run_unique(self) -> None:
         """Test that AUTO seed produces different values for different runs."""
         resolver = ConfigResolver()
-        resolver.env_dict = {"RUN_RESPONSES_SEED": "AUTO"}
+        resolver.env_dict = {"RANDOMIZATION_SEED": "AUTO"}
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
 
@@ -828,17 +885,17 @@ class TestBuildRunConfigDict:
             experiment_id = "exp_001"
             config_json = "{}"
 
-        # Simulate two different runs
-        result1 = resolver.resolve_seed_for_run(
+        # Simulate two different runs, both inheriting AUTO from the experiment
+        result1 = resolver.resolve_randomization_seed_for_run(
             cli_value=None,
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed="AUTO",
             run_id="run_001",
             experiment_id="exp_001"
         )
 
-        result2 = resolver.resolve_seed_for_run(
+        result2 = resolver.resolve_randomization_seed_for_run(
             cli_value=None,
-            env_key="RUN_RESPONSES_SEED",
+            experiment_seed="AUTO",
             run_id="run_002",
             experiment_id="exp_001"
         )
@@ -852,16 +909,16 @@ class TestBuildRunConfigDict:
         resolver = ConfigResolver()
 
         class MockArgs:
-            seed = "AUTO"
+            randomization_seed = "AUTO"
             system_prompt = None
             user_prompt = None
 
         class MockExperiment:
             experiment_id = "exp_001"
-            config_json = '{"RUN_RESPONSES_SEED": "OFF"}'
+            config_json = '{"RANDOMIZATION_SEED": null}'
 
-        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
-        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_002")["RUN_RESPONSES_SEED"]
+        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RANDOMIZATION_SEED"]
+        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_002")["RANDOMIZATION_SEED"]
 
         assert seed1 != seed2, f"Both runs got same seed: {seed1}"
         assert isinstance(seed1, int)
@@ -872,16 +929,16 @@ class TestBuildRunConfigDict:
         resolver = ConfigResolver()
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
 
         class MockExperiment:
             experiment_id = "exp_001"
-            config_json = '{"RUN_RESPONSES_SEED": "AUTO"}'
+            config_json = '{"RANDOMIZATION_SEED": "AUTO"}'
 
-        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
-        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_002")["RUN_RESPONSES_SEED"]
+        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RANDOMIZATION_SEED"]
+        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_002")["RANDOMIZATION_SEED"]
 
         assert seed1 != seed2, f"Both runs got same seed: {seed1}"
 
@@ -890,7 +947,7 @@ class TestBuildRunConfigDict:
         resolver = ConfigResolver()
 
         class MockArgs:
-            seed = "AUTO"
+            randomization_seed = "AUTO"
             system_prompt = None
             user_prompt = None
 
@@ -898,8 +955,8 @@ class TestBuildRunConfigDict:
             experiment_id = "exp_001"
             config_json = '{}'
 
-        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
-        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RUN_RESPONSES_SEED"]
+        seed1 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RANDOMIZATION_SEED"]
+        seed2 = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")["RANDOMIZATION_SEED"]
 
         assert seed1 == seed2, f"Same run_id produced different seeds: {seed1} vs {seed2}"
 
@@ -908,31 +965,31 @@ class TestBuildRunConfigDict:
         resolver = ConfigResolver()
 
         class MockArgs:
-            seed = None
+            randomization_seed = None
             system_prompt = None
             user_prompt = None
 
         class MockExperiment:
             experiment_id = "exp_001"
-            config_json = '{"RUN_RESPONSES_SEED": 42}'
+            config_json = '{"RANDOMIZATION_SEED": 42}'
 
         config = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")
 
-        assert config["RUN_RESPONSES_SEED"] == 42
+        assert config["RANDOMIZATION_SEED"] == 42
 
     def test_cli_seed_overrides_experiment_auto(self) -> None:
         """Explicit CLI seed should override experiment AUTO configuration."""
         resolver = ConfigResolver()
 
         class MockArgs:
-            seed = 999
+            randomization_seed = 999
             system_prompt = None
             user_prompt = None
 
         class MockExperiment:
             experiment_id = "exp_001"
-            config_json = '{"RUN_RESPONSES_SEED": "AUTO"}'
+            config_json = '{"RANDOMIZATION_SEED": "AUTO"}'
 
         config = resolver.build_run_config_dict(MockArgs(), MockExperiment(), run_id="run_001")
 
-        assert config["RUN_RESPONSES_SEED"] == 999
+        assert config["RANDOMIZATION_SEED"] == 999

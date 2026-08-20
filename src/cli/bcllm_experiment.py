@@ -26,10 +26,10 @@ import uuid
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
-from src.core import QuestionLoader
+from src.core import QuestionLoader, build_question_snapshot_payload
 from src.core.config_resolver import ConfigResolver
-from src.core.argv_utils import parse_args_normalized
-from src.core.null_semantics import FORCE_SYSTEM_DEFAULT, nullable_int, nullable_float
+from src.core.argv_utils import parse_args_normalized, NonExitingArgumentParser, ParserExit
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, parse_int_or_system_default, parse_float_or_system_default, normalize_filter_list_or_system_default
 from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
@@ -62,9 +62,17 @@ def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for experiment commands.
 
     Returns:
-        ArgumentParser configured with all experiment commands.
+        NonExitingArgumentParser configured with all experiment commands
+        — see src/core/argv_utils.py for why this is NOT a plain
+        argparse.ArgumentParser: bcllm.py's composite flow parses
+        experiment-creation-time flags with this exact parser
+        (_handle_composite_flow's pure parse phase, before any database
+        connection is opened) and must be able to catch a usage error as
+        ParserExit rather than have argparse's own uncontrolled
+        sys.exit() escape past that phase's error handling. See
+        docs/status/composite-flow-unit-of-work-design.md.
     """
-    parser = argparse.ArgumentParser(
+    parser = NonExitingArgumentParser(
         prog="bcllm_experiment.py",
         description="Experiment lifecycle management",
     )
@@ -99,9 +107,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--seed",
+        "--randomization-seed",
         metavar="SEED",
-        help="Set experiment seed (AUTO, empty, or number)",
+        help="Set the experiment's default Randomization Seed (AUTO, empty, "
+             "or number) — controls AnswerRandomizer only, never sent to the API",
     )
     parser.add_argument(
         "--system-prompt",
@@ -121,13 +130,13 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-reasoning",
         metavar="TOKENS",
-        type=nullable_int,
+        type=parse_int_or_system_default,
         help="Max tokens for reasoning (model default)",
     )
     parser.add_argument(
         "--max-tokens",
         metavar="TOKENS",
-        type=nullable_int,
+        type=parse_int_or_system_default,
         help="Max total tokens (model default)",
     )
     parser.add_argument(
@@ -139,30 +148,30 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repeat-penalty",
         metavar="VALUE",
-        type=nullable_float,
+        type=parse_float_or_system_default,
         help="Repeat penalty (model default)",
     )
     parser.add_argument(
         "--temperature",
         metavar="VALUE",
-        type=nullable_float,
+        type=parse_float_or_system_default,
         help="Temperature (model default)",
     )
     parser.add_argument(
         "--top-k",
         metavar="VALUE",
-        type=nullable_int,
+        type=parse_int_or_system_default,
         help="Top-K sampling (model default)",
     )
     parser.add_argument(
         "--top-p",
         metavar="VALUE",
-        type=nullable_float,
+        type=parse_float_or_system_default,
         help="Top-P sampling (model default)",
     )
     parser.add_argument(
         "--reasoning-tokens",
-        type=nullable_int,
+        type=parse_int_or_system_default,
         metavar="TOKENS",
         help="Max tokens for reasoning (model default)",
     )
@@ -217,67 +226,49 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def generate_seed(experiment_name: str) -> int:
-    """Generate a deterministic seed based on experiment name.
-
-    Args:
-        experiment_name: Name of the experiment.
-
-    Returns:
-        A deterministic integer seed derived from experiment name.
-    """
-    hash_bytes = hashlib.sha256(experiment_name.encode('utf-8')).digest()
-    seed = int.from_bytes(hash_bytes[:8], byteorder='big')
-    return seed % (2**31)
-
-
-def parse_seed_value(seed_arg: str, experiment_name: str) -> int | None:
-    """Parse seed argument value.
-
-    Args:
-        seed_arg: Seed argument string (AUTO, empty, or number).
-        experiment_name: Experiment name for AUTO generation.
-
-    Returns:
-        Integer seed value or None for empty/unset.
-
-    Raises:
-        ValueError: If seed format is invalid.
-    """
-    if not seed_arg or seed_arg.strip() == "":
-        return None
-
-    if seed_arg.upper() == "AUTO":
-        return generate_seed(experiment_name)
-
-    try:
-        return int(seed_arg)
-    except ValueError:
-        raise ValueError(f"Invalid seed value: {seed_arg}. Use AUTO, empty, or a number.")
+# Explicit opt-in classification for system-default recognition — see
+# src/core/special_config_values.py::normalize_special_config_values and
+# docs/contracts/system-default-semantics.md for the full SUPPORTED/
+# FORBIDDEN/NOT_APPLICABLE contract this implements.
+SYSTEM_DEFAULT_SUPPORTED = {
+    'randomization_seed', 'system_prompt', 'user_prompt',
+    'max_reasoning', 'max_tokens', 'reasoning', 'repeat_penalty',
+    'temperature', 'top_k', 'top_p', 'reasoning_tokens',
+    'vision', 'structured', 'add_questions', 'provider_lock',
+}
+SYSTEM_DEFAULT_FORBIDDEN = {
+    'create_experiment', 'experiment', 'remove_experiment', 'url',
+}
 
 
-def _create_experiment_with_config(name: str, args: argparse.Namespace, conn, logger) -> Experiment:
+def _create_experiment_with_config(
+    name: str, args: argparse.Namespace, conn, logger, *, commit: bool = True,
+) -> Experiment:
     """Create experiment with resolved configuration from ConfigResolver.
-    
+
     This is the canonical experiment creation path used by both standalone
     (--create-experiment) and composite (--create-experiment --add-model) flows.
-    
+
     This function:
     - Uses ConfigResolver to build experiment config (ensures .env defaults are applied)
     - Generates experiment_id with 'exp_' prefix
     - Saves experiment via ExperimentRepository
     - Returns the created Experiment object
-    - Respects cli_null_semantics.md contract (FORCE_SYSTEM_DEFAULT for NULL handling)
-    
+    - Respects docs/contracts/system-default-semantics.md (FORCE_SYSTEM_DEFAULT handling)
+
     Args:
         name: Experiment name.
         args: Parsed CLI arguments with configuration values.
         conn: Database connection.
         logger: Logger instance for audit logging.
-    
+        commit: Whether to commit immediately (default). The composite
+            flow (bcllm.py::_handle_composite_flow) passes False to
+            participate in its src.db.unit_of_work.UnitOfWork scope — see
+            docs/status/composite-flow-unit-of-work-design.md.
+
     Returns:
         Created Experiment object with experiment_id, name, and config_json.
-    
+
     Raises:
         ValueError: If experiment name is empty or already exists.
     """
@@ -313,7 +304,7 @@ def _create_experiment_with_config(name: str, args: argparse.Namespace, conn, lo
     )
     
     # Save to database
-    repo.save(experiment)
+    repo.save(experiment, commit=commit)
     
     # Log creation with experiment name and ID
     logger.info(f"EXPERIMENT_CREATED | name={name} | experiment_id={experiment.experiment_id}")
@@ -358,12 +349,6 @@ def handle_create_experiment(args, conn) -> int:
         print("Valid values: true, false, system-default (case-insensitive)", file=sys.stderr)
         return 1
 
-    # Validate mandatory field --url rejects 'system-default'
-    if args.url is FORCE_SYSTEM_DEFAULT:
-        print("Error: --url is a mandatory field and cannot be set to 'system-default'.", file=sys.stderr)
-        print("Please provide a valid URL or omit the flag to use .env default.", file=sys.stderr)
-        return 1
-
     # Use canonical experiment creation function
     try:
         experiment = _create_experiment_with_config(name, args, conn, logger)
@@ -377,7 +362,7 @@ def handle_create_experiment(args, conn) -> int:
     if args.add_model:
         resolver = ConfigResolver()
         resolver.load_env()
-        exit_code = _add_models_at_creation(args.add_model, experiment, conn, resolver)
+        exit_code = _add_models_at_creation(args, experiment, conn, resolver)
         if exit_code != 0:
             return exit_code
 
@@ -412,13 +397,22 @@ def _validate_bool_value(value: str | type[FORCE_SYSTEM_DEFAULT]) -> bool:
     return False
 
 
-def _add_models_at_creation(models: list[str], experiment: Experiment, conn, resolver: ConfigResolver) -> int:
+def _add_models_at_creation(args, experiment: Experiment, conn, resolver: ConfigResolver) -> int:
     """Add model variants to experiment at creation time.
 
     Uses complete config from CLI > .env > NULL.
 
     Args:
-        models: List of model IDs to add.
+        args: Parsed command-line arguments from bcllm_experiment.py's own
+            parser (the same Namespace handle_create_experiment received —
+            carries --reasoning/--max-tokens/--temperature/etc. alongside
+            --add-model). Until 2026-08-18 this function instead received
+            only `args.add_model` and built a fabricated stand-in object
+            (`type('Args', (), {'experiment': experiment})()`) with no
+            model-level attributes at all, so every CLI flag other than
+            the model ID itself was silently discarded for any model
+            added via `--create-experiment ... --add-model X --reasoning
+            high` in a single command. See docs/status/known-issues.md.
         experiment: Experiment to add models to.
         conn: Database connection.
         resolver: ConfigResolver instance.
@@ -428,13 +422,13 @@ def _add_models_at_creation(models: list[str], experiment: Experiment, conn, res
     """
     var_repo = VariantRepository(conn)
 
-    for model_id in models:
+    for model_id in args.add_model:
         if not validate_model_id(model_id):
             print(f"Error: Invalid model ID format: {model_id}", file=sys.stderr)
             print("Expected: provider/model-name (e.g., openai/gpt-4, anthropic/claude-3)", file=sys.stderr)
             return 1
 
-        config = resolver.build_model_config_dict(type('Args', (), {'experiment': experiment})(), experiment)
+        config = resolver.build_model_config_dict(args, experiment)
 
         variant_signature = generate_variant_signature(model_id, config)
 
@@ -457,34 +451,6 @@ def _add_models_at_creation(models: list[str], experiment: Experiment, conn, res
     return 0
 
 
-def _normalize_options(options: dict | list) -> list:
-    """Normalize options from dict to list format.
-
-    The dataset stores options as a dict with letter keys:
-        {"A": "text A", "B": "text B", "C": "text C", "D": "text D"}
-
-    But the execution engine expects a list of option texts:
-        ["text A", "text B", "text C", "text D"]
-
-    This function converts dict to list, preserving the order of values.
-
-    Args:
-        options: Options in dict format (from dataset) or list format (already normalized)
-
-    Returns:
-        List of option texts
-
-    Example:
-        >>> _normalize_options({"A": "opt1", "B": "opt2"})
-        ["opt1", "opt2"]
-        >>> _normalize_options(["opt1", "opt2"])
-        ["opt1", "opt2"]
-    """
-    if isinstance(options, dict):
-        return list(options.values())
-    return options
-
-
 def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     """Create question snapshots for experiment.
 
@@ -505,8 +471,6 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
         - Apply QUESTIONS_STATUS_EXCLUDE from .env for filtering (if --exclude not provided)
         - Fails loudly if dataset invalid (no placeholders)
     """
-    from src.core.null_semantics import FORCE_SYSTEM_DEFAULT
-
     resolver = ConfigResolver()
     env_dict = resolver.load_env()
 
@@ -572,7 +536,16 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
     include_filters = []
     exclude_filters = []
 
-    if args.where:
+    # args.where/args.exclude were already normalized (system-default ->
+    # FORCE_SYSTEM_DEFAULT, contradiction/deprecated-null rejected) in
+    # main() before this function was ever reached — see
+    # normalize_filter_list_or_system_default. FORCE_SYSTEM_DEFAULT is
+    # explicitly checked FIRST because it's falsy, same as "not provided"
+    # ([]) — the two must NOT collapse to the same branch here: only the
+    # "not provided" case should fall back to .env (bootstrap semantics).
+    if args.where is FORCE_SYSTEM_DEFAULT:
+        include_filters = []
+    elif args.where:
         for filter_str in args.where:
             try:
                 include_filters.append(parse_filter(filter_str))
@@ -588,7 +561,9 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
                 print(f"Error: Invalid QUESTIONS_STATUS_ADD filter: {e}", file=sys.stderr)
                 return 1
 
-    if args.exclude:
+    if args.exclude is FORCE_SYSTEM_DEFAULT:
+        exclude_filters = []
+    elif args.exclude:
         for filter_str in args.exclude:
             try:
                 exclude_filters.append(parse_filter(filter_str))
@@ -636,22 +611,14 @@ def _create_question_snapshots(args, experiment: Experiment, conn) -> int:
             skipped_count += 1
             continue
 
-        payload = {
-            'stem': question.get('stem', ''),
-            'options': _normalize_options(question.get('options', {})),
-            'answer_key': question.get('answer_key', ''),
-            'assets': question.get('assets', []),
-            'meta': {k: v for k, v in question.items() if k not in ('stem', 'options', 'answer_key', 'id', 'source_id', 'question_id', 'internal_id', 'assets')},
-            'internal_id': question.get('internal_id'),
-            'source_id': source_id,
-        }
+        payload = build_question_snapshot_payload(question)
 
         snapshot = QuestionSnapshot(
             snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
             json_question_id=source_id,
             question_position=question_position,
-            question_payload=json.dumps(payload),
+            question_payload=json.dumps(payload, ensure_ascii=False),
         )
 
         snapshot_repo.save(snapshot)
@@ -694,7 +661,7 @@ def handle_show_experiment(args, conn) -> int:
     print(f"  ID: {experiment.experiment_id}")
     print(f"  Description: {experiment.description or '(none)'}")
     print(f"  Config:")
-    print(f"    seed: {config.get('RUN_RESPONSES_SEED', 'None')}")
+    print(f"    randomization_seed: {config.get('RANDOMIZATION_SEED', 'None')}")
     print(f"    system_prompt: {config.get('SYSTEM_PROMPT', 'None')}")
     print(f"    user_prompt: {config.get('USER_PROMPT', 'None')}")
 
@@ -769,60 +736,38 @@ def handle_remove_experiment(args, conn) -> int:
 
 
 def handle_modify_provider_lock(args, conn) -> int:
-    """Handle --provider-lock modification on an existing experiment.
+    """Handle --provider-lock on an existing experiment.
+
+    Deliberately disabled (returns 1, touches nothing) — direct user
+    decision, 2026-08-18 (Fase 3, item 8): rewriting `config_json`/
+    `config_hash` of an already-created experiment (even for a single
+    field like PROVIDER_LOCK) contradicts docs/contracts/immutability.md
+    ("Once an entity ... is created, its configuration is frozen") and
+    docs/contracts/configuration-hierarchy.md. This was the only "update
+    experiment" mutation path anywhere in the system; removing it, not
+    formalizing it as an exception, was the explicit call — the user's
+    own words: "Provider-lock poder ser alterado no config_json é
+    provavelmente uma falha minha... Mantendo a imutabilidade definida do
+    sistema." Mirrors handle_remove_experiment's disabled-command
+    convention exactly. See docs/status/known-issues.md.
 
     Args:
         args: Parsed command-line arguments.
         conn: Database connection.
 
     Returns:
-        Exit code (0 for success, 1 for error).
+        1, always. No database access.
     """
-    logger = get_logger('cli.experiment')
-    repo = ExperimentRepository(conn)
-    name = args.experiment
-    experiment = repo.get_by_name(name)
-
-    if not experiment:
-        logger.error(f"EXPERIMENT_MODIFY | name={name} | error=Not found")
-        print(f"Error: Experiment not found: {name}", file=sys.stderr)
-        return 1
-
-    # Validate provider-lock value
-    if not _validate_bool_value(args.provider_lock):
-        print(f"Error: Invalid value for --provider-lock: {args.provider_lock}", file=sys.stderr)
-        print("Valid values: true, false, system-default (case-insensitive)", file=sys.stderr)
-        return 1
-
-    # Resolve provider-lock value
-    resolver = ConfigResolver()
-    resolver.load_env()
-    resolved_lock = resolver.resolve_provider_lock(
-        cli_value=args.provider_lock,
-        env_key="AUTO_PROVIDER_LOCK",
-        default=False
+    print(
+        "Error: --provider-lock on an existing --experiment is currently disabled.\n"
+        "Modifying PROVIDER_LOCK after creation would rewrite the experiment's "
+        "frozen config_json/config_hash, which conflicts with this project's "
+        "immutability contract (docs/contracts/immutability.md). Set --provider-lock "
+        "at --create-experiment time instead; to change it for an existing "
+        "experiment, create a new one. See docs/status/known-issues.md for details.",
+        file=sys.stderr,
     )
-
-    # Update experiment config
-    config = json.loads(experiment.config_json) if experiment.config_json else {}
-
-    if resolved_lock is FORCE_SYSTEM_DEFAULT:
-        config["PROVIDER_LOCK"] = None  # Explicit absence
-    else:
-        config["PROVIDER_LOCK"] = resolved_lock
-
-    # Serialize updated config
-    updated_config_json = json.dumps(config, indent=None, separators=(',', ':'))
-    updated_config_hash = hashlib.sha256(updated_config_json.encode('utf-8')).hexdigest()
-
-    # Update experiment in database
-    experiment.config_json = updated_config_json
-    experiment.config_hash = updated_config_hash
-    repo.save(experiment)
-
-    logger.info(f"EXPERIMENT_MODIFIED | name={name} | PROVIDER_LOCK={config.get('PROVIDER_LOCK')}")
-    print(f"✓ Experiment '{experiment.name}' updated: PROVIDER_LOCK = {config.get('PROVIDER_LOCK')}")
-    return 0
+    return 1
 
 
 def main(mode: Mode) -> int:
@@ -836,7 +781,27 @@ def main(mode: Mode) -> int:
     """
     _validate_expected_mode(mode)
     parser = create_parser()
-    args = parse_args_normalized(parser)
+    try:
+        try:
+            args = parse_args_normalized(
+                parser,
+                supported=SYSTEM_DEFAULT_SUPPORTED,
+                forbidden=SYSTEM_DEFAULT_FORBIDDEN,
+            )
+            args.where = normalize_filter_list_or_system_default(args.where)
+            args.exclude = normalize_filter_list_or_system_default(args.exclude)
+        except argparse.ArgumentError as e:
+            # See src/cli/bcllm_model.py::main for why this is caught here
+            # rather than inside parse_args_normalized itself.
+            parser.error(str(e))  # raises ParserExit(2, ...) — see except below
+        except ValueError as e:
+            # normalize_filter_list_or_system_default's contradiction/deprecated
+            # 'null' errors — same exit-2 usage-error treatment. Raised, and
+            # this whole block runs, BEFORE get_database_connection() below —
+            # no persistent effect is possible from a rejection here.
+            parser.error(str(e))  # raises ParserExit(2, ...)
+    except ParserExit as e:
+        return e.status
 
     conn = get_database_connection()
 

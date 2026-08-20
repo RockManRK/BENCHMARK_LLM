@@ -69,8 +69,6 @@ class TestExperimentRepository:
             description="Test experiment",
             config_json="{}",
             config_hash="abc123",
-            system_prompt="system",
-            user_prompt="user",
         )
         repo.save(experiment)
 
@@ -89,13 +87,20 @@ class TestExperimentRepository:
         repo.save(experiment)
         updated = repo.get_by_id("exp_001")
         assert updated.description == "Updated description"
+        # No SOFT DELETE assertion here: ExperimentRepository has no
+        # deactivate()/is_active — see module docstring in
+        # src/db/repository.py ("NO soft delete (is_active removed)").
+        # --remove-experiment is deliberately disabled at the CLI layer
+        # for the same reason (docs/status/known-issues.md).
 
-        # SOFT DELETE
-        repo.deactivate("exp_001")
-        deactivated = repo.get_by_id("exp_001")
-        assert deactivated.is_active is False
-
-    @pytest.mark.domain_rule("Experiments must support soft delete")
+    @pytest.mark.skip(
+        reason="Tests a retired feature: ExperimentRepository has no "
+        "deactivate()/list_all(active_only=...) — soft delete for "
+        "experiments was removed (see src/db/repository.py module "
+        "docstring, 'NO soft delete (is_active removed)'). Needs a human "
+        "decision on whether this should be deleted or a successor "
+        "concept documented, not silently reworked."
+    )
     def test_repository_soft_delete_experiment(self, repos):
         """Verify soft delete sets is_active = FALSE."""
         repo = repos["experiment"]
@@ -106,16 +111,12 @@ class TestExperimentRepository:
             name="inactive_exp",
             config_json="{}",
             config_hash="h1",
-            system_prompt="s",
-            user_prompt="u",
         )
         exp2 = Experiment(
             experiment_id="exp_active",
             name="active_exp",
             config_json="{}",
             config_hash="h2",
-            system_prompt="s",
-            user_prompt="u",
         )
         repo.save(exp1)
         repo.save(exp2)
@@ -148,8 +149,6 @@ class TestVariantRepository:
             name="variant_test_exp",
             config_json="{}",
             config_hash="hash",
-            system_prompt="system",
-            user_prompt="user",
         )
         exp_repo.save(experiment)
 
@@ -186,10 +185,9 @@ class TestVariantRepository:
         var_repo.save(variant)
         updated = var_repo.get_by_id("var_001")
         assert updated.config == updated_config
-
-        # SOFT DELETE
-        var_repo.deactivate("var_001")
-        assert var_repo.get_by_id("var_001").is_active is False
+        # No SOFT DELETE assertion here: VariantRepository has no
+        # deactivate()/is_active — removal only affects future use
+        # (docs/contracts/immutability.md), no such method exists today.
 
     @pytest.mark.domain_rule("Variants must support listing by experiment")
     def test_variant_list_by_experiment(self, repos):
@@ -203,16 +201,12 @@ class TestVariantRepository:
             name="exp1",
             config_json="{}",
             config_hash="h1",
-            system_prompt="s",
-            user_prompt="u",
         )
         exp2 = Experiment(
             experiment_id="exp2",
             name="exp2",
             config_json="{}",
             config_hash="h2",
-            system_prompt="s",
-            user_prompt="u",
         )
         exp_repo.save(exp1)
         exp_repo.save(exp2)
@@ -260,8 +254,6 @@ class TestSnapshotRepository:
             name="snapshot_test_exp",
             config_json="{}",
             config_hash="hash",
-            system_prompt="system",
-            user_prompt="user",
         )
         exp_repo.save(experiment)
 
@@ -274,7 +266,8 @@ class TestSnapshotRepository:
         snapshot = QuestionSnapshot(
             snapshot_id="snap_001",
             experiment_id="exp_snap_test",
-            question_id="q_math_001",
+            json_question_id="q_math_001",
+            question_position=1,
             question_payload=payload,
         )
         snap_repo.save(snapshot)
@@ -282,7 +275,7 @@ class TestSnapshotRepository:
         # READ by ID
         retrieved = snap_repo.get_by_id("snap_001")
         assert retrieved is not None
-        assert retrieved.question_id == "q_math_001"
+        assert retrieved.json_question_id == "q_math_001"
         assert retrieved.experiment_id == "exp_snap_test"
 
         # READ by experiment and question
@@ -293,10 +286,10 @@ class TestSnapshotRepository:
         # LIST by experiment
         snapshots = snap_repo.list_by_experiment("exp_snap_test")
         assert len(snapshots) == 1
-
-        # SOFT DELETE
-        snap_repo.deactivate("snap_001")
-        assert snap_repo.get_by_id("snap_001").is_active is False
+        # No SOFT DELETE assertion here: SnapshotRepository has no
+        # deactivate()/is_active — question snapshots are immutable and
+        # additive only (docs/contracts/immutability.md); no removal
+        # concept exists at the repository layer today.
 
 
 class TestRunRepository:
@@ -314,8 +307,6 @@ class TestRunRepository:
             name="run_test_exp",
             config_json="{}",
             config_hash="hash",
-            system_prompt="system",
-            user_prompt="user",
         )
         exp_repo.save(experiment)
 
@@ -323,16 +314,15 @@ class TestRunRepository:
         run = Run(
             run_id="run_001",
             experiment_id="exp_run_test",
-            seed=42,
             status="pending",
         )
-        run_repo.save(run)
+        run_repo.save(run, config={"RANDOMIZATION_SEED": 42})
 
         # READ
         retrieved = run_repo.get_by_id("run_001")
         assert retrieved is not None
         assert retrieved.status == "pending"
-        assert retrieved.seed == 42
+        assert json.loads(retrieved.config)["RANDOMIZATION_SEED"] == 42
 
         # STATUS TRANSITION: pending -> completed
         run_repo.update_status("run_001", "completed")
@@ -359,8 +349,6 @@ class TestRunRepository:
             name="status_test",
             config_json="{}",
             config_hash="h",
-            system_prompt="s",
-            user_prompt="u",
         )
         exp_repo.save(experiment)
 
@@ -369,10 +357,9 @@ class TestRunRepository:
             run = Run(
                 run_id=f"run_{status}",
                 experiment_id="exp_status",
-                seed=i,
                 status=status,
             )
-            run_repo.save(run)
+            run_repo.save(run, config={"RANDOMIZATION_SEED": i})
 
         # List pending
         pending = run_repo.list_pending()
@@ -387,6 +374,13 @@ class TestRunRepository:
 class TestResponseRepository:
     """Tests for ResponseRepository CRUD operations."""
 
+    @pytest.mark.skip(
+        reason="Tests a responsibility ResponseRepository no longer owns: "
+        "review_status is calculated by ResultWriter._calculate_review_status "
+        "(src/core/result_writer.py), not by the repository — "
+        "ResponseRepository.save() just persists whatever Response.review_status "
+        "already is. Real coverage lives in tests/unit/core/test_result_writer.py."
+    )
     @pytest.mark.domain_rule("Responses must calculate review_status on save")
     def test_repository_response_review_status(self, repos):
         """Verify review_status is calculated correctly on save."""
@@ -402,8 +396,6 @@ class TestResponseRepository:
             name="response_test",
             config_json="{}",
             config_hash="h",
-            system_prompt="s",
-            user_prompt="u",
         )
         exp_repo.save(experiment)
 
@@ -420,7 +412,8 @@ class TestResponseRepository:
         snapshot = QuestionSnapshot(
             snapshot_id="snap_resp",
             experiment_id="exp_resp",
-            question_id="q_resp",
+            json_question_id="q_resp",
+            question_position=1,
             question_payload=json.dumps(payload),
         )
         snap_repo.save(snapshot)
@@ -430,7 +423,7 @@ class TestResponseRepository:
             experiment_id="exp_resp",
             status="pending",
         )
-        run_repo.save(run)
+        run_repo.save(run, config={})
 
         # CREATE response with clear answer (should be 'auto')
         response = Response(
@@ -481,8 +474,6 @@ class TestResponseRepository:
             name="review_test",
             config_json="{}",
             config_hash="h",
-            system_prompt="s",
-            user_prompt="u",
         )
         exp_repo.save(experiment)
 
@@ -510,13 +501,15 @@ class TestResponseRepository:
         snapshot1 = QuestionSnapshot(
             snapshot_id="snap_review_1",
             experiment_id="exp_review",
-            question_id="q_review_1",
+            json_question_id="q_review_1",
+            question_position=1,
             question_payload=json.dumps(payload1),
         )
         snapshot2 = QuestionSnapshot(
             snapshot_id="snap_review_2",
             experiment_id="exp_review",
-            question_id="q_review_2",
+            json_question_id="q_review_2",
+            question_position=2,
             question_payload=json.dumps(payload2),
         )
         snap_repo.save(snapshot1)
@@ -527,7 +520,7 @@ class TestResponseRepository:
             experiment_id="exp_review",
             status="pending",
         )
-        run_repo.save(run)
+        run_repo.save(run, config={})
 
         # Create responses with different needs_review states
         # Each must have unique (run_id, variant_id, snapshot_id) combination
@@ -538,7 +531,12 @@ class TestResponseRepository:
             ("resp_review_3", "var_review_2", "snap_review_1", None, "unknown", True),
         ]
 
-        for resp_id, var_id, snap_id, answer, confidence, _ in test_cases:
+        for resp_id, var_id, snap_id, answer, confidence, needs_review_flag in test_cases:
+            # review_status is calculated by ResultWriter, not by
+            # ResponseRepository (see src/core/result_writer.py) — this
+            # test is exercising list_needs_review()'s query/filter
+            # behavior, so set the status explicitly rather than relying
+            # on save() to derive it (it never did).
             resp = Response(
                 response_id=resp_id,
                 run_id="run_review",
@@ -548,6 +546,7 @@ class TestResponseRepository:
                 question_id="q_review_1",
                 selected_answer=answer,
                 parse_confidence=confidence,
+                review_status="needs_review" if needs_review_flag else "auto",
             )
             resp_repo.save(resp)
 
@@ -587,7 +586,8 @@ class TestForeignKeyEnforcement:
         snapshot = QuestionSnapshot(
             snapshot_id="snap_orphan",
             experiment_id="nonexistent",
-            question_id="q_orphan",
+            json_question_id="q_orphan",
+            question_position=1,
             question_payload="{}",
         )
 
@@ -605,7 +605,7 @@ class TestForeignKeyEnforcement:
         )
 
         with pytest.raises(sqlite3.IntegrityError):
-            run_repo.save(run)
+            run_repo.save(run, config={})
 
 
 class TestCreatedAtNotNull:
@@ -701,10 +701,9 @@ class TestCreatedAtNotNull:
         run = Run(
             run_id="run_created_at",
             experiment_id="exp_run_created_at",
-            config={"seed": 42},
             status="pending",
         )
-        run_repo.save(run)
+        run_repo.save(run, config={"RANDOMIZATION_SEED": 42})
 
         retrieved = run_repo.get_by_id("run_created_at")
         assert retrieved is not None
@@ -732,7 +731,7 @@ class TestConfigJsonPersistence:
             "MODEL_TOP_P": 0.9,
             "MODEL_VISION": True,
             "STRUCTURED_OUTPUTS": False,
-            "RUN_RESPONSES_SEED": 42,
+            "RANDOMIZATION_SEED": 42,
             "SYSTEM_PROMPT": "Test system prompt",
             "USER_PROMPT": "Test user prompt",
         }
@@ -749,7 +748,12 @@ class TestConfigJsonPersistence:
         assert retrieved is not None
 
         retrieved_config = json.loads(retrieved.config_json)
-        assert len(retrieved_config) == 17  # 17 keys
+        # Roundtrip invariant: whatever went in must come back unchanged,
+        # no more, no less. (Was a hardcoded magic number — "17" — that
+        # didn't even match this test's own 14-key literal `config` dict
+        # above; config_json is an opaque blob to the repository, so the
+        # only thing worth asserting here is the roundtrip itself.)
+        assert len(retrieved_config) == len(config)
 
         # Verify all keys preserved
         for key, expected_value in config.items():
@@ -803,15 +807,15 @@ class TestConfigJsonPersistence:
             assert key in retrieved_config
             assert retrieved_config[key] == expected_value
 
-    @pytest.mark.domain_rule("run config must persist seed and prompts")
-    def test_run_config_persists_seed_and_prompts(self, repos):
-        """Verify run config persists seed and prompts."""
+    @pytest.mark.domain_rule("run config must persist randomization_seed and prompts")
+    def test_run_config_persists_randomization_seed_and_prompts(self, repos):
+        """Verify run config persists Randomization Seed and prompts."""
         exp_repo = repos["experiment"]
         run_repo = repos["run"]
 
         import json
         config = {
-            "seed": 42,
+            "randomization_seed": 42,
             "system_prompt": "Test system",
             "user_prompt": "Test user",
         }
@@ -827,16 +831,18 @@ class TestConfigJsonPersistence:
         run = Run(
             run_id="run_config_test",
             experiment_id="exp_run_config",
-            config=json.dumps(config),
             status="pending",
         )
-        run_repo.save(run)
+        # RunRepository.save() persists the `config` kwarg, not run.config
+        # (see src/db/repository.py) — pass the dict here, not on the
+        # entity.
+        run_repo.save(run, config=config)
 
         retrieved = run_repo.get_by_id("run_config_test")
         assert retrieved is not None
 
         retrieved_config = json.loads(retrieved.config)
-        assert retrieved_config["seed"] == 42
+        assert retrieved_config["randomization_seed"] == 42
         assert retrieved_config["system_prompt"] == "Test system"
         assert retrieved_config["user_prompt"] == "Test user"
 
@@ -850,7 +856,10 @@ class TestConfigJsonPersistence:
             "QUESTIONS_DATASET_PATH": None,
             "BASE_URL": None,
             "MODEL_TEMPERATURE": None,
-            "RUN_RESPONSES_SEED": "OFF",
+            # Real None (JSON null), never the retired "OFF" textual
+            # sentinel — see docs/status/known-issues.md and
+            # docs/status/seed-vocabulary-separation-investigation.md.
+            "RANDOMIZATION_SEED": None,
             "SYSTEM_PROMPT": None,
             "USER_PROMPT": None,
         }

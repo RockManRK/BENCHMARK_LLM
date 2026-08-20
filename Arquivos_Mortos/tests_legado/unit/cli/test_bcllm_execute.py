@@ -14,10 +14,12 @@ Test Pattern:
 - Mark domain rules with @pytest.mark.domain_rule
 """
 
+import json
 import pytest
 import sys
 from unittest.mock import patch, MagicMock, AsyncMock
 
+from src.core.mode import Mode
 from src.db import create_schema
 from src.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository, ResponseRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
@@ -70,7 +72,7 @@ def test_execute_success(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Mock API client to return successful response
@@ -86,7 +88,7 @@ def test_execute_success(in_memory_db, capsys):
                 MockClient.return_value = mock_api
 
                 # Act
-                result = execute_main()
+                result = execute_main(Mode.EXECUTE)
 
                 # Assert
                 assert result == 0
@@ -109,11 +111,11 @@ def test_execute_experiment_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = execute_main()
+            result = execute_main(Mode.EXECUTE)
 
             # Assert
             assert result == 1
@@ -140,11 +142,11 @@ def test_execute_run_not_found(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = execute_main()
+            result = execute_main(Mode.EXECUTE)
 
             # Assert
             assert result == 1
@@ -182,11 +184,11 @@ def test_execute_run_not_in_experiment(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = execute_main()
+            result = execute_main(Mode.EXECUTE)
 
             # Assert
             assert result == 1
@@ -219,11 +221,11 @@ def test_execute_run_not_pending(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = execute_main()
+            result = execute_main(Mode.EXECUTE)
 
             # Assert
             assert result == 1
@@ -264,11 +266,11 @@ def test_execute_no_items(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Act
-            result = execute_main()
+            result = execute_main(Mode.EXECUTE)
 
             # Assert
             assert result == 1
@@ -322,7 +324,7 @@ def test_execute_with_api_error(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Mock API client to raise error
@@ -332,7 +334,7 @@ def test_execute_with_api_error(in_memory_db, capsys):
                 MockClient.return_value = mock_api
 
                 # Act
-                result = execute_main()
+                result = execute_main(Mode.EXECUTE)
 
                 # Assert
                 # Should return non-zero (failure) but still write error to DB
@@ -390,7 +392,7 @@ def test_execute_prints_summary(in_memory_db, capsys):
     ]
 
     with patch.object(sys, "argv", test_args):
-        with patch("src.cli.bcllm_execute.sqlite3.connect") as mock_connect:
+        with patch("src.cli.database.sqlite3.connect") as mock_connect:
             mock_connect.return_value = in_memory_db
 
             # Mock API client to return successful responses
@@ -406,7 +408,7 @@ def test_execute_prints_summary(in_memory_db, capsys):
                 MockClient.return_value = mock_api
 
                 # Act
-                result = execute_main()
+                result = execute_main(Mode.EXECUTE)
 
                 # Assert
                 assert result == 0
@@ -595,6 +597,10 @@ def _insert_snapshot(conn, snapshot: QuestionSnapshot) -> None:
 
 
 def _insert_run(conn, run: Run) -> None:
-    """Insert run directly into database."""
+    """Insert run directly into database.
+
+    RunRepository.save() takes `config` as a separate dict argument
+    rather than reading Run.config (see src/db/repository.py).
+    """
     repo = RunRepository(conn)
-    repo.save(run)
+    repo.save(run, config=json.loads(run.config))

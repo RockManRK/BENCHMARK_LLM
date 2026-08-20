@@ -10,7 +10,7 @@ IMPORTANT CONTRACT:
 - seed=None means randomization is DISABLED (no shuffling)
 - seed=int means randomization is ENABLED with deterministic results
 - This class does NOT decide whether to randomize - it only executes
-- The decision is made by ExecutionEngine based on run.seed_effective
+- The decision is made by ExecutionEngine based on run.randomization_seed_effective
 """
 
 import random

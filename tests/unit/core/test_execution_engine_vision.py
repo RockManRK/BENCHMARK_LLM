@@ -106,7 +106,7 @@ def _make_minimal_plan_run(
     """Create a minimal PlanRun for testing."""
     return PlanRun(
         run_id="test-run",
-        seed_effective=seed,
+        randomization_seed_effective=seed,
         prompts_effective=Prompts(system=system_prompt, user=user_prompt),
         retry_policy=retry_policy or RetryPolicy(max_attempts=1),
         variants=[],
@@ -324,7 +324,7 @@ class TestExecuteItemAsyncVisionGating:
         run = _make_minimal_plan_run()
         run = PlanRun(
             run_id=run.run_id,
-            seed_effective=run.seed_effective,
+            randomization_seed_effective=run.randomization_seed_effective,
             prompts_effective=run.prompts_effective,
             retry_policy=run.retry_policy,
             variants=[variant],
@@ -363,7 +363,7 @@ class TestExecuteItemAsyncVisionGating:
         run = _make_minimal_plan_run()
         run = PlanRun(
             run_id=run.run_id,
-            seed_effective=run.seed_effective,
+            randomization_seed_effective=run.randomization_seed_effective,
             prompts_effective=run.prompts_effective,
             retry_policy=run.retry_policy,
             variants=[variant],
@@ -400,7 +400,7 @@ class TestExecuteItemAsyncVisionGating:
         run = _make_minimal_plan_run()
         run = PlanRun(
             run_id=run.run_id,
-            seed_effective=run.seed_effective,
+            randomization_seed_effective=run.randomization_seed_effective,
             prompts_effective=run.prompts_effective,
             retry_policy=run.retry_policy,
             variants=[variant],
