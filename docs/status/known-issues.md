@@ -1,7 +1,7 @@
 ---
 type: status
 audience: both
-last-validated: 2026-08-17
+last-validated: 2026-08-18
 status: active
 ---
 
@@ -23,6 +23,18 @@ status: active
 **Suggested Fix:** Either remove `--retry-policy` from `bcllm_execute.py` to match the documented intent, or correct `cli-commands.md` to describe the actual (CLI-overridable) behavior. Not decided here — a product call about which is actually wanted.
 **Effort:** Small either way.
 **Dependencies:** None technically; decision-blocked.
+
+---
+
+### ℹ️ Current CLI output has not been audited against the new `interaction-contracts.md` Section 2 (CLI Output Boundaries)
+
+**Severity:** Low (no confirmed violation — this is a tracked absence of an audit, not a bug)
+**Impact:** None confirmed yet. `docs/contracts/interaction-contracts.md` Section 2 (added 2026-08-18, ADR-002) states the stdout-carries-results/stderr-carries-diagnostics rule "applies to every `bcllm` command, present and future... argparse today" — i.e. it claims to already describe the current implementation, not just the post-Typer-migration one. That claim has not been verified: `src/cli/*.py` has 184 `print()` calls (stable count), and a meaningful minority do not pass `file=sys.stderr`. The exact split is deliberately **not** stated as a number here — three independent quick counts during this same session (a simple-grep pass, and two Essence Guardian passes) each produced a different figure for "how many lack `file=sys.stderr`" (98, 71, and 88), because multi-line `print(...)` calls put `file=sys.stderr` on a different line than `print(`, which a naive single-line grep miscounts in both directions. A real audit needs to parse each call, not grep it. Nobody has checked whether every `print()` without `file=sys.stderr` is genuinely a "result" (per the new contract) rather than a diagnostic that should have gone to stderr.
+**Description:** Flagged by the Essence Guardian review of ADR-002 (2026-08-18): declaring the section normative for the current CLI without an accompanying compliance pass risks the same doc/code drift this file already tracks elsewhere in the project's history.
+**Discovered:** 2026-08-18, Essence Guardian review of ADR-002 / `interaction-contracts.md`.
+**Suggested Fix:** As each CLI group is migrated to Typer (Fase 4 of the CLI migration plan, marks 4A–4D), audit that group's `print()` calls against Section 2 and correct any stdout/stderr misplacement found — do not assume compliance, verify it group by group rather than as one large pass.
+**Effort:** Small per group, done incrementally as part of the migration already planned.
+**Dependencies:** CLI Typer migration Fase 4.
 
 ---
 
