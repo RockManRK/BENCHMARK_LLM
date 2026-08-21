@@ -36,6 +36,9 @@ from typing import Optional
 from src.core.execution_engine import ExecutionResult
 from src.core.result_writer import ResultWriter
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
+import logging
 
 
 class AsyncWriter:
@@ -70,6 +73,7 @@ class AsyncWriter:
         queue: asyncio.Queue,
         db_connection,
         logger: Optional[Logger] = None,
+        operation_id: str | None = None,
     ) -> None:
         """Initialize with queue and database connection.
 
@@ -77,6 +81,7 @@ class AsyncWriter:
             queue: asyncio.Queue to consume results from
             db_connection: SQLite database connection
             logger: Optional logger instance
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Example:
             >>> queue = asyncio.Queue()
@@ -86,13 +91,14 @@ class AsyncWriter:
         self._queue = queue
         self._db = db_connection
         self._logger = logger or get_logger('core.async_writer')
+        self._operation_id = operation_id
         self._results_written: list[ExecutionResult] = []
         self._write_count: int = 0
         self._error_count: int = 0
         self._abort_event = asyncio.Event()
         self._abort_info: dict | None = None
         # Single ResultWriter instance reused for all writes (avoids per-retry allocation)
-        self._result_writer = ResultWriter(self._db, logger=self._logger)
+        self._result_writer = ResultWriter(self._db, logger=self._logger, operation_id=operation_id)
 
     @property
     def abort_event(self) -> asyncio.Event:
@@ -143,18 +149,22 @@ class AsyncWriter:
                 if success:
                     self._write_count += 1
                     self._results_written.append(result)
-                    self._logger.debug(
-                        f"WRITE_OK | run={result.run_id} | variant={result.variant_id} | "
-                        f"snapshot={result.snapshot_id} | status={result.status}"
+                    emit_event(
+                        self._logger, Event.WRITE_OK, level=logging.DEBUG,
+                        operation_id=self._operation_id, run_id=result.run_id,
+                        variant_id=result.variant_id, snapshot_id=result.snapshot_id,
+                        outcome=result.status,
                     )
                 else:
                     # Write failed after retries — abort
                     break
             except Exception as e:
                 self._error_count += 1
-                self._logger.error(
-                    f"WRITE_FAIL | run={result.run_id} | variant={result.variant_id} | "
-                    f"snapshot={result.snapshot_id} | error={e}"
+                emit_event(
+                    self._logger, Event.WRITE_FAIL, level=logging.ERROR,
+                    operation_id=self._operation_id, run_id=result.run_id,
+                    variant_id=result.variant_id, snapshot_id=result.snapshot_id,
+                    error=str(e),
                 )
 
             self._queue.task_done()
@@ -184,18 +194,21 @@ class AsyncWriter:
             except Exception as e:
                 if attempt < self.MAX_RETRIES:
                     backoff = self.RETRY_BACKOFF_BASE * attempt
-                    self._logger.warning(
-                        f"WRITE_RETRY | run={result.run_id} | variant={result.variant_id} | "
-                        f"snapshot={result.snapshot_id} | attempt={attempt}/{self.MAX_RETRIES} | "
-                        f"backoff={backoff}s | error={e}"
+                    emit_event(
+                        self._logger, Event.WRITE_RETRY, level=logging.WARNING,
+                        operation_id=self._operation_id, run_id=result.run_id,
+                        variant_id=result.variant_id, snapshot_id=result.snapshot_id,
+                        attempt=attempt, max_attempts=self.MAX_RETRIES,
+                        delay_ms=round(backoff * 1000), error=str(e),
                     )
                     await asyncio.sleep(backoff)
                 else:
                     self._error_count += 1
-                    self._logger.critical(
-                        f"WRITE_ABORT | run={result.run_id} | variant={result.variant_id} | "
-                        f"snapshot={result.snapshot_id} | attempts={self.MAX_RETRIES} | "
-                        f"error={e}"
+                    emit_event(
+                        self._logger, Event.WRITE_ABORT, level=logging.CRITICAL,
+                        operation_id=self._operation_id, run_id=result.run_id,
+                        variant_id=result.variant_id, snapshot_id=result.snapshot_id,
+                        attempts=self.MAX_RETRIES, error=str(e),
                     )
                     self._abort_info = {
                         "run_id": result.run_id,

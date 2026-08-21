@@ -301,3 +301,27 @@ cases:
             WHERE e.name = ?
           params: ["{ns}_ce012"]
           equals: 42  # inherited from the experiment's own MODEL_SEED, --add-model didn't specify its own
+
+  - id: CE-013
+    name: "--experiment system-default e FORBIDDEN, exit 2 (identity selector, nunca normalizado)"
+    area: experiment
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [system-default, contracts, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Black-box replacement for tests/unit/cli/test_experiment_flag_forbidden_consistency.py's
+      # test_bcllm_experiment_experiment_system_default_still_rejected (marco
+      # 4A pre-conversion Fase 0, 2026-08-20) — asserts the real CLI's exit
+      # code/stderr rather than introspecting argparse internals, so it
+      # survives the Typer conversion unchanged. --experiment identifies a
+      # specific experiment; 'system-default' must never be silently
+      # accepted as a literal name or normalized away. See
+      # docs/status/known-issues.md.
+      argv: ["--experiment", "system-default"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true

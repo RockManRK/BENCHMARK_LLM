@@ -1,17 +1,19 @@
 ---
 type: normative
 audience: ai
-last-validated: 2026-08-18
+last-validated: 2026-08-20
 status: active
 ---
 
 # Interaction Contracts
 
 **Scope:** Event emission, rendering boundaries, UI behavior  
-**Status:** 🟡 Partially defined — Section 2 (CLI Output Boundaries) is now
+**Status:** 🟡 Partially defined — Section 2 (CLI Output Boundaries) is
 normative, established by ADR-002 as part of the CLI Typer/Rich
-migration's Fase 1. Sections 1, 3, and 4 remain placeholders and are
-**not** resolved by this update — see the note at the end of each.
+migration's Fase 1. **Section 4 (Logging Boundaries) is now normative as
+of Checkpoint C** (`docs/status/checkpoint-c-logging-observability-design.md`)
+— see below. Sections 1 and 3 remain placeholders — see the note at the
+end of each.
 
 ---
 
@@ -22,7 +24,9 @@ This document defines the invariants for:
   output boundaries are defined below (Section 2)**; Review UI boundaries
   remain open (Section 1)
 - Event emission boundaries (what components emit what events) — **remains
-  open** (Section 3)
+  open as a pub/sub event system (Section 3)**; a related but distinct
+  capability — a centralized, structured *logging* event vocabulary — is
+  now normative under Section 4, not to be confused with this section
 - UI behavior guarantees (consistency, state management) — **partially
   covered** by Section 2 for the CLI; Review UI state guarantees remain
   open (Section 1)
@@ -108,34 +112,126 @@ constrains *which stream* and *what exit code*, not *how it looks*.
 
 ### 3. Event Emission
 
-**Still a placeholder.** Current state, recorded so this isn't silently
-assumed either way: **no event system exists today.** The CLI produces
-structured results (console text, and — once implemented — JSON) and
-technical logs (Section 4); it does not emit or subscribe to discrete
-events. If a future feature introduces one (e.g. progress events for
-`--execute`'s Fase 6 `Progress`/`Live` display), it must be added here
-explicitly, not inferred from the presentation work that motivated it.
+**Still a placeholder as a pub/sub system.** Current state, recorded so
+this isn't silently assumed either way: **no publish/subscribe event
+system exists today** — nothing in this codebase subscribes to an event
+emitted by another component to drive its own behavior. If a future
+feature introduces one (e.g. progress events for `--execute`'s Fase 6
+`Progress`/`Live` display driving a UI independent of the log stream), it
+must be added here explicitly, not inferred from the presentation work
+that motivated it, and not assumed to already exist just because
+Section 4's structured *logging* events (below) sound similar — they are
+not the same mechanism. Logging events are one-way (component → log
+sink), never consumed by another component to change its own behavior;
+a real event system would be two-way (publisher → subscriber(s) that act
+on it). This distinction matters precisely because it would be easy to
+conflate them now that Section 4 exists.
 
-- What events are emitted during execution?
-- What is the event schema?
+- What events are emitted during execution, for a subscriber (not a
+  log sink) to consume?
+- What is the event schema for that system, if introduced?
 - What components subscribe to what events?
 
-### 4. Logging Boundaries
+### 4. Logging Boundaries — NORMATIVE (Checkpoint C)
 
-**Still a placeholder as a fully worked-out section**, but the load-bearing
-rule already exists and is now cross-referenced normatively from Section
-2: technical logs go through `src/utils/logging_config.py` and its
-console handler targets stderr, never stdout (see
-`docs/contracts/data-auditability.md` — "Logs are treated as scientific
-data" — for the full logging philosophy: crash-safe, include
-experiment/run/model/question identifiers, never expose secrets, and
-per-experiment log separation stays manual, not automated). What remains
-open here specifically is per-component granularity (which module logs
-at which level) — not attempted in this pass.
+Established by the Checkpoint C investigation and design
+(`docs/status/checkpoint-c-logging-observability-design.md`) and its
+implementation. Applies to every logging call site in `src/`.
 
-- What components are responsible for logging?
-- What log levels are used when?
-- What information is included in logs?
+**The load-bearing stream rule** (already cross-referenced from Section 2,
+now made precise): technical logs go through
+`src/utils/logging_config.py`; the console handler targets stderr, never
+stdout (`FlushingStreamHandler()`'s default). The structured JSONL stream
+(`src/utils/log_emitter.py`) writes to its own sibling file
+(`<LOG_FILE_PATH stem>.jsonl`), never to stdout, stderr, or interleaved
+with the human-readable file.
+
+**One emission path.** Every structured log event — anything with a
+stable `event_name` — is emitted through
+`src.utils.log_emitter.emit_event`, never constructed ad hoc at the call
+site. `event_name` values are constants from
+`src.utils.log_events.Event`; no module may build one as a string
+literal. This is what keeps the vocabulary centralized rather than
+scattered (closing the gap the Checkpoint C investigation found: an
+informal `EVENT | k=v` convention existed in 8 modules before this
+checkpoint, each hand-writing its own strings).
+
+**Two derived outputs from one event, never two constructions.** Every
+`emit_event` call produces a human-readable line (unchanged in spirit
+from the pre-Checkpoint-C format) and a JSONL line, from the *same*
+in-memory field set — mirroring the "single canonical construction, two
+destinations" discipline Checkpoint B established for the API request
+payload. No log call site builds its own JSON.
+
+**Depth profiles gate INFO/DEBUG events only.** `LOG_PROFILE`
+(MINIMAL/NORMAL/DETAILED/TRACE, cumulative, `.env`-only — no CLI
+override, matching `LOG_LEVEL`'s existing precedent) controls which
+`INFO`/`DEBUG`-severity events are eligible to emit at all.
+**`WARNING`/`ERROR`/`CRITICAL` events are NEVER suppressed by profile,
+under any configuration** — this is enforced structurally, once, inside
+`emit_event`'s severity-floor check, not left to per-call-site
+discipline. `LOG_LEVEL` (stdlib severity threshold) and `LOG_PROFILE`
+(which events exist) are orthogonal knobs — see
+`docs/reference/configuration-reference.md`.
+
+**`operation_id` correlates one CLI invocation.** Generated once per
+invocation in `bcllm.py`'s `main()`, before dispatch, and threaded
+explicitly through the call chain (no global/contextvar state — matching
+`logging_config.py`'s own "No global logger state" principle) down
+through the Planner → AsyncOrchestrator → ExecutionEngine → RetryHandler
+→ OpenRouterClient → ResultWriter pipeline for `--execute`, and emitted
+on every command's `COMMAND_START`/`COMMAND_END`/`COMMAND_INTERRUPTED`
+regardless of which of the 9 CLI modules handles it. Distinct from
+`experiment_id`/`run_id`/etc. (the data-level correlators) — both are
+carried together on relevant events, answering different questions
+("what happened during this command" vs. "what happened to this Run").
+
+**Redaction is unconditional.** `src.utils.redaction.redact` runs inside
+`emit_event`, before either output is constructed, on every field, for
+every event, at every profile including TRACE. No call site can opt out.
+Covers secret-shaped dict keys (`api_key`, `authorization`, `token`,
+`secret`, `password`, etc.), `Bearer` tokens embedded in strings,
+credentials in URLs, and secret-shaped `key=value` fragments inside
+exception messages — recursively through dicts/lists/tuples. Redaction
+produces a new, redacted copy for the log output only; it never mutates
+the caller's in-memory object and never touches anything persisted to
+the database (see `docs/contracts/data-auditability.md` §4b — logs are a
+*third*, distinct record from `request_json`/`raw_response`, never a
+substitute for either).
+
+**Logging failures never break execution.** `emit_event` catches any
+exception raised during redaction, serialization, or handler I/O,
+attempts a best-effort fallback log line, and never propagates — a
+logging bug must never surface as an execution failure, a lost DB write,
+or something a resume/retry path could mistake for "not yet attempted"
+(ties to `docs/contracts/idempotency.md`).
+
+**Which components log, and at what depth:**
+- MINIMAL: command lifecycle only (`COMMAND_START`/`COMMAND_END`/
+  `COMMAND_INTERRUPTED`) plus any `WARNING`+ event, everywhere.
+- NORMAL (default): entity lifecycle, Plan/Run/Item/Retry/API-call/write
+  events — the pre-existing `EVENT | k=v` convention, now centralized.
+- DETAILED: `ConfigResolver`'s previously-silent resolution decisions
+  (`CONFIG_RESOLVED`, `INHERITANCE_DECISION`, `SYSTEM_DEFAULT_APPLIED`),
+  idempotency skips, parse/randomization decisions.
+- TRACE: the canonical request payload itself (redacted), the OpenRouter
+  debug/upstream-echo (redacted, kept structurally distinct from
+  `request_json` — never merged into it), raw SSE chunks.
+
+Full per-family JSONL schema, exact event catalog, and the OpenRouter
+`debug` vs. `LOG_LEVEL` scope rule (two independent, never-conflated
+configurations — `OPENROUTER_DEBUG_ENABLED` is operational/per-process,
+not part of the frozen Experiment/Run/Model-Variant configuration
+hierarchy): see
+`docs/status/checkpoint-c-logging-observability-design.md`.
+
+**Explicitly out of scope for this section** (deferred to the separate,
+not-yet-started Checkpoint C2): migrating the 163 existing `print()`
+call sites in `src/cli/*.py`/`bcllm.py` to also reach the log
+file/stream — see `docs/status/cli-output-classification.md` for the
+classification map. This section governs the logging layer itself, which
+is complete; it does not retroactively require every CLI print to become
+a log event.
 
 ---
 
@@ -162,15 +258,16 @@ From reviewing `src/review/review_ui.py` and related code:
 2. Review existing review UI implementation and define Section 1's
    invariants — deferred to the `review` migration milestone.
 3. Document UI state management rules (Review UI undo/batch state).
-4. Define event emission schema, if/when an event system is introduced.
-5. Establish logging boundaries per component (which module logs what,
-   at which level).
+4. Define event emission schema, if/when a pub/sub event system is
+   introduced (Section 3) — distinct from the structured logging events
+   below, which are done.
+5. ~~Establish logging boundaries per component (which module logs what,
+   at which level)~~ — done, Section 4, Checkpoint C.
 
 ---
 
-**Sections 1, 3, and 4 remain placeholders and MUST be completed before
-the specific UI-related work they gate begins** — Review UI changes for
-Section 1, any event-emitting feature for Section 3, per-component
-logging changes for Section 4. Section 2 no longer gates CLI
-output/presentation work: it is normative as of ADR-002 and is exactly
-what unblocks the CLI Typer/Rich migration's Fase 2 onward.
+**Sections 1 and 3 remain placeholders and MUST be completed before the
+specific work they gate begins** — Review UI changes for Section 1, any
+pub/sub-event-emitting feature for Section 3. Section 2 no longer gates
+CLI output/presentation work (normative as of ADR-002); Section 4 no
+longer gates per-component logging work (normative as of Checkpoint C).

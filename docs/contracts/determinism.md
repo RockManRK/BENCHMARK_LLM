@@ -149,6 +149,25 @@ unsupported parameter surfaces as a normal API error, never a silent drop.
 
 ---
 
+### 7. Logging Visibility into Payload Determinism
+
+At `LOG_PROFILE=TRACE`, `REQUEST_PAYLOAD_TRACE` logs the full redacted
+canonical payload for each attempt (`src/core/execution_engine.py`,
+right after `build_chat_completion_payload()` constructs it) — this is
+the same single canonical payload described in Section 6 above and in
+`docs/status/model-seed-checkpoint-b-design.md`, not a second,
+independently-derived value. There is no separate `payload_fingerprint`
+field or hashing step anywhere in the system; the full (redacted)
+payload is what TRACE logs, not a digest of it — any prior design
+material describing a `payload_fingerprint` field describes an
+unimplemented proposal, not current behavior. Logging this payload is
+diagnostic only (see `docs/contracts/data-auditability.md` §4c) and has
+no bearing on determinism itself, which is guaranteed by construction
+(one payload object, reused for `request_json` and transport), not by
+anything logging observes.
+
+---
+
 ## What Determinism Does NOT Guarantee
 
 - **Same responses** — LLMs are non-deterministic; responses may vary

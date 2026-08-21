@@ -19,12 +19,16 @@ ARCHITECTURAL NOTE:
 """
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Optional
 
 import os
 
 from .special_config_values import FORCE_SYSTEM_DEFAULT
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
+from src.utils.logging_config import get_logger
 
 
 def parse_randomization_seed_strict(value: str | int | None) -> int | str | None:
@@ -111,12 +115,37 @@ class ConfigResolver:
         >>> prompt = resolver.resolve_prompt(cli_value="Custom prompt", env_key="SYSTEM_PROMPT", default=None)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
         """Initialize the configuration resolver.
 
         The env_dict starts empty and must be populated via load_env().
+
+        Args:
+            logger: Optional logger instance. If not provided, uses
+                get_logger('core.config_resolver'). Used only for
+                DETAILED-tier observability events (CONFIG_RESOLVED,
+                INHERITANCE_DECISION) — see
+                docs/status/checkpoint-c-logging-observability-design.md.
         """
         self.env_dict: dict[str, str] = {}
+        self._logger = logger or get_logger('core.config_resolver')
+
+    def _emit_system_default_applied(self, cli_args, *, scope: str, fields: dict[str, str]) -> None:
+        """Emit SYSTEM_DEFAULT_APPLIED (DETAILED-tier) listing which
+        config keys had `system-default` on the CLI for this
+        creation action — `fields` maps config key -> cli_args attribute
+        name. Never raises; a missing attribute is simply not flagged.
+        """
+        applied = [
+            config_key
+            for config_key, attr_name in fields.items()
+            if getattr(cli_args, attr_name, None) is FORCE_SYSTEM_DEFAULT
+        ]
+        if applied:
+            emit_event(
+                self._logger, Event.SYSTEM_DEFAULT_APPLIED, level=logging.DEBUG,
+                scope=scope, fields=applied,
+            )
 
     def load_env(self) -> dict[str, str]:
         """Create a cached snapshot of current os.environ.
@@ -345,7 +374,13 @@ class ConfigResolver:
         if cli_value is not None:
             parsed = parse_randomization_seed_strict(cli_value)
             if parsed == "AUTO":
-                return self._generate_randomization_seed_from_run(run_id, experiment_id)
+                resolved = self._generate_randomization_seed_from_run(run_id, experiment_id)
+                emit_event(
+                    self._logger, Event.INHERITANCE_DECISION, level=logging.DEBUG,
+                    run_id=run_id, experiment_id=experiment_id, key="RANDOMIZATION_SEED",
+                    source="cli_auto", resolved_value=resolved,
+                )
+                return resolved
             return parsed  # int, including 0
 
         # cli_value omitted -> inherit from the experiment
@@ -354,7 +389,13 @@ class ConfigResolver:
 
         parsed = parse_randomization_seed_strict(experiment_seed)
         if parsed == "AUTO":
-            return self._generate_randomization_seed_from_run(run_id, experiment_id)
+            resolved = self._generate_randomization_seed_from_run(run_id, experiment_id)
+            emit_event(
+                self._logger, Event.INHERITANCE_DECISION, level=logging.DEBUG,
+                run_id=run_id, experiment_id=experiment_id, key="RANDOMIZATION_SEED",
+                source="experiment_auto", resolved_value=resolved,
+            )
+            return resolved
         return parsed  # int, including 0
 
     def _generate_randomization_seed_from_run(self, run_id: str, experiment_id: str) -> int:
@@ -491,7 +532,7 @@ class ConfigResolver:
             default="first"
         )
 
-        return {
+        resolved = {
             # EXPERIMENT keys (3) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
             "PROVIDER_LOCK": resolved_provider_lock if resolved_provider_lock is not FORCE_SYSTEM_DEFAULT else None,
@@ -566,6 +607,25 @@ class ConfigResolver:
                 default=None
             ),
         }
+
+        emit_event(
+            self._logger, Event.CONFIG_RESOLVED, level=logging.DEBUG,
+            scope="experiment", experiment_name=getattr(cli_args, 'create_experiment', None),
+            resolved=resolved,
+        )
+        self._emit_system_default_applied(cli_args, scope="experiment", fields={
+            "BASE_URL": "url",
+            "MODEL_MAX_TOKENS_REASONING": "reasoning_tokens",
+            "MODEL_MAX_TOKENS_TOTAL": "max_tokens",
+            "MODEL_REASONING_EFFORT": "reasoning",
+            "MODEL_REPEAT_PENALTY": "repeat_penalty",
+            "MODEL_SEED": "model_seed",
+            "MODEL_TEMPERATURE": "temperature",
+            "MODEL_TOP_K": "top_k",
+            "MODEL_TOP_P": "top_p",
+        })
+
+        return resolved
 
     def _resolve_cli_or_experiment(
         self,
@@ -657,11 +717,24 @@ class ConfigResolver:
             exp_key="USER_PROMPT"
         )
 
-        return {
+        resolved = {
             "RANDOMIZATION_SEED": resolved_randomization_seed,
             "SYSTEM_PROMPT": resolved_system_prompt,
             "USER_PROMPT": resolved_user_prompt,
         }
+
+        emit_event(
+            self._logger, Event.CONFIG_RESOLVED, level=logging.DEBUG,
+            scope="run", run_id=run_id, experiment_id=getattr(experiment, 'experiment_id', None),
+            resolved=resolved,
+        )
+        self._emit_system_default_applied(cli_args, scope="run", fields={
+            "RANDOMIZATION_SEED": "randomization_seed",
+            "SYSTEM_PROMPT": "system_prompt",
+            "USER_PROMPT": "user_prompt",
+        })
+
+        return resolved
 
     def build_model_config_dict(self, cli_args, experiment) -> dict:
         """Build complete configuration dictionary for model variant creation.
@@ -712,7 +785,7 @@ class ConfigResolver:
             except ValueError:
                 return None
 
-        return {
+        resolved = {
             "BASE_URL": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'url', None),
                 exp_config,
@@ -783,6 +856,28 @@ class ConfigResolver:
                 parse_int
             ),
         }
+
+        emit_event(
+            self._logger, Event.CONFIG_RESOLVED, level=logging.DEBUG,
+            scope="model_variant", experiment_id=getattr(experiment, 'experiment_id', None),
+            resolved=resolved,
+        )
+        self._emit_system_default_applied(cli_args, scope="model_variant", fields={
+            "BASE_URL": "url",
+            "MODEL_MAX_TOKENS_REASONING": "reasoning_tokens",
+            "MODEL_MAX_TOKENS_TOTAL": "max_tokens",
+            "MODEL_REASONING_EFFORT": "reasoning",
+            "MODEL_REPEAT_PENALTY": "repeat_penalty",
+            "MODEL_SEED": "model_seed",
+            "MODEL_TEMPERATURE": "temperature",
+            "MODEL_TOP_K": "top_k",
+            "MODEL_TOP_P": "top_p",
+            "MODEL_VISION": "vision",
+            "STRUCTURED_OUTPUTS": "structured",
+            "PROVIDER": "provider",
+        })
+
+        return resolved
 
     def _parse_json_env(self, key: str) -> list | None:
         """Parse JSON array from environment variable.

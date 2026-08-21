@@ -1,0 +1,32 @@
+# Provider resolution command cases (area: provider). PR- prefix per the
+# manual roteiro. Most --resolve-providers behavior requires real
+# OpenRouter access (see docs/status/known-issues.md, "--resolve-providers
+# ignores a variant's BASE_URL, always hits real OpenRouter") and is not
+# covered here yet. This file currently holds only a pure argument-parsing
+# case, which never reaches the network (SYSTEM_DEFAULT_FORBIDDEN is
+# enforced at parse_args_normalized() time, before any repository/API
+# call — see src/cli/bcllm_provider.py's main()).
+cases:
+  - id: PR-001
+    name: "--experiment system-default e FORBIDDEN, exit 2 (identity selector, nunca normalizado)"
+    area: provider
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [system-default, contracts, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Black-box replacement for tests/unit/cli/test_experiment_flag_forbidden_consistency.py's
+      # test_bcllm_provider_experiment_system_default_rejected (marco 4A
+      # pre-conversion Fase 0, 2026-08-20). Pure CLI-parsing rejection —
+      # never reaches ProviderResolver/the network, so it needs no
+      # `requires: [openrouter]` tag, unlike other --resolve-providers
+      # coverage. Written now against bcllm_provider.py's still-argparse
+      # implementation, needs no rework when it migrates to Typer in
+      # marco 4C. See docs/status/known-issues.md.
+      argv: ["--experiment", "system-default", "--resolve-providers"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true

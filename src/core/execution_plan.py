@@ -368,6 +368,14 @@ class ExecutionPlan:
         created_at: Timestamp when the plan was created
         experiment_id: Parent experiment identifier
         runs: List of runs to execute
+        operation_id: Correlation ID for the CLI invocation that requested
+            this plan (None when built outside a CLI invocation, e.g. a
+            unit test). Not a data-model concept — never persisted to the
+            database — purely a logging/observability correlator threaded
+            through the execution pipeline so every event emitted while
+            executing this plan can be tied back to the single `--execute`
+            command that produced it. See
+            docs/status/checkpoint-c-logging-observability-design.md, §4.
 
     Example:
         plan = ExecutionPlan(
@@ -375,6 +383,7 @@ class ExecutionPlan:
             created_at=datetime.now(),
             experiment_id="exp-001",
             runs=[run1, run2],
+            operation_id="op_3f9a2b1c",
         )
 
     Notes:
@@ -388,3 +397,4 @@ class ExecutionPlan:
     created_at: datetime
     experiment_id: str
     runs: list[PlanRun]
+    operation_id: str | None = None

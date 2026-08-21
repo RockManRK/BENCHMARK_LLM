@@ -1,0 +1,10 @@
+# Development-only tooling — never installed at runtime, never shipped
+# with the package (setup.py's install_requires does not read this
+# file). Added 2026-08-20 dependency hygiene pass.
+#
+# pip-tools: compiles requirements.in -> requirements.txt (exact pins).
+# pip-audit: vulnerability scanning against the active environment or a
+#   requirements file (run manually/periodically — no CI wiring yet, see
+#   docs/status/known-issues.md, "No dependency audit tool...").
+pip-tools>=7.4.0
+pip-audit>=2.7.0

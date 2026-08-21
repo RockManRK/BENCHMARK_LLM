@@ -67,6 +67,9 @@ from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser, ParsedAnswer
 from src.core.retry import RetryHandler
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
+import logging
 from src.api.errors import APIError
 
 
@@ -184,6 +187,7 @@ class OpenRouterClient:
         self,
         payload: dict[str, Any],
         base_url: str | None = None,
+        operation_id: str | None = None,
     ) -> Any:
         """Call OpenRouter chat completion API."""
         ...
@@ -265,21 +269,24 @@ class ExecutionEngine:
         experiment_id = plan.experiment_id
         run_count = len(plan.runs)
         total_items = sum(len(run.items) for run in plan.runs)
+        operation_id = plan.operation_id
 
-        self._logger.info(
-            f"EXECUTION_START | experiment={experiment_id} | runs={run_count} | total_items={total_items}"
+        emit_event(
+            self._logger, Event.EXECUTION_START, operation_id=operation_id,
+            experiment_id=experiment_id, runs=run_count, total_items=total_items,
         )
 
         for run in plan.runs:
-            run_results = await self._execute_run_async(run, result_queue)
+            run_results = await self._execute_run_async(run, result_queue, operation_id=operation_id)
             all_results.extend(run_results)
 
         # Calculate summary statistics
         succeeded = sum(1 for r in all_results if r.status == 'success')
         failed = sum(1 for r in all_results if r.status == 'failure')
 
-        self._logger.info(
-            f"EXECUTION_COMPLETE | experiment={experiment_id} | total={total_items} | succeeded={succeeded} | failed={failed}"
+        emit_event(
+            self._logger, Event.EXECUTION_COMPLETE, operation_id=operation_id,
+            experiment_id=experiment_id, total=total_items, succeeded=succeeded, failed=failed,
         )
 
         return all_results
@@ -288,12 +295,15 @@ class ExecutionEngine:
         self,
         run: PlanRun,
         result_queue: asyncio.Queue,
+        operation_id: str | None = None,
     ) -> list[ExecutionResult]:
         """Execute all items in a single run asynchronously.
 
         Args:
             run: Plan run to execute
             result_queue: Shared queue to push results to
+            operation_id: Correlation ID for the CLI invocation, threaded
+                down from the parent ExecutionPlan (logging only).
 
         Returns:
             List of ExecutionResult for this run
@@ -305,7 +315,8 @@ class ExecutionEngine:
         # Create retry handler for this run using its retry policy
         run_retry_handler = RetryHandler(
             policy=run.retry_policy,
-            logger=self._logger
+            logger=self._logger,
+            operation_id=operation_id,
         )
 
         # Apply Randomization Seed if set
@@ -341,6 +352,7 @@ class ExecutionEngine:
             result = await self._execute_item_async(
                 item, run, run_retry_handler, result_queue,
                 item_index=i, run_option_map=run_option_map,
+                operation_id=operation_id,
             )
             results.append(result)
             completed = i + 1
@@ -348,8 +360,9 @@ class ExecutionEngine:
             # Log progress milestones
             if completed % milestone_interval == 0 or completed == total_items:
                 percent = int((completed / total_items) * 100)
-                self._logger.info(
-                    f"PROGRESS_MILESTONE | run={run.run_id} | completed={completed}/{total_items} | percent={percent}%"
+                emit_event(
+                    self._logger, Event.PROGRESS_MILESTONE, operation_id=operation_id,
+                    run_id=run.run_id, completed=completed, total=total_items, percent=percent,
                 )
 
         return results
@@ -362,6 +375,7 @@ class ExecutionEngine:
         result_queue: Optional[asyncio.Queue] = None,
         item_index: Optional[int] = None,
         run_option_map: Optional[dict[str, str]] = None,
+        operation_id: str | None = None,
     ) -> ExecutionResult:
         """Execute a single item asynchronously with retry policy.
 
@@ -388,9 +402,9 @@ class ExecutionEngine:
         # Capture start timestamp
         started_at = datetime.now()
 
-        # Log item start
-        self._logger.info(
-            f"ITEM_START | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id}"
+        emit_event(
+            self._logger, Event.ITEM_START, operation_id=operation_id,
+            run_id=item.run_id, variant_id=item.variant_id, snapshot_id=item.snapshot_id,
         )
 
         # Get the variant for this item
@@ -399,8 +413,10 @@ class ExecutionEngine:
             error_msg = f"Variant {item.variant_id} not found in run"
             # Capture finish timestamp for config error
             finished_at = datetime.now()
-            self._logger.error(
-                f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type=config_error | error={error_msg}"
+            emit_event(
+                self._logger, Event.ITEM_FAILED, level=logging.ERROR, operation_id=operation_id,
+                run_id=item.run_id, variant_id=item.variant_id, snapshot_id=item.snapshot_id,
+                error_type="config_error", error=error_msg,
             )
             result = ExecutionResult(
                 item_id=item.item_id,
@@ -528,6 +544,7 @@ class ExecutionEngine:
                 options=options,
                 user_prompt_template=run.prompts_effective.user,
                 model_config=variant.model_config_effective,
+                operation_id=operation_id,
             )
 
             # Build messages - filter out None content (system-default means "do not send")
@@ -555,18 +572,26 @@ class ExecutionEngine:
                     "only": [provider_slug],
                     "allow_fallbacks": False
                 }
-                self._logger.info(
-                    f"PROVIDER_LOCKED | run={item.run_id} | variant={item.variant_id} | "
-                    f"provider={provider_slug}"
+                emit_event(
+                    self._logger, Event.PROVIDER_LOCKED, operation_id=operation_id,
+                    run_id=item.run_id, variant_id=item.variant_id, provider=provider_slug,
                 )
 
+            # Requested provider (NORMAL-tier: "provider solicitado" — the
+            # effective/actually-used provider, when the response reports
+            # one, is logged separately as PROVIDER_EFFECTIVE below, after
+            # the API call completes).
+            emit_event(
+                self._logger, Event.PROVIDER_REQUESTED, operation_id=operation_id,
+                run_id=item.run_id, variant_id=item.variant_id, provider=provider_slug,
+            )
+
             if model_config.reasoning_effort is not None and model_config.max_reasoning_tokens is not None:
-                self._logger.warning(
-                    f"REASONING_CONFLICT | run={item.run_id} | variant={item.variant_id} | "
-                    f"snapshot={item.snapshot_id} | "
-                    f"Both reasoning_effort='{model_config.reasoning_effort}' and "
-                    f"max_reasoning_tokens={model_config.max_reasoning_tokens} are set. "
-                    f"Prioritizing reasoning_effort and ignoring max_reasoning_tokens."
+                emit_event(
+                    self._logger, Event.REASONING_CONFLICT, level=logging.WARNING,
+                    operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                    snapshot_id=item.snapshot_id, reasoning_effort=model_config.reasoning_effort,
+                    max_reasoning_tokens=model_config.max_reasoning_tokens,
                 )
 
             # Build the ONE canonical request payload. This same object is
@@ -605,12 +630,23 @@ class ExecutionEngine:
             # Store in context for exception handling
             execution_context["request_json"] = request_json
 
+            # TRACE-only: the canonical payload itself, redacted (emit_event
+            # applies redaction unconditionally — never the raw object).
+            # Same object request_json was derived from — never a second
+            # construction (docs/status/model-seed-checkpoint-b-design.md, Part 1).
+            emit_event(
+                self._logger, Event.REQUEST_PAYLOAD_TRACE, level=logging.DEBUG,
+                operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                payload=payload,
+            )
+
             # Call API (this is what RetryHandler will retry). The payload
             # is passed through unmodified — OpenRouterClient never
             # reconstructs it.
             response = await self.api_client.chat_completion(
                 payload=payload,
                 base_url=model_config.base_url,
+                operation_id=operation_id,
             )
 
             # Extract response data
@@ -622,6 +658,42 @@ class ExecutionEngine:
             cost = response.cost if hasattr(response, 'cost') else None
             finish_reason = self._extract_finish_reason(response)
             raw_response = response.raw_response if hasattr(response, 'raw_response') else None
+
+            # Effective provider — as reported back by OpenRouter in the
+            # response itself, distinct from the requested one logged as
+            # PROVIDER_REQUESTED above (they can differ when no provider
+            # was pinned, or in principle even when one was). Only emitted
+            # when the response actually carries it ("quando disponível").
+            effective_provider = self._extract_effective_provider(raw_response)
+            if effective_provider is not None:
+                emit_event(
+                    self._logger, Event.PROVIDER_EFFECTIVE, operation_id=operation_id,
+                    run_id=item.run_id, variant_id=item.variant_id, provider=effective_provider,
+                )
+
+            # TRACE-only: response-side evidence, kept structurally distinct
+            # from REQUEST_PAYLOAD_TRACE above (never merged into it — see
+            # docs/status/checkpoint-c-logging-observability-design.md, §7
+            # and docs/contracts/data-auditability.md §4b). The upstream
+            # echo (when debug was on) and every raw SSE chunk, redacted.
+            if isinstance(raw_response, list):
+                upstream_echo = None
+                for chunk in raw_response:
+                    if isinstance(chunk, dict) and "debug" in chunk:
+                        upstream_echo = chunk["debug"]
+                        break
+                if upstream_echo is not None:
+                    emit_event(
+                        self._logger, Event.UPSTREAM_ECHO_TRACE, level=logging.DEBUG,
+                        operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                        echo=upstream_echo,
+                    )
+                for chunk_index, chunk in enumerate(raw_response):
+                    emit_event(
+                        self._logger, Event.STREAM_CHUNK_TRACE, level=logging.DEBUG,
+                        operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                        chunk_index=chunk_index, chunk=chunk,
+                    )
 
             # Consolidated version for human-readable debug (separate from raw)
             raw_response_consolidated: str | None = None
@@ -656,17 +728,18 @@ class ExecutionEngine:
                 # This is a successful execution with model error, not an execution failure
                 error_details = self._extract_error_details(response)
 
-                self._logger.warning(
-                    f"MODEL_ERROR | run={item.run_id} | variant={item.variant_id} | "
-                    f"snapshot={item.snapshot_id} | error={error_details}"
+                emit_event(
+                    self._logger, Event.MODEL_ERROR, level=logging.WARNING,
+                    operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                    snapshot_id=item.snapshot_id, error=error_details,
                 )
 
             # Check for no-content scenario (OpenRouter warm-up/scaling)
             if not response_text or response_text.strip() == '':
-                self._logger.warning(
-                    f"NO_CONTENT | run={item.run_id} | variant={item.variant_id} | "
-                    f"snapshot={item.snapshot_id} | Model returned empty content "
-                    f"(possible warm-up or scaling scenario)"
+                emit_event(
+                    self._logger, Event.NO_CONTENT, level=logging.WARNING,
+                    operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                    snapshot_id=item.snapshot_id,
                 )
                 # Still return success with empty content - not an error
 
@@ -735,9 +808,23 @@ class ExecutionEngine:
             # Calculate total tokens for logging
             total_tokens = (input_tokens or 0) + (response_tokens or 0) + (reasoning_tokens or 0)
 
-            # Log success
-            self._logger.info(
-                f"ITEM_COMPLETE | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | latency={latency_ms}ms | tokens={total_tokens} | cost={cost}"
+            emit_event(
+                self._logger, Event.PARSE_DECISION, level=logging.DEBUG,
+                operation_id=operation_id, run_id=item.run_id, variant_id=item.variant_id,
+                snapshot_id=item.snapshot_id, selected_answer=parsed.answer,
+                parse_confidence=parsed.confidence,
+            )
+
+            emit_event(
+                self._logger, Event.RANDOMIZATION_APPLIED, level=logging.DEBUG,
+                operation_id=operation_id, run_id=item.run_id, snapshot_id=item.snapshot_id,
+                randomization_enabled=randomization_enabled, randomization_seed=randomization_seed,
+            )
+
+            emit_event(
+                self._logger, Event.ITEM_COMPLETE, operation_id=operation_id,
+                run_id=item.run_id, variant_id=item.variant_id, snapshot_id=item.snapshot_id,
+                duration_ms=latency_ms, tokens=total_tokens, cost=cost, outcome="success",
             )
 
             result = ExecutionResult(
@@ -789,9 +876,10 @@ class ExecutionEngine:
             # Capture finish timestamp
             finished_at = datetime.now()
 
-            # Log failure
-            self._logger.error(
-                f"ITEM_FAILED | run={item.run_id} | variant={item.variant_id} | snapshot={item.snapshot_id} | error_type={last_error_type} | error={last_error_message}"
+            emit_event(
+                self._logger, Event.ITEM_FAILED, level=logging.ERROR, operation_id=operation_id,
+                run_id=item.run_id, variant_id=item.variant_id, snapshot_id=item.snapshot_id,
+                error_type=last_error_type, error=last_error_message,
             )
 
             result = ExecutionResult(
@@ -897,6 +985,7 @@ class ExecutionEngine:
         options: list[str],
         user_prompt_template: str,
         model_config: ModelConfig,
+        operation_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Build user message for an item (text-only or multimodal).
 
@@ -965,9 +1054,9 @@ class ExecutionEngine:
                 raise FileNotFoundError(error_msg)
 
             # Build multimodal message
-            self._logger.info(
-                f"VISION_ENABLED | question={item.question_id} | "
-                f"image={image_path} | building multimodal message"
+            emit_event(
+                self._logger, Event.VISION_ENABLED, operation_id=operation_id,
+                question_id=item.question_id, image=str(image_path),
             )
             return MessageBuilder.build_multimodal_message(
                 text=text_prompt,
@@ -976,10 +1065,10 @@ class ExecutionEngine:
 
         # Question has images but vision is NOT enabled for this variant
         if has_image and image_path_str is not None:
-            self._logger.warning(
-                f"VISION_DISABLED | question={item.question_id} | "
-                f"question has image ({image_path_str}) but model variant has "
-                f"enable_vision=False. Sending text-only message (image omitted)."
+            emit_event(
+                self._logger, Event.VISION_DISABLED, level=logging.WARNING,
+                operation_id=operation_id, question_id=item.question_id,
+                image_path=image_path_str,
             )
 
         # Build text-only message
@@ -1064,6 +1153,30 @@ class ExecutionEngine:
         if hasattr(response, "finish_reason"):
             return response.finish_reason
 
+        return None
+
+    def _extract_effective_provider(self, raw_response: Any) -> str | None:
+        """Extract the provider OpenRouter actually reports having used,
+        from the raw response chunks — distinct from the requested
+        provider (PlanVariant.resolved_provider, logged as
+        PROVIDER_REQUESTED). Logging-only; never persisted separately
+        from raw_response/raw_response_consolidated, which already carry
+        it.
+
+        Args:
+            raw_response: The raw response chunks (list, for streaming)
+                or dict (non-streaming), or None.
+
+        Returns:
+            The provider string if any chunk/response carries one, else None.
+        """
+        if isinstance(raw_response, list):
+            for chunk in raw_response:
+                if isinstance(chunk, dict) and chunk.get("provider"):
+                    return chunk["provider"]
+            return None
+        if isinstance(raw_response, dict):
+            return raw_response.get("provider")
         return None
 
     def _extract_error_details(self, response: Any) -> str:

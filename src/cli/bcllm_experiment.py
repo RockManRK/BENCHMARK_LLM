@@ -18,7 +18,6 @@ Exit Codes:
     1: Validation error (not found, collision, invalid input)
 """
 
-import argparse
 import hashlib
 import json
 import sys
@@ -28,14 +27,17 @@ from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.core import QuestionLoader, build_question_snapshot_payload
 from src.core.config_resolver import ConfigResolver
-from src.core.argv_utils import parse_args_normalized, NonExitingArgumentParser, ParserExit
-from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, parse_int_or_system_default, parse_float_or_system_default, normalize_filter_list_or_system_default
+from src.core.argv_utils import ParserExit
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT
+from src.cli.commands.experiment import parse_experiment_argv, ExperimentParsedArgs
 from src.db.repository import ExperimentRepository, SnapshotRepository, VariantRepository
 from src.db.models import Experiment, ModelVariant, QuestionSnapshot
 from src.utils.variant_signature import generate_variant_signature
 from src.validators.model_id_validator import validate_model_id
 from src.cli.bcllm_questions import parse_filter, filter_questions
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -58,187 +60,18 @@ def _validate_expected_mode(mode: Mode) -> None:
         sys.exit(1)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for experiment commands.
-
-    Returns:
-        NonExitingArgumentParser configured with all experiment commands
-        — see src/core/argv_utils.py for why this is NOT a plain
-        argparse.ArgumentParser: bcllm.py's composite flow parses
-        experiment-creation-time flags with this exact parser
-        (_handle_composite_flow's pure parse phase, before any database
-        connection is opened) and must be able to catch a usage error as
-        ParserExit rather than have argparse's own uncontrolled
-        sys.exit() escape past that phase's error handling. See
-        docs/status/composite-flow-unit-of-work-design.md.
-    """
-    parser = NonExitingArgumentParser(
-        prog="bcllm_experiment.py",
-        description="Experiment lifecycle management",
-    )
-
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--create-experiment",
-        metavar="NAME",
-        help="Create new experiment",
-    )
-    group.add_argument(
-        "--experiment",
-        metavar="NAME",
-        help="Show experiment details",
-    )
-    group.add_argument(
-        "--list-experiments",
-        action="store_true",
-        help="List all experiments",
-    )
-    group.add_argument(
-        "--remove-experiment",
-        metavar="NAME",
-        help="Remove experiment (soft delete)",
-    )
-
-    parser.add_argument(
-        "--output",
-        choices=["console", "json", "csv", "markdown"],
-        default="console",
-        help="Output format",
-    )
-
-    parser.add_argument(
-        "--randomization-seed",
-        metavar="SEED",
-        help="Set the experiment's default Randomization Seed (AUTO, empty, "
-             "or number) — controls AnswerRandomizer only, never sent to the API",
-    )
-    parser.add_argument(
-        "--system-prompt",
-        metavar="PROMPT",
-        help="Custom system prompt (run default)",
-    )
-    parser.add_argument(
-        "--user-prompt",
-        metavar="PROMPT",
-        help="Custom user prompt (run default)",
-    )
-    parser.add_argument(
-        "--url",
-        metavar="URL",
-        help="Base URL for model API (model default)",
-    )
-    parser.add_argument(
-        "--max-reasoning",
-        metavar="TOKENS",
-        type=parse_int_or_system_default,
-        help="Max tokens for reasoning (model default)",
-    )
-    parser.add_argument(
-        "--max-tokens",
-        metavar="TOKENS",
-        type=parse_int_or_system_default,
-        help="Max total tokens (model default)",
-    )
-    parser.add_argument(
-        "--reasoning",
-        metavar="EFFORT",
-        type=str,
-        help="Reasoning effort level (model default)",
-    )
-    parser.add_argument(
-        "--repeat-penalty",
-        metavar="VALUE",
-        type=parse_float_or_system_default,
-        help="Repeat penalty (model default)",
-    )
-    parser.add_argument(
-        "--model-seed",
-        metavar="N",
-        type=parse_int_or_system_default,
-        help="MODEL_SEED - Sent as the API request's 'seed' field for "
-             "deterministic inference (model default). Distinct from "
-             "--randomization-seed, which controls only answer-option "
-             "shuffling and is never sent to the API.",
-    )
-    parser.add_argument(
-        "--temperature",
-        metavar="VALUE",
-        type=parse_float_or_system_default,
-        help="Temperature (model default)",
-    )
-    parser.add_argument(
-        "--top-k",
-        metavar="VALUE",
-        type=parse_int_or_system_default,
-        help="Top-K sampling (model default)",
-    )
-    parser.add_argument(
-        "--top-p",
-        metavar="VALUE",
-        type=parse_float_or_system_default,
-        help="Top-P sampling (model default)",
-    )
-    parser.add_argument(
-        "--reasoning-tokens",
-        type=parse_int_or_system_default,
-        metavar="TOKENS",
-        help="Max tokens for reasoning (model default)",
-    )
-    parser.add_argument(
-        "--vision",
-        type=str,
-        metavar="VALUE",
-        help="Enable vision support. Valid values: true, false, null (case-insensitive). Default: false",
-    )
-    parser.add_argument(
-        "--structured",
-        type=str,
-        metavar="VALUE",
-        help="Enable structured outputs. Valid values: true, false, null (case-insensitive). Default: false",
-    )
-    parser.add_argument(
-        "--add-model",
-        action="append",
-        metavar="MODEL_ID",
-        help="Add model variant at creation time (can be used multiple times)",
-    )
-    parser.add_argument(
-        "--add-questions",
-        metavar="SPEC",
-        help="Add questions at creation time. Format: \"1, 3, 5\" (comma-separated), \"1-10\" (range), or \"1, 3-5, Q010\" (mixed). Quote arguments with spaces.",
-    )
-    parser.add_argument(
-        "--questions",
-        dest="add_questions",  # True alias: populates args.add_questions
-        metavar="SPEC",
-        help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
-    )
-    parser.add_argument(
-        "--where",
-        metavar="FILTER",
-        action="append",
-        help="Include filter for questions (format: field=value, e.g., status=valid)",
-    )
-    parser.add_argument(
-        "--exclude",
-        metavar="FILTER",
-        action="append",
-        help="Exclude filter for questions (format: field=value, e.g., status=annulled)",
-    )
-    parser.add_argument(
-        "--provider-lock",
-        type=str,
-        metavar="VALUE",
-        help="Enable provider lock. Valid values: true, false, system-default (case-insensitive). Default: false",
-    )
-
-    return parser
-
-
 # Explicit opt-in classification for system-default recognition — see
 # src/core/special_config_values.py::normalize_special_config_values and
 # docs/contracts/system-default-semantics.md for the full SUPPORTED/
-# FORBIDDEN/NOT_APPLICABLE contract this implements.
+# FORBIDDEN/NOT_APPLICABLE contract this implements. Kept as module-level
+# constants for cross-module consistency checks
+# (tests/unit/cli/test_system_default_classification_consistency.py) —
+# no longer consumed by parsing directly since the Typer conversion
+# (marco 4A, 2026-08-20): src/cli/commands/experiment.py's
+# _experiment_command declares the same classification via its per-option
+# callbacks and the explicit typer_filter_list_or_system_default() call
+# for where/exclude — see that module for the real, executed source of
+# truth.
 SYSTEM_DEFAULT_SUPPORTED = {
     'randomization_seed', 'system_prompt', 'user_prompt',
     'max_reasoning', 'max_tokens', 'reasoning', 'repeat_penalty',
@@ -251,7 +84,7 @@ SYSTEM_DEFAULT_FORBIDDEN = {
 
 
 def _create_experiment_with_config(
-    name: str, args: argparse.Namespace, conn, logger, *, commit: bool = True,
+    name: str, args: ExperimentParsedArgs, conn, logger, *, commit: bool = True,
 ) -> Experiment:
     """Create experiment with resolved configuration from ConfigResolver.
 
@@ -314,10 +147,12 @@ def _create_experiment_with_config(
     
     # Save to database
     repo.save(experiment, commit=commit)
-    
-    # Log creation with experiment name and ID
-    logger.info(f"EXPERIMENT_CREATED | name={name} | experiment_id={experiment.experiment_id}")
-    
+
+    emit_event(
+        logger, Event.EXPERIMENT_CREATED,
+        name=name, experiment_id=experiment.experiment_id,
+    )
+
     return experiment
 
 
@@ -455,6 +290,10 @@ def _add_models_at_creation(args, experiment: Experiment, conn, resolver: Config
         )
 
         var_repo.save(variant)
+        emit_event(
+            get_logger('cli.experiment'), Event.MODEL_ADDED,
+            experiment=experiment.name, model_id=model_id, variant_signature=variant_signature,
+        )
         print(f"✓ Model variant '{variant_signature}' added")
 
     return 0
@@ -731,6 +570,10 @@ def handle_remove_experiment(args, conn) -> int:
     Returns:
         1, always. No database access.
     """
+    emit_event(
+        get_logger('cli.experiment'), Event.MUTATION_REFUSED,
+        experiment=args.remove_experiment, reason="remove_experiment_disabled",
+    )
     print(
         "Error: --remove-experiment is currently disabled.\n"
         "Removing an experiment would hard-delete its question snapshots, "
@@ -767,6 +610,10 @@ def handle_modify_provider_lock(args, conn) -> int:
     Returns:
         1, always. No database access.
     """
+    emit_event(
+        get_logger('cli.experiment'), Event.MUTATION_REFUSED,
+        experiment=args.experiment, reason="provider_lock_modify_disabled",
+    )
     print(
         "Error: --provider-lock on an existing --experiment is currently disabled.\n"
         "Modifying PROVIDER_LOCK after creation would rewrite the experiment's "
@@ -789,26 +636,8 @@ def main(mode: Mode) -> int:
         Exit code (0 for success, 1 for error).
     """
     _validate_expected_mode(mode)
-    parser = create_parser()
     try:
-        try:
-            args = parse_args_normalized(
-                parser,
-                supported=SYSTEM_DEFAULT_SUPPORTED,
-                forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-            )
-            args.where = normalize_filter_list_or_system_default(args.where)
-            args.exclude = normalize_filter_list_or_system_default(args.exclude)
-        except argparse.ArgumentError as e:
-            # See src/cli/bcllm_model.py::main for why this is caught here
-            # rather than inside parse_args_normalized itself.
-            parser.error(str(e))  # raises ParserExit(2, ...) — see except below
-        except ValueError as e:
-            # normalize_filter_list_or_system_default's contradiction/deprecated
-            # 'null' errors — same exit-2 usage-error treatment. Raised, and
-            # this whole block runs, BEFORE get_database_connection() below —
-            # no persistent effect is possible from a rejection here.
-            parser.error(str(e))  # raises ParserExit(2, ...)
+        args = parse_experiment_argv(sys.argv[1:])
     except ParserExit as e:
         return e.status
 
@@ -827,7 +656,12 @@ def main(mode: Mode) -> int:
         elif args.remove_experiment:
             return handle_remove_experiment(args, conn)
         else:
-            parser.print_help()
+            # Unreachable: parse_experiment_argv's mutex-group check
+            # already guarantees exactly one of create_experiment/
+            # experiment/list_experiments/remove_experiment is set — kept
+            # only as a defensive fallback, matching the original
+            # argparse version's equivalent branch.
+            print("Error: no valid experiment action specified.", file=sys.stderr)
             return 1
     finally:
         conn.close()

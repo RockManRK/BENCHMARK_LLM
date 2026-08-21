@@ -33,6 +33,9 @@ from typing import Any, Awaitable, Callable, Optional, TypeVar
 from src.core.execution_plan import RetryPolicy
 from src.api.errors import APIError
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
+import logging
 
 
 T = TypeVar('T')
@@ -54,15 +57,23 @@ class RetryHandler:
         >>> result = await handler.execute_with_retry(some_async_func)
     """
 
-    def __init__(self, policy: RetryPolicy | None = None, logger: Optional[Logger] = None) -> None:
+    def __init__(
+        self,
+        policy: RetryPolicy | None = None,
+        logger: Optional[Logger] = None,
+        operation_id: str | None = None,
+    ) -> None:
         """Initialize retry handler.
 
         Args:
             policy: Retry policy configuration. Uses default if None.
             logger: Optional logger instance. If not provided, uses get_logger('api.retry').
+            operation_id: Correlation ID for the CLI invocation this
+                handler's retries belong to (logging only).
         """
         self.policy = policy if policy is not None else RetryPolicy()
         self._logger = logger or get_logger('api.retry')
+        self._operation_id = operation_id
 
     def is_retryable(self, error: APIError) -> bool:
         """Check if error is retryable based on policy.
@@ -138,9 +149,9 @@ class RetryHandler:
         if context:
             log_context = f"{log_context} | {context}"
 
-        # Log retry start
-        self._logger.info(
-            f"RETRY_START | {log_context} | max_attempts={max_attempts}"
+        emit_event(
+            self._logger, Event.RETRY_START, operation_id=self._operation_id,
+            context=log_context, max_attempts=max_attempts,
         )
 
         last_exception: Exception | None = None
@@ -152,8 +163,9 @@ class RetryHandler:
 
                 # Log success after retry (if attempt > 1)
                 if attempt > 1:
-                    self._logger.info(
-                        f"RETRY_SUCCESS | {log_context} | attempts={attempt}"
+                    emit_event(
+                        self._logger, Event.RETRY_SUCCESS, operation_id=self._operation_id,
+                        context=log_context, attempts=attempt,
                     )
 
                 return result
@@ -164,9 +176,10 @@ class RetryHandler:
 
                 # Check if retryable
                 if not self.is_retryable(e):
-                    self._logger.warning(
-                        f"RETRY_NON_RETRYABLE | {log_context} | "
-                        f"attempt={attempt} | error_type={e.error_type}"
+                    emit_event(
+                        self._logger, Event.RETRY_NON_RETRYABLE, level=logging.WARNING,
+                        operation_id=self._operation_id, context=log_context,
+                        attempt=attempt, error_type=e.error_type,
                     )
                     raise
 
@@ -177,10 +190,11 @@ class RetryHandler:
                 # Wait before retry
                 delay = self.calculate_delay(attempt)
 
-                # Log retry attempt
-                self._logger.warning(
-                    f"RETRY_ATTEMPT | {log_context} | "
-                    f"attempt={attempt}/{max_attempts} | delay={delay:.2f}s | error={error_message}"
+                emit_event(
+                    self._logger, Event.RETRY_ATTEMPT, level=logging.WARNING,
+                    operation_id=self._operation_id, context=log_context,
+                    attempt=attempt, max_attempts=max_attempts,
+                    delay_ms=round(delay * 1000), error=error_message,
                 )
 
                 await asyncio.sleep(delay)
@@ -202,10 +216,10 @@ class RetryHandler:
 
                 # Fail fast for programming errors and unknown exceptions
                 if not isinstance(e, RETRYABLE_EXCEPTIONS):
-                    self._logger.error(
-                        f"RETRY_NON_RETRYABLE | {log_context} | "
-                        f"attempt={attempt} | error_type={error_type} | "
-                        f"error={error_message}"
+                    emit_event(
+                        self._logger, Event.RETRY_NON_RETRYABLE, level=logging.ERROR,
+                        operation_id=self._operation_id, context=log_context,
+                        attempt=attempt, error_type=error_type, error=error_message,
                     )
                     raise  # Programming error or unknown exception - fail immediately
 
@@ -216,10 +230,11 @@ class RetryHandler:
                 # Wait before retry (use default delay for transient errors)
                 delay = self.calculate_delay(attempt)
 
-                # Log retry attempt for whitelisted transient error
-                self._logger.warning(
-                    f"RETRY_ATTEMPT | {log_context} | "
-                    f"attempt={attempt}/{max_attempts} | delay={delay:.2f}s | error={error_message}"
+                emit_event(
+                    self._logger, Event.RETRY_ATTEMPT, level=logging.WARNING,
+                    operation_id=self._operation_id, context=log_context,
+                    attempt=attempt, max_attempts=max_attempts,
+                    delay_ms=round(delay * 1000), error=error_message,
                 )
 
                 await asyncio.sleep(delay)
@@ -227,8 +242,10 @@ class RetryHandler:
         # All attempts exhausted
         if last_exception is not None:
             error_message = str(last_exception)
-            self._logger.error(
-                f"RETRY_EXHAUSTED | {log_context} | attempts={attempt} | last_error={error_message}"
+            emit_event(
+                self._logger, Event.RETRY_EXHAUSTED, level=logging.ERROR,
+                operation_id=self._operation_id, context=log_context,
+                attempts=attempt, last_error=error_message,
             )
             # Attach attempt count to exception for ExecutionResult
             setattr(last_exception, '_retry_attempts', attempt)

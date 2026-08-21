@@ -41,6 +41,8 @@ from logging import Logger
 from typing import Optional
 
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 class RunFinalizer:
@@ -61,16 +63,23 @@ class RunFinalizer:
         >>> print(result)  # {'status': 'completed', 'duration_ms': 5000, 'response_count': 10}
     """
 
-    def __init__(self, db_connection: sqlite3.Connection, logger: Optional[Logger] = None) -> None:
+    def __init__(
+        self,
+        db_connection: sqlite3.Connection,
+        logger: Optional[Logger] = None,
+        operation_id: str | None = None,
+    ) -> None:
         """Initialize with database connection.
 
         Args:
             db_connection: SQLite database connection with row_factory enabled
             logger: Optional logger instance. If not provided, uses
                     get_logger('core.run_finalizer').
+            operation_id: Correlation ID for the CLI invocation (logging only).
         """
         self.conn = db_connection
         self._logger = logger or get_logger('core.run_finalizer')
+        self._operation_id = operation_id
 
     def finalize_run(self, run_id: str) -> dict:
         """Compute run status and duration from DB state.
@@ -148,9 +157,10 @@ class RunFinalizer:
 
             self.conn.commit()
 
-            self._logger.info(
-                f"RUN_FINALIZED | run={run_id} | status={status} | "
-                f"duration_ms={duration_ms} | responses={success_count} | errors={error_count}"
+            emit_event(
+                self._logger, Event.RUN_FINALIZED, operation_id=self._operation_id,
+                run_id=run_id, status=status, duration_ms=duration_ms,
+                responses=success_count, errors=error_count,
             )
 
             return {

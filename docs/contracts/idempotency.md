@@ -151,6 +151,25 @@ if not self._result_exists(run_id, variant_id, snapshot_id):
 
 ---
 
+## Logging Never Affects Idempotency
+
+Idempotency state (what has/hasn't been executed) lives **only** in the
+`responses`/`errors` tables via the `UNIQUE(run_id, variant_id,
+snapshot_id)` + `INSERT OR IGNORE` pattern above — never in logs. A
+logging failure (handler I/O error, redaction exception, disk full,
+process killed mid-write) must never be interpreted by resume/retry
+logic as "this item was not yet attempted": `emit_event()`
+(`src/utils/log_emitter.py`) catches and swallows its own failures so
+they can never block or delay the DB write that actually determines
+idempotency, and a missing/incomplete log line carries no meaning for
+whether an item needs re-execution. Verified in
+`tests/unit/utils/test_logging_concurrency_crash_safety.py::TestHandlerFailureNeverBreaksExecution::test_write_failure_does_not_cause_duplicate_result_semantics`.
+See `docs/contracts/interaction-contracts.md` §4 and
+`docs/contracts/data-auditability.md` §4c for the broader logs-vs-DB
+separation this follows from.
+
+---
+
 ## Related Contracts
 
 - [determinism.md](determinism.md) — Same config produces same requests

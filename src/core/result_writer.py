@@ -11,6 +11,7 @@ Key Principles:
 """
 
 import json
+import logging
 import sqlite3
 from logging import Logger
 from typing import Optional
@@ -18,6 +19,8 @@ from typing import Optional
 from src.core.execution_engine import ExecutionResult
 from src.core.json_serializer import serialize_json
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 class ResultWriter:
@@ -40,12 +43,18 @@ class ResultWriter:
         >>> writer.write_result(result)
     """
 
-    def __init__(self, db_connection: sqlite3.Connection, logger: Optional[Logger] = None) -> None:
+    def __init__(
+        self,
+        db_connection: sqlite3.Connection,
+        logger: Optional[Logger] = None,
+        operation_id: str | None = None,
+    ) -> None:
         """Initialize with database connection.
 
         Args:
             db_connection: SQLite database connection with row_factory enabled
             logger: Optional logger instance. If not provided, uses get_logger('core.result_writer').
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Example:
             >>> conn = sqlite3.connect(':memory:')
@@ -54,6 +63,7 @@ class ResultWriter:
         """
         self.db_connection = db_connection
         self._logger = logger or get_logger('core.result_writer')
+        self._operation_id = operation_id
 
     def write_result(self, result: ExecutionResult) -> None:
         """Write a single ExecutionResult to the database.
@@ -271,10 +281,16 @@ class ResultWriter:
 
         # rowcount > 0 means INSERT succeeded (not ignored)
         if cursor.rowcount > 0:
-            self._logger.debug(f"WRITE_COMPLETE | run={result.run_id} | response_id={response_id}")
+            emit_event(
+                self._logger, Event.WRITE_COMPLETE, level=logging.DEBUG,
+                operation_id=self._operation_id, run_id=result.run_id, response_id=response_id,
+            )
             return True
         else:
-            self._logger.debug(f"WRITE_SKIP_IDEMPOTENT | run={result.run_id} | response_id={response_id}")
+            emit_event(
+                self._logger, Event.WRITE_SKIP_IDEMPOTENT, level=logging.DEBUG,
+                operation_id=self._operation_id, run_id=result.run_id, response_id=response_id,
+            )
             return False
 
     def _write_error(self, result: ExecutionResult) -> None:
@@ -418,7 +434,11 @@ class ResultWriter:
 
         row = cursor.fetchone()
         if row is None:
-            self._logger.error(f"WRITE_ERROR | variant={variant_id} | error=Variant not found")
+            emit_event(
+                self._logger, Event.WRITE_ERROR, level=logging.ERROR,
+                operation_id=self._operation_id, variant_id=variant_id,
+                error="Variant not found",
+            )
             raise ValueError(f"Variant not found: {variant_id}")
 
         return row['model_id']

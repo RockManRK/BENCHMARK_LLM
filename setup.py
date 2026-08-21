@@ -1,4 +1,39 @@
+import re
+from pathlib import Path
+
 from setuptools import setup, find_packages
+
+# The distributed `bcllm` CLI package's true runtime dependencies — a
+# curated subset of requirements.in (which also lists test-only tools:
+# pytest, pytest-asyncio, pytest-mock, responses, PyYAML — those must
+# NEVER end up in install_requires, or `pip install -e .` would pull test
+# tooling into every install). This is the ONLY place that subset is
+# named; the version constraint for each is never re-typed here — it is
+# read directly out of requirements.in below, so a bound change there
+# (e.g. bumping typer's upper bound) never needs a second manual edit.
+_RUNTIME_PACKAGE_NAMES = {
+    "httpx", "pydantic", "pydantic-settings", "pillow", "python-dotenv",
+    "rich", "typer",
+}
+
+
+def _read_runtime_requirements() -> list[str]:
+    """Derive install_requires from requirements.in — the single
+    canonical source of direct dependencies (2026-08-20 dependency
+    hygiene pass, docs/status/known-issues.md). Filters to
+    _RUNTIME_PACKAGE_NAMES only; requirements.in's test-only entries
+    (pytest, PyYAML, ...) are intentionally excluded here."""
+    req_path = Path(__file__).parent / "requirements.in"
+    result = []
+    for line in req_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.match(r"^([A-Za-z0-9_.-]+)", line)
+        if match and match.group(1).lower() in _RUNTIME_PACKAGE_NAMES:
+            result.append(line)
+    return result
+
 
 setup(
     name="benchmark_llm",
@@ -28,14 +63,6 @@ setup(
             "bcllm=bcllm:cli_main",
         ],
     },
-    install_requires=[
-        "httpx>=0.25.0",
-        "pydantic>=2.0.0",
-        "pydantic-settings>=2.0.0",
-        "Pillow>=10.0.0",
-        "python-dotenv>=1.0.0",
-        "rich>=13.0.0",
-        "typer>=0.27.1",
-    ],
+    install_requires=_read_runtime_requirements(),
     python_requires=">=3.10",
 )

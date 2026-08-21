@@ -45,6 +45,7 @@ Planner used to re-apply Experiment -> Run fallback at every --execute,
 silently overriding a Run's own explicit "don't randomize" decision.
 """
 
+import logging
 import sqlite3
 import json
 import uuid
@@ -63,6 +64,8 @@ from src.core.execution_plan import (
     QuestionPayload,
 )
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 class PlannerValidationError(Exception):
@@ -132,6 +135,7 @@ class Planner:
         question_ids: list[str] | None = None,
         model_variant_ids: list[str] | None = None,
         retry_policy: RetryPolicy | None = None,
+        operation_id: str | None = None,
     ) -> ExecutionPlan:
         """Build execution plan for experiment.
 
@@ -141,6 +145,10 @@ class Planner:
             question_ids: Optional list of specific question IDs to filter
             model_variant_ids: Optional list of specific variant IDs to filter
             retry_policy: Optional retry policy override (default: RetryPolicy())
+            operation_id: Correlation ID for the CLI invocation building this
+                plan (logging/observability only — see ExecutionPlan.operation_id
+                and docs/status/checkpoint-c-logging-observability-design.md).
+                Not required; None is valid (e.g. direct/test callers).
 
         Returns:
             Immutable ExecutionPlan
@@ -153,8 +161,10 @@ class Planner:
             - Randomization Seed read from run.config only (already frozen)
             - Model config from: variant.config (MODEL_* keys)
         """
-        # Log plan build start
-        self._logger.info(f"PLAN_BUILD_START | experiment={experiment_name}")
+        emit_event(
+            self._logger, Event.PLAN_BUILD_START, operation_id=operation_id,
+            experiment=experiment_name,
+        )
 
         # Validate experiment exists and get its data
         experiment_row = self._validate_experiment_exists(experiment_name)
@@ -193,9 +203,10 @@ class Planner:
         # Calculate total items
         total_items = sum(len(plan_run.items) for plan_run in plan_runs)
 
-        # Log loaded plan summary
-        self._logger.info(
-            f"PLAN_LOADED | experiment={experiment_name} | models={len(variants)} | questions={len(snapshots)} | runs={len(plan_runs)}"
+        emit_event(
+            self._logger, Event.PLAN_LOADED, operation_id=operation_id,
+            experiment=experiment_name, models=len(variants),
+            questions=len(snapshots), runs=len(plan_runs),
         )
 
         # Create execution plan
@@ -204,10 +215,13 @@ class Planner:
             created_at=datetime.now(),
             experiment_id=experiment_row["experiment_id"],
             runs=plan_runs,
+            operation_id=operation_id,
         )
 
-        # Log plan build complete
-        self._logger.info(f"PLAN_BUILD_COMPLETE | experiment={experiment_name} | total_items={total_items}")
+        emit_event(
+            self._logger, Event.PLAN_BUILD_COMPLETE, operation_id=operation_id,
+            experiment=experiment_name, total_items=total_items,
+        )
 
         return plan
 
@@ -234,7 +248,10 @@ class Planner:
 
         if row is None:
             error_msg = f"Experiment not found: {name}. Create the experiment first with --create-experiment."
-            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={name} | error={error_msg}")
+            emit_event(
+                self._logger, Event.PLAN_VALIDATION_ERROR, level=logging.ERROR,
+                experiment=name, error=error_msg,
+            )
             raise PlannerValidationError(error_msg)
 
         return row
@@ -262,7 +279,10 @@ class Planner:
 
         if not variants:
             error_msg = f"Experiment has no models. Add models before creating runs. Use: --experiment {experiment_id} --add-model <model_id>"
-            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={experiment_id} | error={error_msg}")
+            emit_event(
+                self._logger, Event.PLAN_VALIDATION_ERROR, level=logging.ERROR,
+                experiment=experiment_id, error=error_msg,
+            )
             raise PlannerValidationError(error_msg)
 
         return variants
@@ -290,7 +310,10 @@ class Planner:
 
         if not snapshots:
             error_msg = f"Experiment has no questions. Add questions before creating runs. Use: --experiment {experiment_id} --add-questions <spec>"
-            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={experiment_id} | error={error_msg}")
+            emit_event(
+                self._logger, Event.PLAN_VALIDATION_ERROR, level=logging.ERROR,
+                experiment=experiment_id, error=error_msg,
+            )
             raise PlannerValidationError(error_msg)
 
         return snapshots
@@ -345,7 +368,10 @@ class Planner:
                 f"\nRun: bcllm --experiment <name> --resolve-providers\n"
                 f"Aborting execution."
             )
-            self._logger.error(f"PLAN_VALIDATION_ERROR | experiment={experiment_id} | error={error_msg}")
+            emit_event(
+                self._logger, Event.PLAN_VALIDATION_ERROR, level=logging.ERROR,
+                experiment=experiment_id, error=error_msg,
+            )
             raise PlannerValidationError(error_msg)
 
     def _get_variant_provider(self, variant_row: sqlite3.Row) -> str | None:
@@ -749,9 +775,10 @@ class Planner:
                 variant_id = variant["variant_id"]
                 snapshot_id = snapshot["snapshot_id"]
                 if (variant_id, snapshot_id) in exclude:
-                    self._logger.debug(
-                        f"PLAN_SKIP_EXECUTED | run={run_row['run_id']} | "
-                        f"variant={variant_id} | snapshot={snapshot_id}"
+                    emit_event(
+                        self._logger, Event.PLAN_SKIP_EXECUTED, level=logging.DEBUG,
+                        run_id=run_row['run_id'], variant_id=variant_id,
+                        snapshot_id=snapshot_id,
                     )
                     continue
 

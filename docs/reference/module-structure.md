@@ -29,14 +29,24 @@ src/
 ├── cli/                  # CLI command modules
 │   ├── __init__.py
 │   ├── bcllm_main.py     # Main help and entry point
-│   ├── bcllm_experiment.py # Experiment lifecycle management
+│   ├── bcllm_experiment.py # Experiment lifecycle management (Typer parsing since marco 4A, 2026-08-20)
 │   ├── bcllm_model.py    # Model variant management
-│   ├── bcllm_questions.py # Question snapshot management
+│   ├── bcllm_questions.py # Question snapshot management (Typer parsing since marco 4A, 2026-08-20)
 │   ├── bcllm_run.py      # Run management
 │   ├── bcllm_execute.py  # Execution entry point
 │   ├── bcllm_export.py   # Export results
 │   ├── bcllm_review.py   # Review UI
-│   └── database.py       # DB connection helper
+│   ├── database.py       # DB connection helper
+│   ├── param_types.py    # Typer callback equivalents of special_config_values.py's parse_*_or_system_default (CLI migration Fase 2)
+│   ├── commands/         # Real typer.Typer command definitions, one per migrated module (CLI migration Fase 4)
+│   │   ├── __init__.py
+│   │   ├── questions.py  # Typer command replacing bcllm_questions.py's former argparse create_parser() (marco 4A)
+│   │   └── experiment.py # Typer command replacing bcllm_experiment.py's former argparse create_parser() (marco 4A)
+│   └── presentation/      # Rich-based presentation foundation (CLI migration Fase 2/6)
+│       ├── __init__.py
+│       ├── console.py     # Console/error_console singletons
+│       ├── errors.py      # Exit-code-contract command wrapper (not yet wired to a live command)
+│       └── theme.py       # Rich theme (semantic styles)
 ├── core/                 # Core business logic
 │   ├── __init__.py
 │   ├── planner.py        # Read-only plan builder
@@ -69,7 +79,10 @@ src/
 │   └── review_ui.py      # TUI for manual review
 ├── utils/                # Utilities
 │   ├── __init__.py
-│   ├── logging_config.py # Logging setup
+│   ├── logging_config.py # Logging setup (LOG_LEVEL, LOG_FILE_PATH, LOG_PROFILE, JSONL sibling)
+│   ├── log_events.py     # LogProfile enum + centralized Event name vocabulary + EVENT_PROFILE map
+│   ├── log_emitter.py    # emit_event() — the one event-emission path (human + JSONL, redaction, severity floor)
+│   ├── redaction.py      # redact() — recursive secret redaction for log output only
 │   └── variant_signature.py # Variant signature generation
 └── validators/           # Validation
     ├── __init__.py
@@ -196,7 +209,10 @@ src/
 
 | Module | Responsibility |
 |--------|---------------|
-| `logging_config.py` | Logging setup (file + console, rotation) |
+| `logging_config.py` | Logging setup (file + console, rotation); configures both the human-readable logger and the `benchmark_llm.jsonl` structured logger from `LOG_PROFILE`/`LOG_LEVEL`/`LOG_FILE_PATH` |
+| `log_events.py` | `LogProfile` (MINIMAL/NORMAL/DETAILED/TRACE, cumulative) and `Event` — the centralized, stable `event_name` vocabulary; `EVENT_PROFILE` maps each INFO/DEBUG event to its minimum required profile (WARNING+ events always emit, at any profile) |
+| `log_emitter.py` | `emit_event()` — single construction point for both the human-readable log line and the JSONL structured record for one event; applies the severity-floor/profile check, redaction, and never lets a logging failure propagate — see `docs/contracts/interaction-contracts.md` §4 |
+| `redaction.py` | `redact()` — recursive, structure-preserving redaction of secret-shaped keys/tokens/URL credentials for logging output only; never applied to DB-persisted data |
 | `variant_signature.py` | Variant signature generation (used by model management) |
 
 ---

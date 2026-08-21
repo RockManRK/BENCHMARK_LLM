@@ -1,7 +1,7 @@
 ---
 type: status
 audience: both
-last-validated: 2026-04-11
+last-validated: 2026-08-20
 status: active
 ---
 
@@ -22,7 +22,7 @@ status: active
 
 **Examples:**
 - "List model variants" is ✅ Complete functionally (returns correct data), but has a note: "Output/UI is minimal and needs improvement"
-- "Review UI" is ⚠️ Partial because it **cannot be used** due to routing issues (blocks usage, not just poor UX)
+- "Review UI" is ⚠️ Partial because it **cannot be used** — corrected 2026-08-20: the real, confirmed blocker is a SQL/schema mismatch inside `ReviewUI` itself (`responses.created_at` does not exist), not routing. Routing was verified working via real subprocess execution during the Checkpoint C review-status revalidation — see the Manual Review section below.
 
 This distinction is critical for future AI agents to correctly assess implementation status.
 
@@ -111,19 +111,74 @@ This distinction is critical for future AI agents to correctly assess implementa
 
 ### ⚠️ Manual Review
 
+**Re-validated 2026-08-20** (Checkpoint C, review-status revalidation) with
+real subprocess execution against an isolated database — not re-derived
+from the stale 2026-04 diagnosis below, which incorrectly attributed the
+blocker to routing.
+
+**Routing: confirmed working.** `bcllm --review-experiment <name>` and
+`bcllm --review-all` both resolve to `Mode.INVALID` × module
+`bcllm_review` (`src/core/module_resolver.py`, `src/core/mode_matrix.py`
+explicitly permits this combination — review is a read-only operation
+with no CREATE/MODIFY/EXPORT semantics), `bcllm.py`'s `route_to_v2`
+dispatches to `bcllm_review.main(mode)`, and both handlers construct a
+real `ReviewUI(conn)` and call into it. Verified via real subprocess runs
+against a freshly-created empty schema (`DATABASE_PATH` redirected,
+`.env` neutralized): both commands reach `ReviewUI`, are correlated by
+`operation_id` in the structured logs (`COMMAND_START`/`COMMAND_END`),
+and exit — this is not a dispatcher/routing failure.
+
+**Real blocker: SQL/schema mismatch inside `ReviewUI` itself.**
+`ReviewUI.get_pending_by_experiment()` (used by
+`start_review_by_experiment`, `src/review/review_ui.py:160,169,192`) and
+`ReviewUI.start_review_all()` (`src/review/review_ui.py:557,566,589`)
+both `SELECT r.created_at` from the `responses` table and construct
+`Response(created_at=row["created_at"])`. The `responses` table
+(`src/db/schema.sql:200-235`) has no `created_at` column — only
+`started_at`/`finished_at`. Reproduced live: `bcllm --review-all` against
+a DB with any `review_status='needs_review'` row fails with
+`sqlite3.OperationalError: no such column: r.created_at`, caught by
+`handle_review_all`'s `except Exception` and surfaced as `Error during
+review: no such column: r.created_at`, exit code 1. The same query shape
+means `--review-experiment` fails identically as soon as an experiment
+has pending items (an experiment with zero pending items or that doesn't
+exist returns before reaching the broken query, which is why it can look
+superficially fine in a quick manual check).
+
+**Secondary confirmed issue (found during the same revalidation, not the
+root blocker):** `start_review_by_experiment` prints an error and returns
+`None` (does not raise) when the experiment name doesn't exist
+(`src/review/review_ui.py:458-460`), so `handle_review_experiment`
+(`src/cli/bcllm_review.py`) always returns exit code `0` regardless —
+`bcllm --review-experiment nonexistent_name` reports "Experimento não
+encontrado" but exits successfully. Reproduced live.
+
+Both issues are real, reproducible, and **out of scope for Checkpoint
+C** (which only closed the `KeyboardInterrupt`/exit-code/audit-trail gap
+in `bcllm_review.py`'s CLI layer). Per an explicit decision by the user
+(2026-08-20), Review UI is **deliberately deferred** until the rest of
+the system's components are complete — not scheduled as its own
+near-term checkpoint, and not to be patched piecemeal. When resumed, it
+gets one dedicated, complete review (architecture, queries, persistence,
+UX, audit, tests, contracts together). Tracked in
+`docs/status/known-issues.md` under "Review UI is deliberately deferred
+— not a routing bug; not being fixed piecemeal", which also covers the
+`tests/cli_suite` `RV-001` `EXPECTED_FAILURE` case this bug produces.
+
 | Capability | Status | Notes |
 |------------|--------|-------|
-| Review UI (TUI) | ⚠️ Partial | **Blocked:** Review commands fail due to MODE × MODULE routing issues; flow cannot be validated in practice |
-| Classification (A/B/C/D/N/E) | ⚠️ Partial | Implemented but untestable due to routing issues |
-| Undo last | ⚠️ Partial | Single-level undo; untestable due to routing issues |
-| Skip item | ⚠️ Partial | Implemented but untestable due to routing issues |
-| Save progress | ⚠️ Partial | Implemented but untestable due to routing issues |
-| Progress tracking | ⚠️ Partial | Implemented but untestable due to routing issues |
+| Review UI (TUI) | ⚠️ Partial (deliberately deferred) | **Blocked:** `responses.created_at` does not exist in the schema — both `--review-all` and `--review-experiment` (once an experiment has pending items) fail with `sqlite3.OperationalError`. Routing itself is confirmed working (2026-08-20). Fix deliberately deferred (2026-08-20 decision) to a future dedicated review, not scheduled piecemeal — see `docs/status/known-issues.md`. |
+| Classification (A/B/C/D/N/E) | ⚠️ Partial | Implemented (`src/review/review_ui.py` classification loop); untestable end-to-end until the `created_at` query bug is fixed |
+| Undo last | ⚠️ Partial | Single-level undo; untestable end-to-end for the same reason |
+| Skip item | ⚠️ Partial | Implemented; untestable end-to-end for the same reason |
+| Save progress | ⚠️ Partial | Implemented; untestable end-to-end for the same reason |
+| Progress tracking | ⚠️ Partial | Implemented; untestable end-to-end for the same reason |
 | Multi-language (PT/EN) | ❌ Not implemented | UI is currently single-language |
 | Batch classification | ❌ Not implemented | One at a time only |
 | Multi-level undo | ❌ Not implemented | Single-level only |
+| KeyboardInterrupt handling | ✅ Complete | Fixed 2026-08-20 (Checkpoint C): exit code 130, `stderr`, `Event.COMMAND_INTERRUPTED` with `operation_id`, connection always closed, no partial persistence — see `docs/status/known-issues.md` |
 
-**Module:** `src/review/review_ui.py`
+**Module:** `src/review/review_ui.py`, `src/cli/bcllm_review.py`
 
 ### ⚠️ Export
 

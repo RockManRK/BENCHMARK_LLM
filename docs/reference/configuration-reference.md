@@ -42,12 +42,28 @@ All modules read from `os.environ`, **not** by loading `.env` directly.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `LOG_LEVEL` | No | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `LOG_FILE_PATH` | No | `./logs/benchmark.log` | Log file path (relative to project root) |
+| `LOG_LEVEL` | No | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` — the stdlib severity threshold a handler emits at. |
+| `LOG_FILE_PATH` | No | `./logs/benchmark.log` | Log file path (relative to project root). The structured JSONL sibling file is derived automatically from this path (same directory, same stem, `.jsonl` suffix) — never independently configured. |
+| `LOG_PROFILE` | No | `NORMAL` | Depth profile: `MINIMAL`, `NORMAL`, `DETAILED`, `TRACE` (cumulative). Controls which `INFO`/`DEBUG`-severity structured events are emitted — see `docs/status/checkpoint-c-logging-observability-design.md` for the full per-profile event catalog. No CLI override exists (`.env`-only, matching `LOG_LEVEL`'s own precedent). |
+| `OPENROUTER_DEBUG_ENABLED` | No | `false` | OpenRouter's own `debug.echo_upstream_body` feature — adds the upstream-transformed request body to the response stream (TRACE-profile log visibility only; always captured in `responses.raw_response`/`raw_response_consolidated` regardless of profile). **Independent of `LOG_LEVEL`/`LOG_PROFILE`** — a separate axis entirely (see below). Not part of the frozen Experiment/Run/Model-Variant configuration hierarchy — an operational/per-process setting, same category as `LOG_LEVEL`, not `MODEL_SEED`/`RANDOMIZATION_SEED`. |
 
 **Behavior:**
 - Console: Shows `LOG_LEVEL` and above
 - File: Shows `DEBUG` and above (more detailed)
+- JSONL: same severity floor as the file; which `INFO`/`DEBUG` events exist at all is additionally gated by `LOG_PROFILE`. `WARNING`+ events are never suppressed by `LOG_PROFILE`, at any level.
+
+**`LOG_LEVEL`/`LOG_PROFILE` vs. `OPENROUTER_DEBUG_ENABLED` — do not confuse these:**
+`LOG_LEVEL`/`LOG_PROFILE` control *this system's own* logging depth —
+they never change what gets sent to the API. `OPENROUTER_DEBUG_ENABLED`
+changes the actual API request payload (`build_chat_completion_payload`
+adds a `debug` key when true) — it is auditable in `request_json` for
+that reason (see `docs/contracts/data-auditability.md` §4b), and its
+effect on the *response* (the echoed upstream body) is separately visible
+in logs only at `LOG_PROFILE=TRACE`. A controlled real-API investigation
+(`docs/status/model-seed-checkpoint-b-design.md` §5, reused for
+Checkpoint C) found `debug` adds exactly the upstream-echo chunk — it
+does not gate cost/tokens/provider (already available without it) and
+never confirms a requested seed was honored, only forwarded.
 
 ---
 

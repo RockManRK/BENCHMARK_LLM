@@ -28,6 +28,7 @@ Example:
 from __future__ import annotations
 
 import json
+import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -49,6 +50,8 @@ from src.api.errors import (
 from src.api.response_parser import parse_to_completion_response
 from src.api.stream_aggregator import aggregate_streaming_response
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 @dataclass
@@ -112,6 +115,7 @@ class CompletionProvider(ABC):
         self,
         payload: dict[str, Any],
         base_url: str | None = None,
+        operation_id: str | None = None,
     ) -> CompletionResponse:
         """Perform chat completion API call.
 
@@ -130,6 +134,10 @@ class CompletionProvider(ABC):
                      resolved generation parameters already applied).
             base_url: Per-call endpoint override, when the provider supports
                      multiple endpoints (e.g. a variant-specific URL)
+            operation_id: Correlation ID for the CLI invocation this call
+                     belongs to — logging only, never part of the payload
+                     or the request itself (see
+                     docs/status/checkpoint-c-logging-observability-design.md).
 
         Returns:
             CompletionResponse with content and metadata
@@ -210,6 +218,7 @@ class OpenRouterClient(CompletionProvider):
         self,
         payload: dict[str, Any],
         base_url: str | None = None,
+        operation_id: str | None = None,
     ) -> CompletionResponse:
         """Perform OpenRouter chat completion.
 
@@ -225,6 +234,7 @@ class OpenRouterClient(CompletionProvider):
                      variants within a run, and variants may target different
                      endpoints (OpenRouter, a local llama.cpp server, a test
                      stub). When None, falls back to self.base_url.
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Returns:
             CompletionResponse with content and metadata
@@ -244,16 +254,19 @@ class OpenRouterClient(CompletionProvider):
         # Calculate prompt length for logging
         prompt_length = sum(len(msg.get("content", "")) for msg in messages)
 
-        # Log API request
-        self._logger.info(
-            f"API_REQUEST | endpoint=/v1 | model={model_id} | prompt_length={prompt_length}"
+        emit_event(
+            self._logger, Event.API_REQUEST, operation_id=operation_id,
+            endpoint="/v1", model_id=model_id, prompt_length=prompt_length,
         )
 
         try:
             if "debug" in payload:
-                self._logger.info(f"DEBUG_ENABLED | debug payload present in request for model={model_id}")
+                emit_event(self._logger, Event.DEBUG_ENABLED, operation_id=operation_id, model_id=model_id)
             else:
-                self._logger.debug(f"DEBUG_DISABLED | debug not enabled for model={model_id}")
+                emit_event(
+                    self._logger, Event.DEBUG_DISABLED, level=logging.DEBUG,
+                    operation_id=operation_id, model_id=model_id,
+                )
 
             # Make the request
             # Note: base_url may or may not include /v1 suffix, so ensure correct path
@@ -273,7 +286,7 @@ class OpenRouterClient(CompletionProvider):
 
             # Handle HTTP errors
             if response.status_code >= 400:
-                self._handle_http_error(response)
+                self._handle_http_error(response, operation_id=operation_id)
 
             # Parse SSE stream
             response.raise_for_status()
@@ -305,8 +318,10 @@ class OpenRouterClient(CompletionProvider):
                 aggregated.usage.get("prompt_tokens", 0)
                 + aggregated.usage.get("completion_tokens", 0)
             )
-            self._logger.info(
-                f"API_RESPONSE | model={model_id} | latency={latency_ms}ms | tokens={total_tokens} | finish_reason={aggregated.finish_reason}"
+            emit_event(
+                self._logger, Event.API_RESPONSE, operation_id=operation_id,
+                model_id=model_id, duration_ms=latency_ms, tokens=total_tokens,
+                outcome=aggregated.finish_reason,
             )
 
             # Parse aggregated response into canonical CompletionResponse format
@@ -316,30 +331,34 @@ class OpenRouterClient(CompletionProvider):
         except httpx.TimeoutException as e:
             error_type = "timeout"
             error_message = str(e)
-            self._logger.error(
-                f"API_ERROR | model={model_id} | error_type={error_type} | error={error_message}"
+            emit_event(
+                self._logger, Event.API_ERROR, level=logging.ERROR, operation_id=operation_id,
+                model_id=model_id, error_type=error_type, error=error_message,
             )
             raise ErrorClassifier.classify_timeout(str(e))
         except httpx.ConnectError as e:
             error_type = "network_error"
             error_message = str(e)
-            self._logger.error(
-                f"API_ERROR | model={model_id} | error_type={error_type} | error={error_message}"
+            emit_event(
+                self._logger, Event.API_ERROR, level=logging.ERROR, operation_id=operation_id,
+                model_id=model_id, error_type=error_type, error=error_message,
             )
             raise ErrorClassifier.classify_network(str(e))
         except httpx.RequestError as e:
             error_type = "network_error"
             error_message = str(e)
-            self._logger.error(
-                f"API_ERROR | model={model_id} | error_type={error_type} | error={error_message}"
+            emit_event(
+                self._logger, Event.API_ERROR, level=logging.ERROR, operation_id=operation_id,
+                model_id=model_id, error_type=error_type, error=error_message,
             )
             raise NetworkError(str(e))
 
-    def _handle_http_error(self, response: httpx.Response) -> None:
+    def _handle_http_error(self, response: httpx.Response, operation_id: str | None = None) -> None:
         """Handle HTTP error response.
 
         Args:
             response: HTTP response with error status
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Raises:
             AuthenticationError: 401, 403
@@ -364,9 +383,9 @@ class OpenRouterClient(CompletionProvider):
         else:
             error_type = "client_error"
 
-        # Log HTTP error
-        self._logger.error(
-            f"API_ERROR | status={status_code} | error_type={error_type} | error={error_message}"
+        emit_event(
+            self._logger, Event.API_ERROR, level=logging.ERROR, operation_id=operation_id,
+            status=status_code, error_type=error_type, error=error_message,
         )
 
         # Classify and raise appropriate error

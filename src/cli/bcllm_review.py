@@ -19,6 +19,9 @@ import sys
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.review.review_ui import ReviewUI
+from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -67,15 +70,16 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def handle_review_experiment(args, conn) -> int:
+def handle_review_experiment(args, conn, operation_id: str | None = None) -> int:
     """Handle --review-experiment command.
 
     Args:
         args: Parsed command-line arguments.
         conn: Database connection.
+        operation_id: Correlation ID for the CLI invocation (logging only).
 
     Returns:
-        Exit code (0 for success, 1 for error).
+        Exit code (0 for success, 1 for error, 130 for interrupted).
     """
     experiment_name = args.review_experiment
 
@@ -88,43 +92,53 @@ def handle_review_experiment(args, conn) -> int:
         ui.start_review_by_experiment(experiment_name)
         return 0
     except KeyboardInterrupt:
-        print("\n\n[yellow]Review interrupted by user.[/yellow]")
-        return 0
+        emit_event(
+            get_logger("cli.review"), Event.COMMAND_INTERRUPTED,
+            operation_id=operation_id, command="review_experiment",
+        )
+        print("Review interrupted by user.", file=sys.stderr)
+        return 130
     except Exception as e:
         print(f"Error during review: {e}", file=sys.stderr)
         return 1
 
 
-def handle_review_all(args, conn) -> int:
+def handle_review_all(args, conn, operation_id: str | None = None) -> int:
     """Handle --review-all command.
 
     Args:
         args: Parsed command-line arguments.
         conn: Database connection.
+        operation_id: Correlation ID for the CLI invocation (logging only).
 
     Returns:
-        Exit code (0 for success, 1 for error).
+        Exit code (0 for success, 1 for error, 130 for interrupted).
     """
     try:
         ui = ReviewUI(conn)
         ui.start_review_all()
         return 0
     except KeyboardInterrupt:
-        print("\n\n[yellow]Review interrupted by user.[/yellow]")
-        return 0
+        emit_event(
+            get_logger("cli.review"), Event.COMMAND_INTERRUPTED,
+            operation_id=operation_id, command="review_all",
+        )
+        print("Review interrupted by user.", file=sys.stderr)
+        return 130
     except Exception as e:
         print(f"Error during review: {e}", file=sys.stderr)
         return 1
 
 
-def main(mode: Mode) -> int:
+def main(mode: Mode, operation_id: str | None = None) -> int:
     """Main entry point.
-    
+
     Args:
         mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+        operation_id: Correlation ID for the CLI invocation (logging only).
+
     Returns:
-        Exit code (0 for success, 1 for error).
+        Exit code (0 for success, 1 for error, 130 for interrupted).
     """
     _validate_expected_mode(mode)
     parser = create_parser()
@@ -134,9 +148,9 @@ def main(mode: Mode) -> int:
 
     try:
         if args.review_experiment:
-            return handle_review_experiment(args, conn)
+            return handle_review_experiment(args, conn, operation_id=operation_id)
         elif args.review_all:
-            return handle_review_all(args, conn)
+            return handle_review_all(args, conn, operation_id=operation_id)
         else:
             parser.print_help()
             return 1

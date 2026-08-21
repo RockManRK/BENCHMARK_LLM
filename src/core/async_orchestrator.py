@@ -35,6 +35,9 @@ from src.core.answer_parser import AnswerParser
 from src.core.execution_plan import ExecutionPlan
 from src.core.run_finalizer import RunFinalizer
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
+import logging
 
 if TYPE_CHECKING:
     from src.core.async_writer import AsyncWriter
@@ -149,16 +152,18 @@ class AsyncOrchestrator:
         experiment_id = plan.experiment_id
         run_count = len(plan.runs)
         total_items = sum(len(run.items) for run in plan.runs)
+        operation_id = plan.operation_id
 
-        self._logger.info(
-            f"ORCHESTRATOR_START | experiment={experiment_id} | runs={run_count} | total_items={total_items}"
+        emit_event(
+            self._logger, Event.ORCHESTRATOR_START, operation_id=operation_id,
+            experiment_id=experiment_id, runs=run_count, total_items=total_items,
         )
 
         queue: asyncio.Queue = asyncio.Queue()
 
         from src.core.async_writer import AsyncWriter
 
-        writer = AsyncWriter(queue, self.db_connection, self._logger)
+        writer = AsyncWriter(queue, self.db_connection, self._logger, operation_id=operation_id)
         writer_task = asyncio.create_task(writer.consume())
 
         try:
@@ -175,14 +180,15 @@ class AsyncOrchestrator:
             # Execute items with semaphore-based concurrency
             # Pass writer abort event so execution loop can stop early on write failure
             results = await self._execute_plan_with_semaphore(
-                engine, plan, queue, semaphore, writer.abort_event
+                engine, plan, queue, semaphore, writer.abort_event, operation_id=operation_id,
             )
 
             # Check for writer abort before finalizing
             writer_aborted = writer.abort_event.is_set()
             if writer_aborted:
-                self._logger.critical(
-                    f"ORCHESTRATOR_ABORT | writer failed | info={writer.abort_info}"
+                emit_event(
+                    self._logger, Event.ABORT_DETECTED, level=logging.CRITICAL,
+                    operation_id=operation_id, reason="writer_failed", info=writer.abort_info,
                 )
 
             # Signal writer completion and wait for all writes to flush
@@ -192,14 +198,16 @@ class AsyncOrchestrator:
             # Finalize each run via RunFinalizer (sole owner of runs.status/duration)
             # Even on abort — finalize with whatever was persisted
             for run in plan.runs:
-                finalizer = RunFinalizer(self.db_connection, self._logger)
+                finalizer = RunFinalizer(self.db_connection, self._logger, operation_id=operation_id)
                 finalizer.finalize_run(run.run_id)
 
             succeeded = sum(1 for r in results if r.status == 'success')
             failed = sum(1 for r in results if r.status == 'failure')
 
-            self._logger.info(
-                f"ORCHESTRATOR_COMPLETE | experiment={experiment_id} | total={total_items} | succeeded={succeeded} | failed={failed} | writer_aborted={writer_aborted}"
+            emit_event(
+                self._logger, Event.ORCHESTRATOR_COMPLETE, operation_id=operation_id,
+                experiment_id=experiment_id, total=total_items, succeeded=succeeded,
+                failed=failed, writer_aborted=writer_aborted,
             )
 
             return results
@@ -211,6 +219,10 @@ class AsyncOrchestrator:
                 await writer_task
             except Exception:
                 # Log but don't re-raise — original exception must propagate
+                emit_event(
+                    self._logger, Event.WRITER_TASK_FAILED, level=logging.ERROR,
+                    operation_id=operation_id,
+                )
                 self._logger.exception("Writer task failed during cleanup")
 
             raise
@@ -225,6 +237,7 @@ class AsyncOrchestrator:
         queue: asyncio.Queue,
         semaphore: asyncio.Semaphore,
         abort_event: asyncio.Event | None = None,
+        operation_id: str | None = None,
     ) -> list[ExecutionResult]:
         """Execute all plan items with semaphore-based concurrency control.
 
@@ -237,6 +250,7 @@ class AsyncOrchestrator:
             queue: Shared result queue for writer communication
             semaphore: Asyncio semaphore for concurrency control (created in async context)
             abort_event: Optional event to check for early termination (writer failure).
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Returns:
             List of ExecutionResult (one per item)
@@ -245,10 +259,13 @@ class AsyncOrchestrator:
 
         for run in plan.runs:
             if abort_event is not None and abort_event.is_set():
-                self._logger.warning("Abort detected — skipping remaining runs")
+                emit_event(
+                    self._logger, Event.ABORT_DETECTED, level=logging.WARNING,
+                    operation_id=operation_id, reason="skipping_remaining_runs",
+                )
                 break
             run_results = await self._execute_run_with_semaphore(
-                engine, run, queue, semaphore, abort_event
+                engine, run, queue, semaphore, abort_event, operation_id=operation_id,
             )
             all_results.extend(run_results)
 
@@ -261,6 +278,7 @@ class AsyncOrchestrator:
         queue: asyncio.Queue,
         semaphore: asyncio.Semaphore,
         abort_event: asyncio.Event | None = None,
+        operation_id: str | None = None,
     ) -> list[ExecutionResult]:
         """Execute all items in a single run with semaphore concurrency control.
 
@@ -269,6 +287,7 @@ class AsyncOrchestrator:
             run: PlanRun to execute
             queue: Shared result queue
             semaphore: Asyncio semaphore for concurrency control
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Returns:
             List of ExecutionResult for this run
@@ -282,6 +301,7 @@ class AsyncOrchestrator:
         run_retry_handler = RetryHandler(
             policy=run.retry_policy,
             logger=self._logger,
+            operation_id=operation_id,
         )
 
         # Generate option_letter_maps per option_count for determinism.
@@ -334,7 +354,8 @@ class AsyncOrchestrator:
             option_map = _get_option_map(option_count)
             task = asyncio.create_task(
                 self._execute_item_with_semaphore(
-                    engine, item, run, run_retry_handler, queue, semaphore, i, option_map
+                    engine, item, run, run_retry_handler, queue, semaphore, i, option_map,
+                    operation_id=operation_id,
                 )
             )
             pending.append(task)
@@ -353,8 +374,10 @@ class AsyncOrchestrator:
 
             # Check abort IMMEDIATELY after wait() — before processing more results
             if abort_event is not None and abort_event.is_set():
-                self._logger.warning(
-                    f"Abort detected in run {run.run_id} — cancelling pending tasks"
+                emit_event(
+                    self._logger, Event.ABORT_DETECTED, level=logging.WARNING,
+                    operation_id=operation_id, run_id=run.run_id,
+                    reason="cancelling_pending_tasks",
                 )
                 for t in pending:
                     if not t.done():
@@ -375,8 +398,9 @@ class AsyncOrchestrator:
 
                 if completed % milestone_interval == 0 or completed == total_items:
                     percent = int((completed / total_items) * 100)
-                    self._logger.info(
-                        f"PROGRESS_MILESTONE | run={run.run_id} | completed={completed}/{total_items} | percent={percent}%"
+                    emit_event(
+                        self._logger, Event.PROGRESS_MILESTONE, operation_id=operation_id,
+                        run_id=run.run_id, completed=completed, total=total_items, percent=percent,
                     )
 
         return results
@@ -391,6 +415,7 @@ class AsyncOrchestrator:
         semaphore: asyncio.Semaphore,
         item_index: int,
         run_option_map: dict[str, str] | None = None,
+        operation_id: str | None = None,
     ) -> ExecutionResult:
         """Execute a single item with semaphore concurrency control.
 
@@ -403,12 +428,14 @@ class AsyncOrchestrator:
             semaphore: Asyncio semaphore for concurrency control
             item_index: Zero-based index of item within the run
             run_option_map: Pre-computed option_letter_map for the entire run.
+            operation_id: Correlation ID for the CLI invocation (logging only).
 
         Returns:
             ExecutionResult for this item
         """
         async with semaphore:
             return await engine._execute_item_async(
-                item, run, retry_handler, queue, item_index, run_option_map
+                item, run, retry_handler, queue, item_index, run_option_map,
+                operation_id=operation_id,
             )
 

@@ -26,7 +26,6 @@ used identically by main() (standalone) and bcllm.py's composite
 docs/status/known-issues.md ("same action, same path" invariant).
 """
 
-import argparse
 import json
 import sys
 import uuid
@@ -36,11 +35,15 @@ from pathlib import Path
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
 from src.core import QuestionLoader, build_question_snapshot_payload
-from src.core.argv_utils import parse_args_normalized, has_flag, NonExitingArgumentParser, ParserExit
+from src.core.argv_utils import has_flag, ParserExit
 from src.core.config_resolver import ConfigResolver
-from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, ForceSystemDefault, normalize_filter_list_or_system_default
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, ForceSystemDefault
+from src.cli.commands.questions import parse_questions_argv
 from src.db.models import QuestionSnapshot
 from src.db.repository import ExperimentRepository, SnapshotRepository
+from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -71,88 +74,19 @@ def _validate_expected_mode(mode: Mode) -> None:
         sys.exit(1)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for question commands.
-
-    Returns:
-        NonExitingArgumentParser configured with all question commands —
-        see src/core/argv_utils.py for why this is NOT a plain
-        argparse.ArgumentParser: --add-questions can run inside bcllm.py's
-        composite flow, where an uncontrolled sys.exit() (argparse's
-        default for both --help and any usage error) would skip the
-        composite flow's experiment rollback.
-    """
-    parser = NonExitingArgumentParser(
-        prog="bcllm_questions.py",
-        description="Question snapshot management",
-    )
-
-    parser.add_argument(
-        "--experiment",
-        required=True,
-        metavar="NAME",
-        help="Experiment name",
-    )
-
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--add-questions",
-        metavar="SPEC",
-        help="Add questions. Format: \"1, 3, 5\" (comma-separated), \"1-10\" (range), or \"1, 3-5, Q010\" (mixed). Quote arguments with spaces.",
-    )
-    group.add_argument(
-        "--questions",
-        dest="add_questions",
-        metavar="SPEC",
-        help="Alias for --add-questions. Format: \"1, 3, 5\" or \"1-10\" or \"1, 3-5, Q010\". Quote arguments with spaces.",
-    )
-    group.add_argument(
-        "--list-questions",
-        action="store_true",
-        help="List all questions in experiment",
-    )
-    group.add_argument(
-        "--remove-question",
-        metavar="SNAPSHOT_ID",
-        help="Remove question snapshot (soft delete)",
-    )
-
-    parser.add_argument(
-        "--where",
-        metavar="FILTER",
-        action="append",
-        help="Include filter (format: field=value, e.g., status=valid or meta.status=valid)",
-    )
-    parser.add_argument(
-        "--exclude",
-        metavar="FILTER",
-        action="append",
-        help="Exclude filter (format: field=value, e.g., status=annulled)",
-    )
-
-    parser.add_argument(
-        "--output",
-        choices=["console", "json", "csv", "markdown"],
-        default="console",
-        help="Output format",
-    )
-
-    parser.add_argument(
-        "--source-file",
-        metavar="FILE",
-        help="Source file for question payloads (default: .env or QUESTIONS_DATASET_PATH)",
-    )
-
-    return parser
-
-
 # Explicit opt-in classification for system-default recognition — see
 # src/core/special_config_values.py::normalize_special_config_values and
 # docs/contracts/system-default-semantics.md for the full SUPPORTED/
-# FORBIDDEN/NOT_APPLICABLE contract this implements. --where/--exclude
-# are list-typed (action="append") and NOT covered by this scalar
-# mechanism — see normalize_filter_list_or_system_default, called
-# separately in run_add_questions/main().
+# FORBIDDEN/NOT_APPLICABLE contract this implements. Kept as module-level
+# constants for cross-module consistency checks
+# (tests/unit/cli/test_system_default_classification_consistency.py) —
+# no longer consumed by parsing directly since the Typer conversion
+# (marco 4A, 2026-08-20): src/cli/commands/questions.py's
+# _questions_command declares the same classification via its per-option
+# callbacks (typer_str_or_system_default for add_questions,
+# typer_reject_special_values for experiment/remove_question/source_file)
+# and the explicit typer_filter_list_or_system_default() call for
+# where/exclude — see that module for the real, executed source of truth.
 SYSTEM_DEFAULT_SUPPORTED = {
     'add_questions',
 }
@@ -516,23 +450,13 @@ def parse_add_questions_request(argv: list[str]) -> AddQuestionsRequest:
     transaction lock — see
     docs/status/composite-flow-unit-of-work-design.md point 3.
     """
-    parser = create_parser()
-    try:
-        args = parse_args_normalized(
-            parser, argv,
-            supported=SYSTEM_DEFAULT_SUPPORTED,
-            forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-        )
-        where = normalize_filter_list_or_system_default(args.where)
-        exclude = normalize_filter_list_or_system_default(args.exclude)
-    except (argparse.ArgumentError, ValueError) as e:
-        parser.error(str(e))  # raises ParserExit(2, ...)
+    args = parse_questions_argv(argv)  # raises ParserExit for any usage error
 
     return AddQuestionsRequest(
         experiment=args.experiment,
         add_questions=args.add_questions,
-        where=where,
-        exclude=exclude,
+        where=args.where,
+        exclude=args.exclude,
         source_file=args.source_file,
     )
 
@@ -550,8 +474,9 @@ def run_add_questions(
     applies to both callers automatically — no divergent duplicate logic
     to keep in sync.
 
-    Never lets argparse's own sys.exit() escape (create_parser() returns
-    a NonExitingArgumentParser) — always returns an exit code.
+    Never lets a usage error's own SystemExit escape (parse_questions_argv
+    invokes the Typer command with standalone_mode=False and translates
+    any UsageError/--help into ParserExit) — always returns an exit code.
 
     A usage error NEVER opens a database connection: when `conn` is not
     supplied, get_database_connection() is only called AFTER parsing
@@ -594,6 +519,12 @@ def run_add_questions(
             print(line)
         if result.exit_code != 0:
             print(f"Error: {result.error}", file=sys.stderr)
+        else:
+            emit_event(
+                get_logger("cli.questions"), Event.QUESTIONS_ADDED,
+                experiment=request.experiment,
+                added_count=result.added_count, skipped_count=result.skipped_count,
+            )
 
         return result.exit_code
     finally:
@@ -601,11 +532,11 @@ def run_add_questions(
             conn.close()
 
 
-def handle_list_questions(args, conn) -> int:
+def handle_list_questions(experiment_name: str, conn) -> int:
     """Handle --list-questions command.
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
         conn: Database connection.
 
     Returns:
@@ -614,9 +545,9 @@ def handle_list_questions(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     snap_repo = SnapshotRepository(conn)
 
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
     snapshots = snap_repo.list_by_experiment(experiment.experiment_id)
@@ -637,11 +568,12 @@ def handle_list_questions(args, conn) -> int:
     return 0
 
 
-def handle_remove_question(args, conn) -> int:
+def handle_remove_question(experiment_name: str, snapshot_id: str, conn) -> int:
     """Handle --remove-question command.
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
+        snapshot_id: Snapshot ID to remove.
         conn: Database connection.
 
     Returns:
@@ -650,21 +582,26 @@ def handle_remove_question(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     snap_repo = SnapshotRepository(conn)
 
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
-    snapshot = snap_repo.get_by_id(args.remove_question)
+    snapshot = snap_repo.get_by_id(snapshot_id)
     if not snapshot:
-        print(f"Error: Snapshot not found: {args.remove_question}", file=sys.stderr)
+        print(f"Error: Snapshot not found: {snapshot_id}", file=sys.stderr)
         return 1
 
     if snapshot.experiment_id != experiment.experiment_id:
-        print(f"Error: Snapshot '{args.remove_question}' is not in experiment '{args.experiment}'", file=sys.stderr)
+        print(f"Error: Snapshot '{snapshot_id}' is not in experiment '{experiment_name}'", file=sys.stderr)
         return 1
 
     snap_repo.delete(snapshot.snapshot_id)
+    emit_event(
+        get_logger("cli.questions"), Event.QUESTION_REMOVED,
+        experiment=experiment.name, snapshot_id=snapshot.snapshot_id,
+        question_id=snapshot.json_question_id,
+    )
     print(f"✓ Question '{snapshot.json_question_id}' removed from '{experiment.name}'")
     return 0
 
@@ -689,18 +626,10 @@ def main(mode: Mode) -> int:
         return run_add_questions(argv)
 
     # --list-questions / --remove-question have no composite-flow
-    # counterpart — parsed and dispatched directly, same shape as before,
-    # just adapted to NonExitingArgumentParser.
-    parser = create_parser()
+    # counterpart — parsed and dispatched directly via the Typer command
+    # (src/cli/commands/questions.py), same shape as before.
     try:
-        try:
-            args = parse_args_normalized(
-                parser, argv,
-                supported=SYSTEM_DEFAULT_SUPPORTED,
-                forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-            )
-        except (argparse.ArgumentError, ValueError) as e:
-            parser.error(str(e))
+        args = parse_questions_argv(argv)
     except ParserExit as e:
         if e.status != 0:
             return e.status
@@ -710,11 +639,17 @@ def main(mode: Mode) -> int:
 
     try:
         if args.list_questions:
-            return handle_list_questions(args, conn)
+            return handle_list_questions(args.experiment, conn)
         elif args.remove_question:
-            return handle_remove_question(args, conn)
+            return handle_remove_question(args.experiment, args.remove_question, conn)
         else:
-            parser.print_help()
+            # Unreachable: parse_questions_argv's mutex-group check
+            # already guarantees exactly one of
+            # add_questions/list_questions/remove_question is set, and
+            # add_questions was already handled by the early-return above
+            # — kept only as a defensive fallback, matching the original
+            # argparse version's equivalent branch.
+            print("Error: no valid question action specified.", file=sys.stderr)
             return 1
     finally:
         conn.close()

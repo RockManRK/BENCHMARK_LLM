@@ -257,3 +257,25 @@ cases:
       no_traceback: true
     db:
       unchanged_tables: [runs]
+
+  - id: RN-011
+    name: "--experiment system-default e FORBIDDEN, exit 2 (identity selector, nunca normalizado)"
+    area: run
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [system-default, contracts, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # Black-box replacement for tests/unit/cli/test_experiment_flag_forbidden_consistency.py's
+      # test_bcllm_run_experiment_system_default_rejected (marco 4A
+      # pre-conversion Fase 0, 2026-08-20) — written now against
+      # bcllm_run.py's still-argparse implementation, needs no rework when
+      # bcllm_run.py migrates to Typer in marco 4B. See
+      # docs/status/known-issues.md.
+      argv: ["--experiment", "system-default", "--list-runs"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true

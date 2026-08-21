@@ -7,7 +7,7 @@ This module implements the CLI Module Resolution Contract:
 - Propagates experiment context to action modules
 - Action modules NEVER create experiments
 """
-import argparse
+import logging
 import os
 import sqlite3
 import sys
@@ -19,9 +19,11 @@ from src.core.mode import Mode
 from src.core.mode_resolver import resolve_mode
 from src.core.module_resolver import resolve_module, has_flag, ADD_ACTION_FLAGS
 from src.core.mode_matrix import validate_mode_matrix, ModeMatrixError
-from src.core.argv_utils import parse_args_normalized, ParserExit
+from src.core.argv_utils import ParserExit
 from src.db.unit_of_work import UnitOfWork
 from src.utils.logging_config import setup_logging, LoggingConfig
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _bootstrap_environment() -> None:
@@ -208,7 +210,10 @@ def _parse_all_add_action_requests(argv: list[str], experiment_name: str) -> lis
     return parsed
 
 
-def _execute_action_request(action_flag: str, request: object, conn, logger, *, commit: bool) -> int:
+def _execute_action_request(
+    action_flag: str, request: object, conn, logger, *, commit: bool,
+    operation_id: str | None = None,
+) -> int:
     """Dispatch an already-parsed Request to its module's run_add_*()
     (the DB-facing half: dispatch to the shared action + printing) —
     reusing the exact same code path standalone uses (run_add_model /
@@ -225,14 +230,22 @@ def _execute_action_request(action_flag: str, request: object, conn, logger, *, 
         from src.cli import bcllm_run
         exit_code = bcllm_run.run_add_run(conn=conn, commit=commit, request=request)
     else:
-        logger.error(f"COMPOSITE_FLOW | unknown action_flag={action_flag}")
+        emit_event(
+            logger, Event.COMPOSITE_FLOW, level=logging.ERROR, operation_id=operation_id,
+            error=f"unknown action_flag={action_flag}",
+        )
         return 1
 
-    logger.info(f"COMPOSITE_FLOW | action={action_flag} completed with exit_code={exit_code}")
+    emit_event(
+        logger, Event.COMPOSITE_FLOW, operation_id=operation_id,
+        action=action_flag, exit_code=exit_code,
+    )
     return exit_code
 
 
-def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tuple[bool, int]:
+def _handle_composite_flow(
+    argv: list[str], mode: Mode, module_name: str, operation_id: str | None = None,
+) -> tuple[bool, int]:
     """Handle composite flow: CREATE + ADD_*, with real atomicity.
 
     If --create-experiment is present with one or more --add-* actions:
@@ -311,11 +324,18 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
 
     logger = setup_logging(LoggingConfig(
         log_file_path=Path(os.getenv("LOG_FILE_PATH", "./logs/benchmark.log")),
-        log_level=os.getenv("LOG_LEVEL", "INFO")
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        log_profile=os.getenv("LOG_PROFILE", "NORMAL"),
     ))
     if has_add_questions:
-        logger.info(f"PRECONDITION | QUESTIONS_DATASET_PATH validated: {questions_path}")
-    logger.info(f"COMPOSITE_FLOW | creating experiment={experiment_name} before action={module_name}")
+        emit_event(
+            logger, Event.PRECONDITION, operation_id=operation_id,
+            check="QUESTIONS_DATASET_PATH", value=questions_path,
+        )
+    emit_event(
+        logger, Event.COMPOSITE_FLOW, operation_id=operation_id,
+        experiment=experiment_name, action=module_name,
+    )
 
     # =========================================================================
     # PURE PARSE PHASE — no connection, no lock. Every usage error across
@@ -337,15 +357,12 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
     # it has a larger blast radius than the win of pre-validating an
     # already-rare invalid-seed-at-creation-time case).
     # =========================================================================
-    from src.cli.bcllm_experiment import _create_experiment_with_config, create_parser as create_experiment_parser
+    from src.cli.bcllm_experiment import _create_experiment_with_config
+    from src.cli.commands.experiment import parse_experiment_argv
 
     create_argv = _build_create_argv(argv, experiment_name)
-    exp_parser = create_experiment_parser()
     try:
-        try:
-            create_args = parse_args_normalized(exp_parser, create_argv[1:])
-        except (argparse.ArgumentError, ValueError) as e:
-            exp_parser.error(str(e))  # raises ParserExit(2, ...)
+        create_args = parse_experiment_argv(create_argv[1:])
     except ParserExit as e:
         return True, e.status
 
@@ -387,8 +404,9 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
                     uow.assert_active()
                 except ValueError as e:
                     if "already exists" in str(e):
-                        logger.info(
-                            f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name}"
+                        emit_event(
+                            logger, Event.COMPOSITE_FLOW, operation_id=operation_id,
+                            experiment=experiment_name, note="already_exists_concurrent",
                         )
                         experiment_created_by_us = False
                     else:
@@ -413,9 +431,10 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
                             exp_repo = ExperimentRepository(check_conn)
                             existing = exp_repo.get_by_name(experiment_name)
                             if existing:
-                                logger.info(
-                                    f"COMPOSITE_FLOW | experiment already exists (concurrent)={experiment_name} | "
-                                    f"experiment_id={existing.experiment_id}"
+                                emit_event(
+                                    logger, Event.COMPOSITE_FLOW, operation_id=operation_id,
+                                    experiment=experiment_name, experiment_id=existing.experiment_id,
+                                    note="already_exists_concurrent",
                                 )
                                 experiment_created_by_us = False
                             else:
@@ -428,20 +447,23 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
                 # Execute --add-* actions in the pre-parsed order,
                 # stopping at the first failure.
                 for action_flag, request in add_action_requests:
-                    logger.info(f"COMPOSITE_FLOW | executing action={action_flag}")
-                    exit_code = _execute_action_request(action_flag, request, conn, logger, commit=False)
+                    emit_event(logger, Event.COMPOSITE_FLOW, operation_id=operation_id, action=action_flag)
+                    exit_code = _execute_action_request(
+                        action_flag, request, conn, logger, commit=False, operation_id=operation_id,
+                    )
                     if exit_code != 0:
-                        logger.info(
-                            f"COMPOSITE_FLOW | action={action_flag} failed with exit_code={exit_code}; "
-                            f"stopping remaining actions, rolling back"
+                        emit_event(
+                            logger, Event.COMPOSITE_FLOW, operation_id=operation_id,
+                            action=action_flag, exit_code=exit_code, note="stopping_and_rolling_back",
                         )
                         return True, exit_code  # uow rolls back on exit
                     uow.assert_active()
 
                 uow.commit()
-                logger.info(
-                    f"COMPOSITE_FLOW | committed | experiment={experiment_name} | "
-                    f"created_by_us={experiment_created_by_us}"
+                emit_event(
+                    logger, Event.COMPOSITE_FLOW, operation_id=operation_id,
+                    experiment=experiment_name, created_by_us=experiment_created_by_us,
+                    note="committed",
                 )
                 return True, 0
         except Exception as e:
@@ -453,6 +475,10 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
             # BEGIN IMMEDIATE case itself, where no transaction was ever
             # opened, so there is nothing to roll back. Operational
             # error, not a usage error: exit code 1.
+            emit_event(
+                logger, Event.COMPOSITE_FLOW, level=logging.ERROR, operation_id=operation_id,
+                experiment=experiment_name, error=repr(e), note="unexpected_failure_rolled_back",
+            )
             logger.error(
                 f"COMPOSITE_FLOW | unexpected failure, rolled back | experiment={experiment_name} | {e!r}",
                 exc_info=True,
@@ -467,7 +493,12 @@ def _handle_composite_flow(argv: list[str], mode: Mode, module_name: str) -> tup
         conn.close()
 
 
-def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> int:
+def route_to_v2(
+    module_name: str,
+    mode: Mode,
+    argv: list[str] | None = None,
+    operation_id: str | None = None,
+) -> int:
     """Route to src.cli module and return exit code.
 
     Orchestrates composite flows:
@@ -478,6 +509,13 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
         mode: The resolved CLI mode (CREATE, MODIFY, EXECUTE, EXPORT, INVALID).
         argv: Raw command-line arguments (for composite flow detection).
               If None, uses sys.argv.
+        operation_id: Correlation ID for this CLI invocation (logging only).
+              Currently only threaded into bcllm_execute (the deep
+              Planner->ExecutionEngine->AsyncOrchestrator pipeline benefits
+              most from per-item/per-retry correlation); the other modules
+              are still covered by this invocation's own COMMAND_START/
+              COMMAND_END in main() below. See
+              docs/status/checkpoint-c-logging-observability-design.md, §4.
 
     Returns:
         Exit code from the v2 module (0 for success, 1 for error).
@@ -485,7 +523,7 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
     # Handle composite flow: create experiment BEFORE dispatching
     # If composite flow was handled, all actions were executed - don't delegate again
     handled, composite_exit_code = _handle_composite_flow(
-        argv if argv is not None else sys.argv, mode, module_name
+        argv if argv is not None else sys.argv, mode, module_name, operation_id=operation_id,
     )
     if handled:
         return composite_exit_code
@@ -511,9 +549,9 @@ def route_to_v2(module_name: str, mode: Mode, argv: list[str] | None = None) -> 
         # The experiment was just created by _handle_composite_flow
         return _route_action_module_with_experiment(module_name, mode, argv if argv is not None else sys.argv)
     elif module_name == "bcllm_execute":
-        return bcllm_execute.main(mode)
+        return bcllm_execute.main(mode, operation_id=operation_id)
     elif module_name == "bcllm_review":
-        return bcllm_review.main(mode)
+        return bcllm_review.main(mode, operation_id=operation_id)
     elif module_name == "bcllm_export":
         return bcllm_export.main(mode)
     elif module_name == "bcllm_provider":
@@ -599,9 +637,27 @@ def main() -> int:
     3. Validate MODE × MATRIX
     4. Dispatch to module
 
+    Generates one operation_id per invocation (§4 of
+    docs/status/checkpoint-c-logging-observability-design.md) and emits
+    COMMAND_START/COMMAND_END around the entire dispatch — the one
+    correlator every event from this invocation shares, regardless of
+    which of the 9 CLI modules ends up handling it. Also closes the
+    KeyboardInterrupt gap found during Checkpoint C's investigation: 7 of
+    the 9 modules previously let Ctrl-C propagate as a raw traceback. The
+    other 2 (bcllm_execute.py, bcllm_review.py) already had their own
+    ad-hoc handlers — bcllm_execute's returned exit 130 correctly;
+    bcllm_review's returned exit 0 and was fixed separately (2026-08-20)
+    to also return 130. Both of those modules' own handlers still fire
+    first and are never reached by this outer catch, which is the
+    uniform fallback for the remaining 7.
+
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    import uuid
+
+    operation_id = f"op_{uuid.uuid4().hex[:8]}"
+
     mode = resolve_mode(sys.argv)
     module = resolve_module(sys.argv)
 
@@ -614,11 +670,15 @@ def main() -> int:
 
     log_config = LoggingConfig(
         log_file_path=Path(os.getenv("LOG_FILE_PATH", "./logs/benchmark.log")),
-        log_level=os.getenv("LOG_LEVEL", "INFO")
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        log_profile=os.getenv("LOG_PROFILE", "NORMAL"),
     )
     logger = setup_logging(log_config)
 
-    logger.info(f"APPLICATION_START | version=2.0 | mode={mode.value}")
+    emit_event(
+        logger, Event.APPLICATION_START, operation_id=operation_id,
+        version="2.0", mode=mode.value,
+    )
 
     try:
         validate_mode_matrix(mode, module)
@@ -626,9 +686,30 @@ def main() -> int:
         print(str(e), file=sys.stderr)
         return 1
 
-    logger.info(f"MODE_ROUTING | mode={mode.value} | matrix={module}")
+    emit_event(
+        logger, Event.MODE_ROUTING, operation_id=operation_id,
+        mode=mode.value, module=module,
+    )
 
-    return route_to_v2(module, mode, sys.argv)
+    command = mode.value
+    emit_event(
+        logger, Event.COMMAND_START, operation_id=operation_id,
+        command=command, module=module,
+    )
+
+    try:
+        exit_code = route_to_v2(module, mode, sys.argv, operation_id=operation_id)
+    except KeyboardInterrupt:
+        emit_event(logger, Event.COMMAND_INTERRUPTED, operation_id=operation_id, command=command)
+        print("\nInterrupted by user.", file=sys.stderr)
+        return 130
+
+    emit_event(
+        logger, Event.COMMAND_END, operation_id=operation_id,
+        command=command, exit_code=exit_code,
+    )
+
+    return exit_code
 
 
 def cli_main() -> int:

@@ -1,0 +1,55 @@
+# Direct runtime dependencies for benchmark_llm, hand-edited.
+#
+# This is the SINGLE canonical source of direct dependencies (2026-08-20
+# dependency hygiene pass, docs/status/known-issues.md). Two other files
+# derive from this one — never edit them by hand:
+#   - requirements.txt: compiled from this file via `pip-compile
+#     requirements.in` (pip-tools) — exact, reproducible pins for every
+#     direct AND transitive dependency. Regenerate with:
+#       pip install -r requirements-dev.txt
+#       pip-compile requirements.in --output-file requirements.txt
+#   - setup.py: reads this file directly at import time
+#     (`install_requires=_read_requirements("requirements.in")`) instead
+#     of duplicating the list — see setup.py's `_read_requirements()`.
+#
+# Dev-only tools (pip-tools, pip-audit) live in requirements-dev.txt, not
+# here — they are never a runtime dependency of the installed package.
+
+# HTTP Client & API
+httpx>=0.25.0
+
+# Data Validation & Settings
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# Environment Management
+python-dotenv>=1.0.0
+
+# Terminal Output — bounded 2026-08-20 (marco 4A dependency audit,
+# docs/status/known-issues.md): resolved/tested version is 14.3.3;
+# floating >=13.0.0 with no upper bound allowed an untested future major
+# to install silently. Click is NOT a separate dependency here — Typer
+# 0.27+ vendors it internally (typer._click); do not add a `click` line,
+# it would not correspond to any package actually installed.
+rich>=13.0.0,<15.0.0
+
+# CLI Framework (migration in progress — see docs/architecture/adr/adr-002-cli-presentation.md).
+# Bounded 2026-08-20: resolved/tested version is 0.27.1, the latest
+# verified stable release at the time of the marco 4A dependency audit.
+# Typer is still pre-1.0 (semver: minor bumps may break) — bound is
+# deliberately tight.
+typer>=0.27.1,<0.28.0
+
+# CLI test suite (tests/cli_suite) — declarative YAML test cases
+PyYAML>=6.0
+
+# Testing Framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+
+# HTTP Mocking
+responses>=0.24.0

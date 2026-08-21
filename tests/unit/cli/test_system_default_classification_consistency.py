@@ -18,7 +18,7 @@ without anyone needing to remember to update this file too.
 
 from __future__ import annotations
 
-from src.cli import bcllm_experiment, bcllm_model, bcllm_run, bcllm_provider
+from src.cli import bcllm_experiment, bcllm_model, bcllm_run, bcllm_provider, bcllm_questions
 
 
 MODULES = {
@@ -26,6 +26,13 @@ MODULES = {
     "bcllm_model": bcllm_model,
     "bcllm_run": bcllm_run,
     "bcllm_provider": bcllm_provider,
+    # Added 2026-08-20 (marco 4A pre-4B diff audit, Essence Guardian
+    # finding): bcllm_questions.py's SYSTEM_DEFAULT_FORBIDDEN also
+    # classifies 'experiment' (shared with the 4 modules above) — this
+    # guard's whole purpose is catching exactly that kind of shared-dest
+    # drift, so it must cover every module that classifies a dest, not
+    # only the ones present when the guard was first written.
+    "bcllm_questions": bcllm_questions,
 }
 
 
@@ -68,6 +75,28 @@ def test_experiment_is_forbidden_in_every_module_that_classifies_it():
         assert classification == "FORBIDDEN", f"{mod_name} classifies --experiment as {classification}, expected FORBIDDEN"
 
 
+def declared_dests(mod_name: str, mod) -> set[str]:
+    """Test-infrastructure-only helper (2026-08-20, CLI Typer migration
+    marco 4A) — resolves a module's declared flag `dest` names whether
+    it's still argparse-based (`mod.create_parser()`, `.dest` per action)
+    or has been converted to a Typer command
+    (`src/cli/commands/<name>.py`'s `_command.params`, `.name` per
+    param — Click's equivalent of argparse's `dest`, verified identical
+    in meaning during the conversion). Deliberately NOT exposed outside
+    this test file — production code never needs to know which modules
+    are Typer vs. argparse; only this cross-module consistency check
+    does, and only until all 4 modules here have migrated (4B/4C)."""
+    if hasattr(mod, "create_parser"):
+        parser = mod.create_parser()
+        return {a.dest for a in parser._actions}
+
+    import importlib
+
+    short_name = mod_name.removeprefix("bcllm_")
+    cmd_module = importlib.import_module(f"src.cli.commands.{short_name}")
+    return {p.name for p in cmd_module._command.params}
+
+
 def test_every_module_with_experiment_required_true_classifies_it():
     """bcllm_model.py, bcllm_run.py, bcllm_provider.py all have a
     required=True --experiment flag; bcllm_experiment.py has an optional
@@ -75,8 +104,7 @@ def test_every_module_with_experiment_required_true_classifies_it():
     future new module with --experiment doesn't silently skip
     classification the way the original bug did)."""
     for mod_name, mod in MODULES.items():
-        parser = mod.create_parser()
-        dests = {a.dest for a in parser._actions}
+        dests = declared_dests(mod_name, mod)
         if "experiment" not in dests:
             continue
         supported = getattr(mod, "SYSTEM_DEFAULT_SUPPORTED", set())

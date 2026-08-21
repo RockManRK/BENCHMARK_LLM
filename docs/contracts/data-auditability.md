@@ -141,15 +141,62 @@ At each step:
 
 ## Logging and Audit Trail
 
-Logs are treated as **scientific data** (per system philosophy):
+Logs are treated as **scientific data** (per system philosophy). As of
+Checkpoint C (`docs/status/checkpoint-c-logging-observability-design.md`),
+every claim below is implemented and tested, not aspirational:
 
-- Logs include experiment, run, model, and question identifiers
-- Logs have multiple depth levels (configurable)
-- Logs are crash-safe (written immediately, not buffered unsafely)
-- Logs do not expose sensitive data (no API keys, tokens)
-- Logs can be separated by experiment (manually, not automated)
+- **Logs include experiment, run, model, and question identifiers** —
+  carried on relevant events via `run_id`/`variant_id`/`snapshot_id`/
+  `question_id`, plus `operation_id` (the invocation-level correlator,
+  distinct from these data-level ones — see
+  `docs/contracts/interaction-contracts.md` §4).
+- **Logs have multiple depth levels (configurable)** — `LOG_PROFILE`
+  (MINIMAL/NORMAL/DETAILED/TRACE, cumulative, `.env`-only). `WARNING`+
+  events are never suppressed by profile, at any level, enforced
+  structurally inside the single emission path
+  (`src.utils.log_emitter.emit_event`).
+- **Logs are crash-safe** (written immediately, not buffered unsafely) —
+  both the human-readable and JSONL handlers flush on every write; a
+  logging failure (redaction error, handler I/O failure) is caught and
+  never propagates, so it can never break execution, lose a DB write, or
+  look like "not yet attempted" to resume/retry logic (verified in
+  `tests/unit/utils/test_logging_concurrency_crash_safety.py`).
+- **Logs do not expose sensitive data** — a central redaction policy
+  (`src.utils.redaction.redact`) runs unconditionally inside the one
+  emission path, on every field, at every profile including TRACE
+  (secret-shaped keys, `Bearer` tokens, URL credentials, and secrets
+  embedded in exception text — recursively). This is a policy, not an
+  absence-of-behavior accident (see the prior, weaker phrasing this line
+  replaces).
+- **Logs can be separated by experiment (manually, not automated)** — via
+  `operation_id`/`experiment_id`/`run_id` fields on each JSONL line
+  (`grep`/`jq` filter over the global file); no automated per-experiment
+  file split is implemented, by deliberate choice — see
+  `docs/status/checkpoint-c-logging-observability-design.md` §9.
 
-**Rationale:** Logs enable debugging execution issues and process failuress; they are part of the research dataset.
+**Rationale:** Logs enable debugging execution issues and process failures; they are part of the research dataset.
+
+### 4c. Logs are a third, distinct record — never a substitute for DB columns
+
+Per the system's three-way separation of responsibilities: the database
+(`responses.request_json`/`raw_response`/`raw_response_consolidated`/
+`config_json`/`config`) is the authoritative source for configuration,
+request, and response data; logs are the chronological trail of
+execution, diagnosis, decisions, and correlation; the OpenRouter
+debug/upstream echo (§4b above) is additional evidence of the
+transformed body forwarded to the provider. None of the three
+substitutes for another. Concretely:
+
+- A `TRACE`-profile log line carrying the redacted request payload
+  (`REQUEST_PAYLOAD_TRACE`) or the redacted upstream echo
+  (`UPSTREAM_ECHO_TRACE`) is diagnostic evidence, not the record of
+  truth — `responses.request_json`/`raw_response` remain authoritative.
+  Log content is redacted; DB content is not (and must never be).
+- The upstream echo, when it appears in a log line, stays a field
+  distinct from any request-payload field logged alongside it in the
+  same trace — never merged or overwritten into the request's own
+  representation, in the DB or in logs (verified in
+  `tests/unit/core/test_execution_engine_trace.py`).
 
 ---
 

@@ -14,6 +14,15 @@ status: active
 
 ## Bugs
 
+### ℹ️ [Partially resolved] No CI pipeline exercises Python tests
+
+**Severity:** Low-Medium (not a functional bug — a process gap)
+**Status:** The dependency-reproducibility half of this gap (no lockfile, no audit tool) is **resolved** — see the Resolved Issues entry below ("Dependency hygiene pass: pip-tools lockfile, single source of truth, pip-audit"). This entry now tracks only what remains: **no CI pipeline runs `pytest`/`cli_suite` at all.** The only workflows in `.github/workflows/` (`qwen-dispatch.yml`, `qwen-invoke.yml`, `qwen-review.yml`, `qwen-scheduled-triage.yml`, `qwen-triage.yml`) are unrelated to this project's own Python dependencies or tests. All verification in this project (Checkpoints A/B/C, the CLI Typer migration) has been manual/local — a regression is only caught if someone runs the suite by hand.
+**Discovered:** 2026-08-20, during marco 4A's dependency verification.
+**Suggested Fix:** Not proposed here — explicitly deferred. The user directed (2026-08-20) that this stage stay small and not include standing up CI: "Não crie ainda um pipeline CI amplo. Registre a ausência de CI como tarefa futura." A future checkpoint should design this deliberately (what triggers a run, which profile of `cli_suite`, whether `OPENROUTER_API_KEY`-gated cases are ever exercised in CI or stay local-only) rather than bolting on a minimal workflow now.
+**Effort:** Not evaluated — out of scope until prioritized.
+**Dependencies:** None technically; deliberately deferred.
+
 ### ✅ [Moved to Resolved Issues] An experiment created with no `--seed` stored the literal string `"OFF"`, which `--add-run`'s inheritance then rejected
 
 Found 2026-08-19 during the Unit-of-Work checkpoint (recorded, not fixed there — out of scope). Fully resolved 2026-08-20 as part of the seed vocabulary separation checkpoint, which retired all textual sentinels (`"OFF"`/`"NULL"`/`"NONE"`/`""`) outright rather than teaching `build_run_config_dict` to also recognize them. See the Resolved Issues entry below ("Randomization Seed vocabulary separated from Model Seed...") for the complete fix and regression coverage. Left as a pointer here rather than deleted, matching the convention used for the `system-default` entry above.
@@ -43,10 +52,12 @@ Investigated 2026-08-18 (deferred), foundation fixed 2026-08-19 (vocabulary/mech
 **Description:** Flagged by the Essence Guardian review of ADR-002 (2026-08-18): declaring the section normative for the current CLI without an accompanying compliance pass risks the same doc/code drift this file already tracks elsewhere in the project's history.
 **Discovered:** 2026-08-18, Essence Guardian review of ADR-002 / `interaction-contracts.md`.
 **Suggested Fix:** As each CLI group is migrated to Typer (Fase 4 of the CLI migration plan, marks 4A–4D), audit that group's `print()` calls against Section 2 and correct any stdout/stderr misplacement found — do not assume compliance, verify it group by group rather than as one large pass.
-**Effort:** Small per group, done incrementally as part of the migration already planned.
-**Dependencies:** CLI Typer migration Fase 4.
 
 ---
+
+### ✅ [Moved to Resolved Issues] `bcllm_review.py`'s `KeyboardInterrupt` handling contradicted the `interaction-contracts.md` §2 exit-code convention and produced zero audit trail
+
+Fully resolved 2026-08-20, same day it was found by the Essence Guardian's Checkpoint C review. See the Resolved Issues entry below ("`bcllm_review.py` KeyboardInterrupt handling brought into line with `interaction-contracts.md` §2") for the complete fix and regression coverage. Left as a pointer here rather than deleted, matching the convention used for the entries above.
 
 ### 🟡 `--resolve-providers` ignores a variant's `BASE_URL`, always hits real OpenRouter
 
@@ -60,15 +71,100 @@ Investigated 2026-08-18 (deferred), foundation fixed 2026-08-19 (vocabulary/mech
 
 ---
 
-### 🔴 Review UI queries a non-existent `responses.created_at` column
+### 🔴 `--remove-question` performs a real hard delete, contradicting its own "soft delete" docstring and the immutability contract
 
-**Severity:** High
-**Impact:** `--review-experiment` and `--review-all` reach the review module (routing is fixed — see Resolved Issues below) but immediately fail with `Error during review: no such column: r.created_at`. The manual review flow (`docs/status/implementation-status.md`'s "Review UI blocked by MODE × MODULE routing issues") is still fully blocked, just by a different, previously-invisible bug.
-**Description:** `src/review/review_ui.py` (two call sites: `get_pending_by_experiment` ~line 160 and its multi-experiment counterpart ~line 557) selects `r.created_at` where `r` aliases the `responses` table. `responses` has no `created_at` column (`src/db/schema.sql`) — it has `started_at`/`finished_at` instead.
-**Reproduction:** `bcllm --review-all` (or `--review-experiment <name>`) with any pending review item — `sqlite3.OperationalError: no such column: r.created_at`. Confirmed 2026-08-17, discovered immediately after fixing the `Mode.INVALID` routing gap below (which had masked this entirely — the review module was never reachable before).
-**Suggested Fix:** Decide whether the intended sort/display field is `started_at` or `finished_at`, then update both query sites and the `ReviewItem` construction that reads `row["created_at"]`. Not fixed here — out of this session's scope (manual review UI, `docs/tests/` explicitly lists it as reserved/future coverage) and the correct replacement field is a product call, not just a rename.
-**Effort:** Small once the correct field is decided.
-**Dependencies:** None technically; decision-blocked on which timestamp field is correct.
+**Severity:** Medium (contract tension, not yet acted on — flagged per `CLAUDE.md`'s rule: document and wait, don't silently pick a side)
+**Impact:** `bcllm --experiment X --remove-question <snapshot_id>` permanently removes the row from `question_snapshots` via `SnapshotRepository.delete()` (`src/db/repository.py:346-356`, unconditional `DELETE FROM question_snapshots WHERE snapshot_id = ?`, `conn.commit()`). No soft-delete mechanism exists for this table (no `status`/`deleted_at` column). This directly contradicts `docs/contracts/immutability.md` §1 ("Question Snapshots ... **Cannot be deleted** — Even if the source dataset changes, snapshots remain") and `bcllm_questions.py`'s own module docstring, which claims "Remove question snapshots (**soft delete**)" (line 7) — the claim has been wrong since before this session; not introduced by any recent change.
+**Discovered:** 2026-08-20, flagged by the Essence Guardian's marco 4A review, triggered by that marco adding a new `Event.QUESTION_REMOVED` structured-logging event to this exact code path — the removal was already possible and already violated the contract; the new event only makes it more visible in the audit trail, which is why the Guardian caught it now rather than it being a new problem.
+**Precedent:** This is the same class of tension already found and resolved for `--remove-experiment` (hard cascading delete, disabled entirely) and `--provider-lock` on an existing experiment (config rewrite, disabled entirely) — see the Resolved Issues entries below. `--remove-question` was not covered by that earlier pass.
+**Suggested Fix (not applied — awaiting a decision, same as the two precedents above):** Either (a) disable `--remove-question` the same way `--remove-experiment` was disabled, pending a real soft-delete design (new column, migration path — see `docs/architecture/adr/adr-003-pre-production-data-scope.md` for what's allowed pre-production), or (b) if soft-delete is wanted for real, design and implement it now rather than continuing to document a "soft delete" that isn't one. Not decided here.
+**Effort:** Small for option (a); medium for option (b) (schema change + migration consideration).
+**Dependencies:** None technically; decision-blocked.
+
+---
+
+### ℹ️ `PR-001` case ID pre-dates this session's `tests/cli_suite/cases/provider.yaml` — was referenced in docs, never actually existed as a file until now
+
+**Severity:** Low (documentation drift, no actual ID collision — confirmed only one `PR-001` exists on disk)
+**Impact:** The `--resolve-providers ignores BASE_URL` entry below (discovered 2026-08-17) references `tests/cli_suite/cases/provider.yaml::PR-001` as an existing, `requires: [openrouter]`-tagged, `BLOCKED`-by-default case — but `tests/cli_suite/cases/provider.yaml` did not exist anywhere in the repo before 2026-08-20 (confirmed via `Glob` before creating it). The `PR-001` that exists now (created this session, marco 4A's black-box FORBIDDEN case — see the Resolved Issues entry for "CLI Typer migration marco 4A") is a **different** case: a pure argument-parsing rejection test (`--experiment system-default --resolve-providers` → exit 2), never reaching the network, not tagged `requires: [openrouter]`.
+**Discovered:** 2026-08-20, while documenting the immutability entry above and cross-checking adjacent `known-issues.md` content.
+**Suggested Fix:** When the `--resolve-providers`/`BASE_URL` bug below is eventually fixed and given real test coverage, that case should use a different ID (`PR-002` or similar) to avoid implying it's the same case this entry originally described. Not fixed here — no actual collision exists today, so nothing is broken, just a dangling cross-reference.
+**Effort:** Trivial, whenever the BASE_URL bug is worked.
+**Dependencies:** None.
+
+---
+
+### 🔴 Review UI is deliberately deferred — not a routing bug; not being fixed piecemeal
+
+**Status (2026-08-20, explicit product decision by RockManRK):** Review UI
+is **partially implemented, not ready for use, and deliberately deferred**
+until the rest of the system's components are complete. This is not
+neglect and not a "todo" — it's a scoping decision. No further piecemeal
+fixes to `review_ui.py`/`bcllm_review.py` are planned until it is
+resumed; when resumed, it gets **one dedicated, complete review**
+(architecture, queries, persistence, UX, audit, tests, and contracts
+together), not a sequence of small patches. The single exception already
+made was the 2026-08-20 KeyboardInterrupt/exit-code-130 fix (see Resolved
+Issues below), which the user explicitly requested despite the deferral —
+that does not reopen the rest.
+
+**Confirmed, tracked limitations (kept documented, not resolved):**
+
+1. **Invalid query — `responses.created_at` does not exist.**
+   `src/review/review_ui.py` (two call sites: `get_pending_by_experiment`
+   line 160/169/192, used by `start_review_by_experiment`; and
+   `start_review_all` line 557/566/589) selects `r.created_at` where `r`
+   aliases the `responses` table. `responses` has no `created_at` column
+   (`src/db/schema.sql:200-235`) — it has `started_at`/`finished_at`
+   instead. **Impact:** `--review-experiment` and `--review-all` reach the
+   review module (routing is confirmed working, not the blocker — see
+   Resolved Issues below and `docs/status/implementation-status.md`,
+   "Manual Review") but immediately fail with `Error during review: no
+   such column: r.created_at`, exit code 1, as soon as there is any
+   `review_status='needs_review'` row to process. **Reproduction:** `bcllm
+   --review-all` (or `--review-experiment <name>` once that experiment has
+   pending items). Originally confirmed 2026-08-17; re-confirmed live
+   2026-08-20 via real subprocess execution against an isolated,
+   freshly-created empty schema, with structured logs (`COMMAND_START`/
+   `COMMAND_END` correlated by `operation_id`) independently confirming
+   the dispatcher/routing is not at fault.
+   **CLI-suite visible symptom:** `tests/cli_suite/cases/review.yaml`
+   case `RV-001` ("`--review-all` alcança o módulo mas falha em coluna
+   inexistente (bug confirmado)") is tagged `EXPECTED_FAILURE` and must
+   **stay** `EXPECTED_FAILURE` — not silently marked PASS/fixed — until
+   the dedicated future review resolves the underlying query.
+
+2. **Wrong exit code on experiment-not-found.**
+   `start_review_by_experiment` (`src/review/review_ui.py:458-460`) prints
+   an error and returns `None` (does not raise) when the experiment name
+   doesn't exist, so `handle_review_experiment`
+   (`src/cli/bcllm_review.py`) always returns exit code `0` regardless of
+   whether the experiment was found — `bcllm --review-experiment
+   nonexistent_name` prints "Experimento não encontrado" but reports
+   success via its exit code. Reproduced live 2026-08-20.
+
+3. **Any further limitation found during future investigation** should be
+   added as a new numbered item here, under this same entry — not spun
+   out into a separate ad-hoc fix or a new standalone issue, per the
+   deferral decision above.
+
+**Suggested Fix (deferred, not to be acted on individually):** (1) Decide
+whether the intended sort/display field is `started_at` or `finished_at`,
+then update both query sites and the `ReviewItem` construction that reads
+`row["created_at"]`. (2) Make `start_review_by_experiment` signal "not
+found" distinctly (e.g. raise or return a sentinel) so
+`handle_review_experiment` can return exit code `1`. Both require
+touching `ReviewUI` itself and are explicitly bundled into the future
+dedicated Review UI review described above — do not fix in isolation.
+**Effort:** Small for the two items above once the `created_at`
+replacement field is decided; the larger unknown is the full
+classify/undo/skip/save flow, which has never been validated end-to-end
+against real pending data (blocked by item 1 for as long as the bug has
+existed) — that validation is part of the deferred dedicated review, not
+a quick patch.
+**Dependencies:** None technically; decision-blocked on which timestamp
+field is correct, and deliberately not scheduled until the dedicated
+review.
 
 ---
 
@@ -170,19 +266,9 @@ If you encounter a bug, please add it to this document with:
 
 ---
 
-### ⚠️ Logging Context Consistency
+### ✅ [Moved to Resolved Issues] Logging Context Consistency
 
-**Severity:** Low  
-**Impact:** Log analysis may require parsing multiple formats  
-**Description:**
-- Logging includes experiment/run/model/question context
-- Context format varies across modules
-- No structured logging schema (e.g., JSON logs)
-
-**Suggested Fix:** Standardize log context format across all modules
-
-**Effort:** Medium  
-**Dependencies:** Logging refactor
+Fully resolved 2026-08-20 as part of Checkpoint C (Logging, Observability, and Operational Auditability). See the Resolved Issues entry below ("Checkpoint C — Logging, Observability, and Operational Auditability") for the complete fix: a centralized `event_name` vocabulary (`src/utils/log_events.py`), a single emission path (`emit_event()`) producing an identical structured schema across every module, and `operation_id` correlation threaded through the `--execute` pipeline. Left as a pointer here rather than deleted, matching the convention used for the entries above.
 
 ---
 
@@ -241,11 +327,182 @@ If you encounter a bug, please add it to this document with:
 **Description:** Centralized retry handler with exponential/linear backoff implemented  
 **Impact:** Transient API failures are handled gracefully
 
-### ✅ Logging System Implementation
+### ✅ Logging System Implementation (superseded — see Checkpoint C below)
 
-**Resolved:** 2026-04 (prior to documentation restructure)  
-**Description:** Configurable logging with file rotation and crash-safety implemented  
+**Resolved:** 2026-04 (prior to documentation restructure)
+**Description:** Configurable logging with file rotation and crash-safety implemented
 **Impact:** System behavior is observable and debuggable
+**Note (2026-08-20):** This 2026-04 entry predates the documentation
+restructure and was never re-verified against the code in this
+repository — treat its date/description as unconfirmed history, not
+current fact. The claims that are true today (rotation, crash-safety)
+are re-verified and superseded by the Checkpoint C entry below, which
+also closes the gaps this entry never covered (structured/JSONL output,
+depth profiles, redaction, correlation IDs, TRACE-tier payload/echo
+visibility).
+
+### ✅ Checkpoint C — Logging, Observability, and Operational Auditability
+
+**Resolved:** 2026-08-20
+**Description:** Full logging architecture built on top of the prior
+ad-hoc `logger.info()`/`logger.debug()` calls: a centralized, stable
+`event_name` vocabulary (`src/utils/log_events.py`, `Event` class); four
+cumulative depth profiles (`LogProfile.MINIMAL`/`NORMAL`/`DETAILED`/
+`TRACE`, `.env`-only via `LOG_PROFILE`, `WARNING`+ events never
+suppressed at any profile); a single emission path (`emit_event()` in
+`src/utils/log_emitter.py`) producing two derived outputs — a
+human-readable line and a JSONL structured record (`benchmark_llm.jsonl`,
+`schema_version: 1`) — from one construction, never two independently
+drifting ones; unconditional central redaction (`src/utils/redaction.py`)
+of secret-shaped keys, `Bearer` tokens, URL credentials, and
+inline-`key=value` fragments in exception text, applied before every
+handler at every profile including `TRACE`; `operation_id` correlation
+generated once per CLI invocation and threaded explicitly (no
+globals/contextvars) through the entire `--execute` pipeline (Planner →
+ExecutionPlan → AsyncOrchestrator → ExecutionEngine → RetryHandler →
+OpenRouterClient → ResultWriter → RunFinalizer → AsyncWriter); new
+`CONFIG_RESOLVED`/`INHERITANCE_DECISION`/`SYSTEM_DEFAULT_APPLIED` events
+closing `config_resolver.py`'s previous zero-logging gap; TRACE-tier
+`REQUEST_PAYLOAD_TRACE`/`UPSTREAM_ECHO_TRACE`/`STREAM_CHUNK_TRACE`
+events, empirically proven distinct and non-overwriting (per
+`docs/contracts/data-auditability.md` §4c); uniform `KeyboardInterrupt`
+handling closing a gap in 7 of 9 CLI modules that previously let Ctrl-C
+propagate as a raw traceback (`COMMAND_INTERRUPTED` event, one outer
+catch in `bcllm.py`'s `main()`); crash-safety, concurrency (200
+concurrent asyncio tasks, no line interleaving/truncation), and rotation
+behavior empirically tested, not just asserted.
+**Impact:** System behavior is observable, debuggable, and auditable at
+the operational level, distinct from and complementary to the database's
+authoritative scientific record (`docs/contracts/data-auditability.md`
+§4c) — closes the "Logging Context Consistency" issue above. print()
+CLI-output migration is explicitly deferred to a separate future
+Checkpoint C2 (see `docs/status/cli-output-classification.md` for the
+classification map); this checkpoint delivers the event-emission
+infrastructure C2 will migrate onto, not the migration itself.
+**Verification:** 104 new tests across 10 new test files (event
+vocabulary, redaction, emitter, profile/JSONL config, operation_id
+threading through ExecutionEngine/Client/ConfigResolver, TRACE-tier
+logging, KeyboardInterrupt handling, concurrency/crash-safety/rotation);
+full `pytest` suite re-run after every module migration with zero
+regressions; real end-to-end `--execute` run inspected in the produced
+JSONL output, confirming 19 correlated events sharing one `operation_id`
+from `command_start` through `command_end`.
+**Docs updated:** `docs/contracts/interaction-contracts.md` §4 (now
+normative), `docs/contracts/data-auditability.md` (Logging and Audit
+Trail section, new §4c), `docs/contracts/idempotency.md` (logging
+failures never imply "not attempted"), `docs/contracts/determinism.md`
+§7 (TRACE payload logging, no separate fingerprint field exists),
+`docs/contracts/immutability.md` (`CONFIG_RESOLVED` is observational,
+not a new mutation path), `docs/reference/configuration-reference.md`
+(`LOG_PROFILE`, `OPENROUTER_DEBUG_ENABLED`), `docs/reference/module-structure.md`
+(`log_events.py`, `log_emitter.py`, `redaction.py`).
+
+### ✅ `bcllm_review.py` KeyboardInterrupt handling brought into line with `interaction-contracts.md` §2
+
+**Resolved:** 2026-08-20
+**Description:** `handle_review_experiment`/`handle_review_all`
+(`src/cli/bcllm_review.py`) each caught `KeyboardInterrupt` around their
+`ReviewUI` call but returned exit code `0` (success), printed a message
+via builtin `print()` containing literal, unrendered Rich markup
+(`"[yellow]Review interrupted by user.[/yellow]"`) to stdout instead of
+stderr, and emitted no structured event — so `bcllm.py`'s Checkpoint C
+outer `KeyboardInterrupt` catch never fired for these two commands and
+review-session interruptions had zero `operation_id`-correlated trail,
+unlike every other command. Found by the Essence Guardian's Checkpoint C
+review (2026-08-20). Fixed by mirroring `bcllm_execute.py`'s established
+pattern at the point where it was already caught (no restructuring of
+where the catch lives): both handlers now return `130`, print a plain
+(no-markup) message to `stderr`, and call
+`emit_event(get_logger("cli.review"), Event.COMMAND_INTERRUPTED,
+operation_id=operation_id, command="review_experiment"|"review_all")`.
+`operation_id` is now threaded through `bcllm_review.main()` →
+`handle_review_experiment`/`handle_review_all`, and `bcllm.py`'s
+`route_to_v2` now passes it through on the `bcllm_review` dispatch (it
+already did for `bcllm_execute`). Connection closure (`finally:
+conn.close()` in `main()`) was already unconditional and required no
+change; no traceback is raised (the exception is fully caught, a normal
+int is returned) and no new persistence is triggered by the interrupt
+handler itself.
+**Impact:** `--review-experiment`/`--review-all` now follow the same
+exit-code-130 / stderr / structured-event convention as every other
+interruptible command, closing the "Logging Context Consistency"-adjacent
+gap the Guardian flagged. This is independent of, and does not fix, the
+separate `responses.created_at` SQL bug and exit-code-on-not-found bug
+documented above ("Review UI is deliberately deferred") — those remain
+open and deliberately unfixed until Review UI's dedicated future review.
+**Verification:** 13 new tests in
+`tests/unit/cli/test_keyboard_interrupt_logging.py::TestBcllmReviewKeyboardInterrupt`
+(exit code 130, stderr message present with no Rich markup leaking
+through, stdout has no error text, `COMMAND_INTERRUPTED` event present
+with correct `operation_id`/`command` fields, no traceback propagates,
+connection closed via the real `main()` path, no new `commit`/`execute`
+calls triggered by the interrupt handler) — all passing, plus the full
+existing suite re-run with zero regressions.
+
+### ✅ `param_types.py` (Typer callbacks) was missing two equivalents of `special_config_values.py` (argparse), found by marco 4A's pre-conversion equivalence check
+
+**Resolved:** 2026-08-20
+**Description:** Before writing any Typer command for marco 4A, a targeted equivalence check compared every behavior of `src/core/special_config_values.py` (argparse) against `src/cli/param_types.py` (its Typer-callback counterpart, scaffolded in Fase 2 but never exercised). Confirmed equivalent: int (including `0`, distinct from `None`/`FORCE_SYSTEM_DEFAULT`), float, string (`'none'` preserved as a literal, not special-cased), `'system-default'` → `FORCE_SYSTEM_DEFAULT`, deprecated `'null'` rejected, invalid value → exit code 2 (proven empirically via a real `typer.Typer` app + `CliRunner`, not assumed from framework docs), absence → `None`. Two real gaps found: (1) no Typer equivalent of `normalize_filter_list_or_system_default` (`--where`/`--exclude` list handling, including the system-default-combined-with-a-concrete-filter contradiction check) — both `bcllm_experiment.py` and `bcllm_questions.py` need this for marco 4A; (2) no Typer equivalent of `normalize_special_config_values`'s FORBIDDEN branch (structural/identity flags — `--experiment`, `--url`, `--create-experiment`, etc. — that must explicitly reject `'system-default'`/`'null'` rather than silently accepting either as the literal value).
+**Fix:** Added `typer_filter_list_or_system_default` and `typer_reject_special_values` to `src/cli/param_types.py`, matching the argparse versions' behavior and message text exactly (Typer's `BadParameter` in place of `argparse.ArgumentTypeError`/`ArgumentError`).
+**Verification:** `tests/unit/cli/test_param_types.py`, 42 tests covering the full equivalence checklist above plus 8 tests proving exit-code-2 via real `CliRunner` invocations of a synthetic Typer app using all five callbacks together. Full suite re-run: 48 failed / 1222 passed / 18 skipped / 39 errors — same baseline, +42 new tests, zero regressions.
+**Impact:** `param_types.py` is now a verified, complete Typer-side equivalent of `special_config_values.py` for both marco 4A modules — the actual Typer command conversion can proceed without re-deriving this foundation mid-conversion.
+**Follow-up gotcha found during actual conversion (same day, `bcllm_questions.py`):** `typer_filter_list_or_system_default` cannot be wired as `callback=` on a `list[str]`-typed `typer.Option` — Typer generates its own post-callback list convertor (`typer.main.generate_list_convertor`) for any `list[str]` parameter, which runs AFTER a Click-level callback and unconditionally calls `len()` on the result, and collapses an explicit `[]` back to `None`. Both break the instant the callback returns something other than a plain list (i.e. exactly when it does its job — returning `FORCE_SYSTEM_DEFAULT` or normalizing absence to `[]`). The 42-test equivalence check above didn't catch this because its integration test asserted only exit codes, never the actual resolved value of a successful `--where system-default`/absent-`--where` invocation. Fixed by declaring `--where`/`--exclude` as plain `list[str]` options with no callback, and calling `typer_filter_list_or_system_default` explicitly inside the command function body instead — see `src/cli/commands/questions.py::_questions_command` and the corrected docstring on `typer_filter_list_or_system_default` itself. Regression tests added directly to `test_param_types.py` (`test_where_absent_resolves_to_empty_list_not_none`, `test_where_system_default_alone_resolves_to_sentinel_not_crash`) so this integration gap can't silently reopen. This pattern (Click-level callback for scalar transforms, function-body call for list-shape-changing transforms) applies to any future `list[str]`+system-default flag, including `bcllm_experiment.py`'s own `--where`/`--exclude`.
+
+### ✅ `typer`/`rich` had no upper version bound; `click` risked being misdeclared as a direct dependency
+
+**Resolved:** 2026-08-20
+**Description:** Marco 4A's pre-`bcllm_experiment.py` checkpoint required verifying real environment dependency versions before continuing. Confirmed: `typer==0.27.1` (the latest verified stable release), `rich==14.3.3` — both resolved correctly, but `requirements.txt`/`setup.py` declared them as floating `rich>=13.0.0`/`typer>=0.27.1` with no upper bound, so a future `pip install` could silently resolve an untested major version. Also confirmed `click` is **not** a separate installed package in this environment (`pip show click` → not found) — Typer 0.27+ fully vendors it internally as `typer._click`, and `pip show typer`'s own `Requires:` line lists no `click` — so no `click` version line was added (would be actively misleading, not corresponding to any installed package).
+**Fix:** Bounded both declarations: `rich>=13.0.0,<15.0.0` (allows the verified 14.3.x line, blocks an untested future major), `typer>=0.27.1,<0.28.0` (tight — Typer is still pre-1.0, where minor bumps may break per semver convention). These bounds now live in `requirements.in` (the canonical source — see the entry below); `requirements.txt` itself was superseded the same day by a `pip-compile`-generated exact-pin lockfile, so this bound is what constrains what the lockfile is allowed to resolve to, not the final installed version itself.
+**Impact:** A fresh `pip install -r requirements.in`/`pip install -e .` resolves within the same major.minor lineage this project has actually been tested against, without pinning to a single exact version.
+**Not fixed by this change:** the broader lockfile/audit gap — closed the same day, see the entry below.
+
+### ✅ Dependency hygiene pass: `pip-tools` lockfile, single source of truth, `pip-audit`
+
+**Resolved:** 2026-08-20
+**Description:** Before starting `bcllm_experiment.py`'s Typer conversion, a full dependency-hygiene pass was requested: reproducible Python version documentation, a real pip-tools lockfile (not `pip freeze`), a single canonical source for direct dependencies (`setup.py` and `requirements.txt` had been two independently hand-edited lists), a vulnerability audit, and a clean-environment rebuild proving all of the above actually works — without standing up CI (explicitly deferred, see the entry above).
+
+**Python version:** Running/tested this session: **3.14.2**. Declared minimum in `setup.py`: `python_requires=">=3.10"`. No evidence in this project of the 3.10 floor itself having been exercised (only 3.14.2 has real test-run evidence) — the floor is a declared compatibility claim, not a verified one; flagged here rather than silently presented as tested.
+
+**Typer:** Kept at `0.27.1` (the latest verified stable release) — confirmed identical in a completely clean venv built from the compiled lockfile (see below), not just the pre-existing dev `.venv`.
+
+**Rich:** Environment was `14.3.3`; researched `14.3.4` and `15.0.0` directly against the real changelog (`raw.githubusercontent.com/Textualize/rich/master/CHANGELOG.md`) rather than assumption:
+- `14.3.4` (2026-04-11): import-time/lazy-loading improvement and a link-id-generation change — **no breaking changes**.
+- `15.0.0` (2026-04-12): **breaking change is dropping Python 3.8 support**, plus minor fixes (`print(end=...)` on empty print, `Text.from_ansi` newline handling, `FileProxy.isatty` proxying, Markdown table inline code). Since this project already requires `python_requires=">=3.10"`, the only breaking change in 15.0.0 has **zero impact here**.
+- Not auto-upgraded. `pip-compile` (below) naturally resolved to `14.3.4` (latest patch satisfying the existing `<15.0.0` bound) — adopted, since it carries no breaking changes and is exactly what the existing approved bound already permits. **Widening the bound to allow `15.0.0` was not done** — that's a deliberate scope decision the bound author should make explicitly, even though the analysis above suggests it would be safe for this project specifically.
+
+**Lockfile / single source of truth:**
+- `requirements.in` (new) is now the **single canonical source** of direct runtime+test dependencies, hand-edited.
+- `requirements.txt` is now **machine-generated** via `pip-compile requirements.in` (pip-tools) — every direct AND transitive dependency pinned to an exact version. Never hand-edited again; regenerate via `pip install -r requirements-dev.txt && pip-compile requirements.in --output-file requirements.txt`.
+- `setup.py` no longer hand-duplicates a second version-constraint list: `_read_runtime_requirements()` reads `requirements.in` directly and filters to the curated subset of packages that are true runtime dependencies of the distributed CLI (`httpx`, `pydantic`, `pydantic-settings`, `Pillow`, `python-dotenv`, `rich`, `typer` — test-only tools like `pytest`/`PyYAML` are correctly excluded from `install_requires`). Verified via `python setup.py egg_info` — `requires.txt` output matches exactly.
+- `requirements-dev.txt` (new) holds dev-only tooling (`pip-tools`, `pip-audit`) — never a runtime dependency, never read by `setup.py`.
+- Confirmed empirically, not just by inspection: `pip-compile`'s full resolved dependency tree (`requirements.txt`) contains **no `click` entry anywhere** — independent confirmation (beyond the earlier `pip show typer` check) that Typer's vendored `_click` means this project has zero real dependency on the separate `click` package.
+
+**`pip-audit` findings (no `--fix` applied automatically, per instruction):**
+- Against the **existing dev `.venv`** (stale, never refreshed): **39 known vulnerabilities across 8 packages** (`idna`, `pillow`, `pip`, `pydantic-settings`, `pygments`, `pytest`, `requests`, `urllib3`) — all because the environment was resolved against older availability windows (e.g. `pillow==12.1.1` vs. the lockfile's `12.3.0`, `pytest==9.0.2` vs. `9.1.1`, `urllib3==2.6.3` vs. `2.7.0`).
+- Against the **compiled `requirements.txt`**: **zero known vulnerabilities**. No manual per-package fix was needed — adopting the fresh lockfile (below) resolves all 39 findings as a side effect of normal version freshness, not a deliberate security patch.
+
+**Clean-environment verification:** Built a fresh venv (outside the repo, scratchpad-isolated) from `requirements.txt` alone. Confirmed: resolved versions match the lockfile exactly (`typer==0.27.1`, `rich==14.3.4`, `httpx==0.28.1`, `pydantic==2.13.4`, `Pillow==12.3.0`, `pytest==9.1.1`, `PyYAML==6.0.3`); `import bcllm`/`import src.cli.bcllm_questions`/`import src.cli.commands.questions` all succeed; full `pytest` — **48 failed / 1262 passed / 18 skipped / 39 errors**, byte-identical to the dev `.venv`'s baseline; full `cli_suite --profile full` — **58 cases, 57 PASS + 1 EXPECTED_FAILURE**, byte-identical.
+**Impact:** Any future `pip install -r requirements.txt` reproduces this exact, tested dependency set — no more floating resolution. Vulnerability posture visible and current (zero known CVEs in the lockfile as of 2026-08-20). No CI was created — explicitly out of scope for this pass.
+**Not fixed by this change:** the CI gap itself — see the entry above.
+**Follow-up (same day):** the dev `.venv` was then synced to the lockfile (`pip install -r requirements.txt`) and re-audited — found `pip` itself (the installer, not a project dependency) at a vulnerable version (4 CVEs); upgraded via `pip install --upgrade pip`. Final state: `pip-audit` clean against the dev `.venv`, full `pytest` (48 failed/1262 passed/18 skipped/39 errors) and `cli_suite --profile full` (57 PASS + 1 EXPECTED_FAILURE) both re-confirmed byte-identical to every prior baseline.
+
+### ✅ CLI Typer migration marco 4A — `bcllm_questions.py` and `bcllm_experiment.py` converted from argparse
+
+**Resolved:** 2026-08-20
+**Description:** Completes marco 4A of the CLI Typer migration plan (`docs/architecture/adr/adr-002-cli-presentation.md`). Both modules' `create_parser()` (argparse) removed entirely, replaced by real `typer.Typer` command definitions in `src/cli/commands/questions.py` and `src/cli/commands/experiment.py` — every flag mirrored 1:1 (names, types, choices, special values), invoked programmatically via `.main(standalone_mode=False)`, never exposed as a public Typer subcommand tree. External CLI syntax is completely unchanged.
+- **`bcllm_questions.py`:** `bcllm.py`'s composite dispatcher needed **zero changes** — the module was already decoupled via `parse_add_questions_request`/`run_add_questions`/`add_questions_action` (a request-based pipeline, not `argparse.Namespace`-coupled), so swapping only that function's internals sufficed. `handle_list_questions`/`handle_remove_question` converted to typed params instead of `Namespace`.
+- **`bcllm_experiment.py`:** `bcllm.py`'s composite pre-parse phase (`_handle_composite_flow`) DID need a small fix — it imported `create_parser as create_experiment_parser` directly; now imports `parse_experiment_argv` from the new Typer command module instead. `_create_experiment_with_config`/`_add_models_at_creation`/`_create_question_snapshots`/`handle_create_experiment` deliberately left unchanged internally — they access `args` via `getattr(args, 'field', default)` throughout (`ConfigResolver.build_experiment_config_dict`/`build_model_config_dict`), which works identically against the new `ExperimentParsedArgs` frozen dataclass as it did against `argparse.Namespace`, since field names match exactly — a genuine "substitua Namespace por requests tipados sem alterar comportamento."
+- **Real gap found during conversion**, not hypothetical: `typer_filter_list_or_system_default` cannot be wired as `callback=` on a `list[str]`-typed `typer.Option` — Typer's own post-callback list convertor breaks on a non-list return (`FORCE_SYSTEM_DEFAULT`) and silently collapses an explicit `[]` back to `None`. Fixed by calling it explicitly inside each command's function body instead (both `commands/questions.py` and `commands/experiment.py`) — documented as the required pattern directly in `typer_filter_list_or_system_default`'s own docstring so it isn't rediscovered per module.
+- **Mutually exclusive + required groups** (argparse's `add_mutually_exclusive_group(required=True)`) have no Click/Typer declarative equivalent — reimplemented as an explicit count-based check inside each command body, raising `typer.BadParameter` (→ exit 2), verified to treat `--questions`/`--add-questions` as the same group member (alias, not a distinct action).
+- **`tests/unit/cli/test_system_default_classification_consistency.py`** — the Fase 0 gate's deferred ADAPTAR item — fixed now that `bcllm_experiment.py` joined the Typer side: added a test-infrastructure-only `declared_dests(mod_name, mod)` helper resolving either `parser._actions` (argparse, still `bcllm_model.py`/`bcllm_run.py`/`bcllm_provider.py`) or `_command.params` (Typer, now `bcllm_questions`/`bcllm_experiment` — introspected via `src.cli.commands.<name>`). Never exposed outside the test file.
+- **C2 logging map applied incrementally** (per the earlier decision to migrate print()→structured-events alongside each module's own Typer conversion, not all at once): `Event.QUESTIONS_ADDED`/`Event.QUESTION_REMOVED` (new) wired in `bcllm_questions.py`; `Event.EXPERIMENT_CREATED` (existed, was old-style `logger.info`, now `emit_event`), `Event.MODEL_ADDED` (existed, was never wired for the creation-time path), `Event.MUTATION_REFUSED` (new, shared by `--remove-experiment` and `--provider-lock`-on-existing refusals, `reason` field distinguishes which) all wired in `bcllm_experiment.py`.
+**Verification:** 175 new tests across this slice (`test_param_types.py` +2 regression, `test_commands_questions.py` 30, `test_questions_logging_events.py` 4, `test_questions_standalone_composite_parity.py` 10, `test_commands_experiment.py` 32, `test_experiment_logging_events.py` 6, plus every pre-existing test file that imports either module re-run and confirmed passing unchanged — 231 tests across 10 files in one targeted pass). `pytest` final: **48 failed / 1301 passed / 18 skipped / 39 errors** — same pre-existing baseline throughout every step, zero regressions. `cli_suite --profile full`: **58 cases, 57 PASS + 1 EXPECTED_FAILURE** (5 new black-box FORBIDDEN cases added this checkpoint) — stable throughout, including CE-001..CE-013 and AQ-001..AQ-011 green at every intermediate step. Environment: **Python 3.14.2** (effectively validated version — see the dependency hygiene entry above for why the declared `>=3.10` floor itself is unverified), **Typer 0.27.1**, **Rich 14.3.4**.
+**Impact:** Marco 4A complete. `bcllm_model.py`, `bcllm_run.py`, `bcllm_provider.py`, `bcllm_execute.py`, `bcllm_review.py`, `bcllm_export.py` remain argparse-based, scheduled for marcos 4B/4C/4D.
+**Pre-4B diff audit (2026-08-20, same day):** a short full-diff review of marco 4A, requested before opening 4B, found and fixed 3 real issues:
+1. **Latent `NameError` in `bcllm_experiment.py::_create_experiment_with_config`'s type hint** — `args: argparse.Namespace` referenced `argparse` after the module's `import argparse` was removed. Silent at import time (Python 3.14's deferred/lazy annotation evaluation, PEP 649) but would raise on any `inspect.signature()`/`typing.get_type_hints()` call. Fixed: hint changed to `ExperimentParsedArgs` (the real type now flowing through). Verified absent project-wide by calling `inspect.signature()` on every function in `bcllm_experiment.py`, `bcllm_questions.py`, `bcllm.py`, and both new `commands/*.py` modules — zero errors.
+2. **Stale architecture-doc description** — `docs/status/composite-flow-unit-of-work-design.md` still described the composite pre-parse phase as using `bcllm_experiment.create_parser()`; updated in place with a dated note pointing at `parse_experiment_argv`, rest of the section (the two-phase architecture itself) unaffected and left as-is.
+3. **2 untested code paths** — invalid `--output` choice (e.g. `--output bogus`) was never asserted to still exit 2 in either new Typer command's test file, despite being explicitly declared with `choices`-equivalent `Enum` validation; added one test per module (both pass).
+No duplicate flag declarations, no other dead imports, no other undocumented behavioral changes found — `--help` combined with other flags routing oddly through `module_resolver.py`'s always-highest-priority `--help` → `bcllm_main` interception (confirmed via a real subprocess) is pre-existing dispatcher behavior, untouched by and unrelated to this marco.
 
 ### ✅ ProviderResolver Double ``/api/v1/`` URL Bug
 
@@ -287,7 +544,7 @@ If you encounter a bug, please add it to this document with:
 **Checked before fixing:** whether OpenRouter's own provider-routing semantics (`docs/Manuais_Diversos/openrouterdocs/provider_routing.md`) had any bearing on this — they don't. That document covers the `provider` object (`order`, `only`, `sort`, etc. — which upstream provider OpenRouter fans a request out to), which is a separate, already-signature-covered concept (`PROVIDER`/`'provider'` was already in `SIGNATURE_FIELD_ORDER`). `BASE_URL` is which HTTP server the client itself talks to (OpenRouter, a local llama.cpp server, a test stub) and never appears anywhere in OpenRouter's request/routing docs — confirmed via full-text search, zero mentions.
 **Fix:** Added `MODEL_REPEAT_PENALTY` and `BASE_URL` to `SIGNATURE_FIELD_ORDER` (`src/utils/variant_signature.py`). Deliberately NOT migrated: variants created before this fix keep their old (already-persisted) `variant_signature` value, exactly as immutable snapshots already do elsewhere in this system — only newly-created variants use the corrected field list. This was an explicit user decision, weighing the (contained) risk of a stale-signature collision on an old row against the larger risk of a migration script recomputing identity for historical, already-referenced data.
 **Impact:** `--add-model <id> --url <different-url>` and `--add-model <id> --repeat-penalty <value>` now correctly create a new, distinct variant instead of being rejected as a duplicate. Regression coverage: `tests/cli_suite/cases/model.yaml::AM-004` (repeat_penalty) and `AM-005` (url); `tests/test_variant_signature.py` (pre-existing suite, all 29 cases still pass unmodified).
-**Not fixed by this change:** the "Review UI queries a non-existent `responses.created_at` column" bug above is unrelated.
+**Not fixed by this change:** the "Review UI is deliberately deferred" entry above (the `responses.created_at` bug) is unrelated.
 
 ### ✅ Composite `--create-experiment` + `--add-*` was not atomic, and reported exit 0 on internal failure
 

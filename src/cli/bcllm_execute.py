@@ -52,6 +52,8 @@ from src.api.client import OpenRouterClient
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser
 from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -250,7 +252,7 @@ def validate_filters(conn, experiment_id: str, run_id: str | None, question_ids:
     return errors
 
 
-def handle_execute(args, conn) -> int:
+def handle_execute(args, conn, operation_id: str | None = None) -> int:
     """Handle --execute command with filters. ORCHESTRATION ONLY.
 
     This function orchestrates the execution flow:
@@ -336,6 +338,7 @@ def handle_execute(args, conn) -> int:
             question_ids=question_ids,
             model_variant_ids=model_variant_ids,
             retry_policy=retry_policy,
+            operation_id=operation_id,
         )
 
         # Validate plan has work to do
@@ -404,12 +407,17 @@ def handle_execute(args, conn) -> int:
         return 1
 
 
-def main(mode: Mode) -> int:
+def main(mode: Mode, operation_id: str | None = None) -> int:
     """Main entry point.
-    
+
     Args:
         mode: The CLI mode (CREATE, MODIFY, EXECUTE, INVALID).
-        
+        operation_id: Correlation ID for the CLI invocation (logging only) —
+            threaded into Planner.build_plan() so every event emitted while
+            executing this plan (Planner, ExecutionEngine, AsyncOrchestrator,
+            RetryHandler, ResultWriter, OpenRouterClient) shares it. See
+            docs/status/checkpoint-c-logging-observability-design.md, §4.
+
     Returns:
         Exit code (0 for success, 1 for error).
     """
@@ -421,11 +429,12 @@ def main(mode: Mode) -> int:
 
     try:
         if args.execute:
-            return handle_execute(args, conn)
+            return handle_execute(args, conn, operation_id=operation_id)
         else:
             parser.print_help()
             return 1
     except KeyboardInterrupt:
+        emit_event(get_logger('cli.execute'), Event.COMMAND_INTERRUPTED, operation_id=operation_id, command="execute")
         print("\nExecution interrupted by user.", file=sys.stderr)
         return 130
     finally:

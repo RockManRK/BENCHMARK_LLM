@@ -98,6 +98,23 @@ The following fields are **designed to be mutable**:
 
 ---
 
+## Logging Observes Resolution — It Never Re-Opens Frozen Config
+
+`ConfigResolver` (`src/core/config_resolver.py`) emits `CONFIG_RESOLVED`,
+`INHERITANCE_DECISION`, and `SYSTEM_DEFAULT_APPLIED` log events
+(Checkpoint C) whenever it builds an Experiment/Run/Model-Variant config
+dict. These events are a **read-only report of a decision already made**
+by the existing frozen-at-creation resolution logic in this contract's
+sections above — they do not add a new resolution step, do not run at
+any new point in the lifecycle, and do not make any config value
+re-computable after creation. Logging this resolution is diagnostic
+visibility into an already-immutable process, not a new mutability
+surface. See `docs/contracts/interaction-contracts.md` §4 and
+`docs/contracts/data-auditability.md` for how these events fit the
+logs-are-a-third-record model.
+
+---
+
 ## Violation Examples
 
 ### ❌ WRONG: Modifying a snapshot
