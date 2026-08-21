@@ -485,6 +485,72 @@ class ConfigResolver:
             return env_value.strip().lower()
         return default
 
+    def _resolve_reasoning_pair(
+        self,
+        cli_effort,
+        cli_tokens,
+        resolved_effort,
+        resolved_tokens,
+    ) -> tuple:
+        """Apply reasoning mode-suppression on top of each field's own,
+        already-independently-resolved value (system-default/.env/
+        experiment-inheritance — computed by the caller via
+        `_resolve_with_force_system_default`/`_resolve_cli_or_experiment`,
+        unchanged).
+
+        OpenRouter's `reasoning` object accepts only ONE of `effort`/
+        `max_tokens` — see docs/Manuais_Diversos/openrouterdocs/reasoning_tokens.md
+        ("One of the following (not both)"). A same-layer conflict (both
+        concretely set on the SAME --create-experiment/--add-model
+        command) is rejected as a usage error (exit 2) before this is ever
+        called — see src/cli/commands/{model,experiment}.py's command
+        bodies. This method handles the remaining case: a concrete value
+        for one field at THIS layer combined with an inherited value for
+        the OTHER field from a parent layer.
+
+        Mode-suppression rule (user decision, 2026-08-21):
+        - A concrete effort value (including 'none') is a complete mode
+          selection — it suppresses ANY inherited/resolved budget
+          (max_tokens), even one that would otherwise be validly
+          inherited.
+        - A concrete (positive — enforced at CLI parse time, never 0 or
+          negative by the time this runs) tokens value is equally a
+          complete mode selection — it suppresses ANY inherited/resolved
+          effort.
+        - `system-default` on either field is NOT a mode selection — it
+          only clears THAT field at this layer; it does not suppress the
+          sibling field's own, independent resolution. (Already true of
+          `resolved_effort`/`resolved_tokens` as passed in — this method
+          only adds the concrete-value suppression on top.)
+        - Absent (not passed at all) on either field means "no opinion at
+          this layer" for THAT field alone — it does not trigger
+          suppression of the sibling.
+
+        Args:
+            cli_effort: The raw CLI value for --reasoning (None,
+                FORCE_SYSTEM_DEFAULT, or a concrete string) — used only to
+                classify "is this field concretely set at this layer",
+                never re-resolved here.
+            cli_tokens: The raw CLI value for --reasoning-tokens, same
+                shape.
+            resolved_effort: MODEL_REASONING_EFFORT already resolved by
+                the caller (system-default/.env/experiment fallback
+                already applied).
+            resolved_tokens: MODEL_MAX_TOKENS_REASONING already resolved
+                the same way.
+
+        Returns:
+            (effort, tokens) — never both non-None.
+        """
+        effort_is_concrete = cli_effort is not None and cli_effort is not FORCE_SYSTEM_DEFAULT
+        tokens_is_concrete = cli_tokens is not None and cli_tokens is not FORCE_SYSTEM_DEFAULT
+
+        if effort_is_concrete:
+            return resolved_effort, None
+        if tokens_is_concrete:
+            return None, resolved_tokens
+        return resolved_effort, resolved_tokens
+
     def build_experiment_config_dict(self, cli_args) -> dict:
         """Build complete configuration dictionary for experiment creation.
 
@@ -532,6 +598,59 @@ class ConfigResolver:
             default="first"
         )
 
+        # Reasoning effort/tokens are resolved together, not independently
+        # — see _resolve_reasoning_pair's docstring for the mode-
+        # suppression rule (a concrete value for one field suppresses the
+        # OTHER field's inheritance; system-default only clears its own
+        # field). --max-reasoning removed 2026-08-21: it was a true,
+        # undocumented synonym of --reasoning-tokens (identical help text,
+        # fed the exact same MODEL_MAX_TOKENS_REASONING key via a
+        # since-removed `or` fallback that also silently discarded a
+        # legitimate `0`/system-default value — see known-issues.md).
+        _resolved_reasoning_effort = self._resolve_with_force_system_default(
+            getattr(cli_args, 'reasoning', None),
+            "MODEL_REASONING_EFFORT"
+        )
+        _resolved_reasoning_tokens = self._resolve_with_force_system_default(
+            getattr(cli_args, 'reasoning_tokens', None),
+            "MODEL_MAX_TOKENS_REASONING",
+            self._parse_int_env
+        )
+        _resolved_reasoning_effort, _resolved_reasoning_tokens = self._resolve_reasoning_pair(
+            getattr(cli_args, 'reasoning', None),
+            getattr(cli_args, 'reasoning_tokens', None),
+            _resolved_reasoning_effort,
+            _resolved_reasoning_tokens,
+        )
+        # _resolve_reasoning_pair only suppresses the sibling field when
+        # THIS layer's CLI value is itself concrete — it has no opinion
+        # when neither --reasoning nor --reasoning-tokens was passed at
+        # all, since then both fields independently fall through to their
+        # own fallback. At experiment-creation time that fallback is
+        # .env, and .env can genuinely have BOTH MODEL_REASONING_EFFORT
+        # and MODEL_MAX_TOKENS_REASONING set (nothing enforces exclusivity
+        # in a plain .env file) — the CLI's own same-layer conflict check
+        # (src/cli/commands/experiment.py) never sees this, since it only
+        # inspects the raw CLI values, not .env. Caught here instead,
+        # once, at the one point where .env is actually consulted (model-
+        # level --add-model never reads .env — see build_model_config_dict
+        # — so a NEW experiment created via this path can never hand a
+        # model_variant two live reasoning keys at once; only a
+        # pre-fix/historical experiment could, and that residual case is
+        # deliberately left to the existing defense-in-depth: the payload
+        # builder's priority fallback plus Event.REASONING_CONFLICT — see
+        # docs/status/known-issues.md, 2026-08-21, Essence Guardian
+        # finding).
+        if _resolved_reasoning_effort is not None and _resolved_reasoning_tokens is not None:
+            raise ValueError(
+                "Both MODEL_REASONING_EFFORT and MODEL_MAX_TOKENS_REASONING are "
+                "set in .env (or one via .env, one via CLI) — OpenRouter's "
+                "reasoning object accepts only one of effort/max_tokens. Pass "
+                "--reasoning or --reasoning-tokens explicitly (with the other "
+                "as system-default) to resolve which one applies, or clear one "
+                "of MODEL_REASONING_EFFORT/MODEL_MAX_TOKENS_REASONING in .env."
+            )
+
         resolved = {
             # EXPERIMENT keys (3) - Resolved from .env at experiment creation
             "QUESTIONS_DATASET_PATH": self.env_dict.get("QUESTIONS_DATASET_PATH"),
@@ -543,20 +662,13 @@ class ConfigResolver:
                 getattr(cli_args, 'url', None),
                 "BASE_URL"
             ),
-            "MODEL_MAX_TOKENS_REASONING": self._resolve_with_force_system_default(
-                getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None),
-                "MODEL_MAX_TOKENS_REASONING",
-                self._parse_int_env
-            ),
+            "MODEL_MAX_TOKENS_REASONING": _resolved_reasoning_tokens,
             "MODEL_MAX_TOKENS_TOTAL": self._resolve_with_force_system_default(
                 getattr(cli_args, 'max_tokens', None),
                 "MODEL_MAX_TOKENS_TOTAL",
                 self._parse_int_env
             ),
-            "MODEL_REASONING_EFFORT": self._resolve_with_force_system_default(
-                getattr(cli_args, 'reasoning', None),
-                "MODEL_REASONING_EFFORT"
-            ),
+            "MODEL_REASONING_EFFORT": _resolved_reasoning_effort,
             "MODEL_REPEAT_PENALTY": self._resolve_with_force_system_default(
                 getattr(cli_args, 'repeat_penalty', None),
                 "MODEL_REPEAT_PENALTY",
@@ -785,29 +897,42 @@ class ConfigResolver:
             except ValueError:
                 return None
 
+        # Reasoning effort/tokens resolved together — see
+        # _resolve_reasoning_pair's docstring (mode-suppression rule).
+        # --max-reasoning removed 2026-08-21 (true synonym of
+        # --reasoning-tokens, see known-issues.md).
+        _resolved_reasoning_effort = self._resolve_cli_or_experiment(
+            getattr(cli_args, 'reasoning', None),
+            exp_config,
+            "MODEL_REASONING_EFFORT"
+        )
+        _resolved_reasoning_tokens = self._resolve_cli_or_experiment(
+            getattr(cli_args, 'reasoning_tokens', None),
+            exp_config,
+            "MODEL_MAX_TOKENS_REASONING",
+            parse_int
+        )
+        _resolved_reasoning_effort, _resolved_reasoning_tokens = self._resolve_reasoning_pair(
+            getattr(cli_args, 'reasoning', None),
+            getattr(cli_args, 'reasoning_tokens', None),
+            _resolved_reasoning_effort,
+            _resolved_reasoning_tokens,
+        )
+
         resolved = {
             "BASE_URL": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'url', None),
                 exp_config,
                 "BASE_URL"
             ),
-            "MODEL_MAX_TOKENS_REASONING": self._resolve_cli_or_experiment(
-                getattr(cli_args, 'reasoning_tokens', None) or getattr(cli_args, 'max_reasoning', None),
-                exp_config,
-                "MODEL_MAX_TOKENS_REASONING",
-                parse_int
-            ),
+            "MODEL_MAX_TOKENS_REASONING": _resolved_reasoning_tokens,
             "MODEL_MAX_TOKENS_TOTAL": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'max_tokens', None),
                 exp_config,
                 "MODEL_MAX_TOKENS_TOTAL",
                 parse_int
             ),
-            "MODEL_REASONING_EFFORT": self._resolve_cli_or_experiment(
-                getattr(cli_args, 'reasoning', None),
-                exp_config,
-                "MODEL_REASONING_EFFORT"
-            ),
+            "MODEL_REASONING_EFFORT": _resolved_reasoning_effort,
             "MODEL_REPEAT_PENALTY": self._resolve_cli_or_experiment(
                 getattr(cli_args, 'repeat_penalty', None),
                 exp_config,
@@ -917,6 +1042,18 @@ class ConfigResolver:
             return None  # Explicit system-default from CLI
         if value is None:
             return None  # Absent flag
+        if isinstance(value, bool):
+            # A real Python bool reaches here when this parser is applied
+            # to an experiment's ALREADY-resolved MODEL_VISION/
+            # STRUCTURED_OUTPUTS value during model-variant inheritance
+            # (_resolve_cli_or_experiment calls this same parser on
+            # exp_config.get(exp_key), which is a real bool after the
+            # config_json round-trip through JSON, not a CLI string).
+            # Previously fell through to `return None` below, silently
+            # discarding the inherited True/False on every --add-model
+            # that didn't repeat --vision/--structured explicitly — see
+            # docs/status/known-issues.md, 2026-08-21.
+            return value
         if isinstance(value, str):
             if value.lower() == 'true':
                 return True

@@ -4,7 +4,9 @@
 This module provides CLI commands for managing model variants within experiments:
 - Add model variants to experiments
 - List model variants in an experiment
-- Remove model variants (soft delete)
+- Remove model variants (hard delete — accepted as-is, see
+  docs/status/known-issues.md: FK protection on responses/errors already
+  guarantees this can never destroy actual results)
 
 Usage:
     bcllm_model.py --experiment <name> --add-model <model_id>
@@ -26,7 +28,6 @@ silently bypassing system-default handling and, on any argparse-level
 usage error, skipping the composite flow's experiment rollback entirely.
 """
 
-import argparse
 import json
 import sys
 import uuid
@@ -34,12 +35,16 @@ from dataclasses import dataclass
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
-from src.core.argv_utils import parse_args_normalized, has_flag, NonExitingArgumentParser, ParserExit
-from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, ForceSystemDefault, parse_int_or_system_default, parse_float_or_system_default
+from src.core.argv_utils import has_flag, ParserExit
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, ForceSystemDefault
+from src.cli.commands.model import parse_model_argv
 from src.db.models import ModelVariant
 from src.db.repository import ExperimentRepository, VariantRepository
 from src.utils.variant_signature import generate_variant_signature
 from src.validators.model_id_validator import validate_model_id
+from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -70,143 +75,18 @@ def _validate_expected_mode(mode: Mode) -> None:
         sys.exit(1)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for model commands.
-
-    Returns:
-        NonExitingArgumentParser configured with all model commands — see
-        src/core/argv_utils.py for why this is NOT a plain
-        argparse.ArgumentParser: --add-model can run inside bcllm.py's
-        composite flow, where an uncontrolled sys.exit() (argparse's
-        default for both --help and any usage error) would skip the
-        composite flow's experiment rollback.
-    """
-    parser = NonExitingArgumentParser(
-        prog="bcllm_model.py",
-        description="Model variant management",
-    )
-
-    parser.add_argument(
-        "--experiment",
-        required=True,
-        metavar="NAME",
-        help="Experiment name",
-    )
-
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--add-model",
-        metavar="MODEL_ID",
-        help="Add model variant (format: provider/model-name)",
-    )
-    group.add_argument(
-        "--list-models",
-        action="store_true",
-        help="List all models in experiment",
-    )
-    group.add_argument(
-        "--remove-model",
-        metavar="VARIANT_ID",
-        help="Remove model variant (soft delete)",
-    )
-
-    parser.add_argument(
-        "--output",
-        choices=["console", "json", "csv", "markdown"],
-        default="console",
-        help="Output format",
-    )
-
-    # Model configuration options (all 11 model-level keys from contract)
-    parser.add_argument(
-        "--url",
-        metavar="URL",
-        help="BASE_URL - Model endpoint URL",
-    )
-    parser.add_argument(
-        "--max-reasoning",
-        type=parse_int_or_system_default,
-        metavar="N",
-        help="MODEL_MAX_TOKENS_REASONING - Maximum reasoning tokens",
-    )
-    parser.add_argument(
-        "--max-tokens",
-        type=parse_int_or_system_default,
-        metavar="N",
-        help="MODEL_MAX_TOKENS_TOTAL - Maximum total tokens",
-    )
-    parser.add_argument(
-        "--reasoning",
-        choices=["none", "minimal", "low", "medium", "high", "xhigh", "system-default"],
-        help="MODEL_REASONING_EFFORT - Reasoning effort level",
-    )
-    parser.add_argument(
-        "--repeat-penalty",
-        type=parse_float_or_system_default,
-        metavar="N",
-        help="MODEL_REPEAT_PENALTY - Repetition penalty",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=parse_float_or_system_default,
-        metavar="N",
-        help="MODEL_TEMPERATURE - Sampling temperature",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=parse_int_or_system_default,
-        metavar="N",
-        help="MODEL_TOP_K - Top-K sampling",
-    )
-    parser.add_argument(
-        "--top-p",
-        type=parse_float_or_system_default,
-        metavar="N",
-        help="MODEL_TOP_P - Top-P sampling",
-    )
-    parser.add_argument(
-        "--reasoning-tokens",
-        type=parse_int_or_system_default,
-        metavar="N",
-        help="MODEL_MAX_TOKENS_REASONING - Maximum reasoning tokens",
-    )
-    parser.add_argument(
-        "--vision",
-        type=str,
-        metavar="VALUE",
-        help="Enable vision. Valid values: true, false, null (case-insensitive). Default: false",
-    )
-    parser.add_argument(
-        "--structured",
-        type=str,
-        metavar="VALUE",
-        help="Enable structured outputs. Valid values: true, false, null (case-insensitive). Default: false",
-    )
-    parser.add_argument(
-        "--provider",
-        type=str,
-        metavar="PROVIDER_SLUG",
-        help="OpenRouter provider slug (e.g., deepinfra/turbo)",
-    )
-    parser.add_argument(
-        "--model-seed",
-        type=parse_int_or_system_default,
-        metavar="N",
-        help="MODEL_SEED - Sent as the API request's 'seed' field for "
-             "deterministic inference. Distinct from Randomization Seed "
-             "(--randomization-seed on --add-run), which controls only "
-             "answer-option shuffling and is never sent to the API.",
-    )
-
-    return parser
-
-
 # Explicit opt-in classification for system-default recognition — see
 # src/core/special_config_values.py::normalize_special_config_values and
 # docs/contracts/system-default-semantics.md for the full SUPPORTED/
-# FORBIDDEN/NOT_APPLICABLE contract this implements.
+# FORBIDDEN/NOT_APPLICABLE contract this implements. Kept as module-level
+# constants for cross-module consistency checks
+# (tests/unit/cli/test_system_default_classification_consistency.py) — no
+# longer consumed by parsing directly since the Typer conversion (marco
+# 4B, 2026-08-20): src/cli/commands/model.py's _model_command declares the
+# same classification via its per-option callbacks — see that module for
+# the real, executed source of truth.
 SYSTEM_DEFAULT_SUPPORTED = {
-    'max_reasoning', 'max_tokens', 'reasoning', 'repeat_penalty',
+    'max_tokens', 'reasoning', 'repeat_penalty',
     'temperature', 'top_k', 'top_p', 'reasoning_tokens',
     'vision', 'structured', 'provider', 'model_seed',
 }
@@ -226,7 +106,6 @@ class AddModelRequest:
     experiment: str
     add_model: str
     url: str | ForceSystemDefault | None = None
-    max_reasoning: int | ForceSystemDefault | None = None
     max_tokens: int | ForceSystemDefault | None = None
     reasoning: str | ForceSystemDefault | None = None
     repeat_penalty: float | ForceSystemDefault | None = None
@@ -321,15 +200,20 @@ def add_model_action(request: AddModelRequest, conn, *, commit: bool = True) -> 
     )
 
     var_repo.save(variant, commit=commit)
+    emit_event(
+        get_logger('cli.model'), Event.MODEL_ADDED,
+        experiment=request.experiment, model_id=request.add_model, variant_signature=variant_signature,
+    )
     return AddModelResult(exit_code=0, variant_id=variant.variant_id, variant_signature=variant_signature)
 
 
 def parse_add_model_request(argv: list[str]) -> AddModelRequest:
     """Pure: argv -> parse/normalize/validate -> AddModelRequest. No
-    database connection is opened and no I/O happens beyond argparse's
-    own stdout/stderr usage-error output. Raises ParserExit(status) for
-    any usage error (bad choice, FORBIDDEN system-default, unrecognized
-    flag, --help) — the caller decides what to do with that exit status.
+    database connection is opened and no I/O happens beyond the Typer
+    command's own stdout/stderr usage-error output. Raises
+    ParserExit(status) for any usage error (bad choice, FORBIDDEN
+    system-default, unrecognized flag, --help) — the caller decides what
+    to do with that exit status.
 
     Shared by run_add_model (standalone) and bcllm.py's composite flow,
     which calls this for every requested --add-* action BEFORE opening a
@@ -337,21 +221,12 @@ def parse_add_model_request(argv: list[str]) -> AddModelRequest:
     lock — see docs/status/composite-flow-unit-of-work-design.md point 3:
     pure syntactic parsing/validation must never wait on a lock.
     """
-    parser = create_parser()
-    try:
-        args = parse_args_normalized(
-            parser, argv,
-            supported=SYSTEM_DEFAULT_SUPPORTED,
-            forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-        )
-    except (argparse.ArgumentError, ValueError) as e:
-        parser.error(str(e))  # raises ParserExit(2, ...)
+    args = parse_model_argv(argv)  # raises ParserExit for any usage error
 
     return AddModelRequest(
         experiment=args.experiment,
         add_model=args.add_model,
         url=args.url,
-        max_reasoning=args.max_reasoning,
         max_tokens=args.max_tokens,
         reasoning=args.reasoning,
         repeat_penalty=args.repeat_penalty,
@@ -378,8 +253,9 @@ def run_add_model(
     fix here applies to both callers automatically — no divergent
     duplicate logic to keep in sync.
 
-    Never lets argparse's own sys.exit() escape (create_parser() returns
-    a NonExitingArgumentParser) — always returns an exit code.
+    Never lets a usage error's own SystemExit escape (parse_model_argv
+    invokes the Typer command with standalone_mode=False and translates
+    any UsageError/--help into ParserExit) — always returns an exit code.
 
     A usage error NEVER opens a database connection: when `conn` is not
     supplied, get_database_connection() is only called AFTER parsing
@@ -451,11 +327,11 @@ def _validate_bool_value(value: str | type[FORCE_SYSTEM_DEFAULT]) -> bool:
     return False
 
 
-def handle_list_models(args, conn) -> int:
+def handle_list_models(experiment_name: str, conn) -> int:
     """Handle --list-models command.
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
         conn: Database connection.
 
     Returns:
@@ -465,9 +341,9 @@ def handle_list_models(args, conn) -> int:
     var_repo = VariantRepository(conn)
 
     # Check experiment exists
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
     variants = var_repo.list_by_experiment(experiment.experiment_id)
@@ -489,11 +365,18 @@ def handle_list_models(args, conn) -> int:
     return 0
 
 
-def handle_remove_model(args, conn) -> int:
+def handle_remove_model(experiment_name: str, variant_id: str, conn) -> int:
     """Handle --remove-model command.
 
+    Accepted as a real hard delete (unlike QuestionSnapshot's removed
+    --remove-question, see docs/status/known-issues.md): the FK
+    protection on responses/errors already guarantees this can never
+    destroy actual results, only ever remove a variant with none yet —
+    a prior, still-standing project decision, not reconsidered here.
+
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
+        variant_id: Variant ID to remove.
         conn: Database connection.
 
     Returns:
@@ -503,20 +386,20 @@ def handle_remove_model(args, conn) -> int:
     var_repo = VariantRepository(conn)
 
     # Check experiment exists
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
     # Check variant exists
-    variant = var_repo.get_by_id(args.remove_model)
+    variant = var_repo.get_by_id(variant_id)
     if not variant:
-        print(f"Error: Variant not found: {args.remove_model}", file=sys.stderr)
+        print(f"Error: Variant not found: {variant_id}", file=sys.stderr)
         return 1
 
     # Check variant belongs to experiment
     if variant.experiment_id != experiment.experiment_id:
-        print(f"Error: Variant '{args.remove_model}' is not in experiment '{args.experiment}'", file=sys.stderr)
+        print(f"Error: Variant '{variant_id}' is not in experiment '{experiment_name}'", file=sys.stderr)
         return 1
 
     var_repo.delete(variant.variant_id)
@@ -545,19 +428,10 @@ def main(mode: Mode) -> int:
         return run_add_model(argv)
 
     # --list-models / --remove-model have no composite-flow counterpart —
-    # parsed and dispatched directly, same shape as before, just adapted
-    # to NonExitingArgumentParser (parser.error()/--help now raise
-    # ParserExit instead of calling sys.exit() themselves).
-    parser = create_parser()
+    # parsed and dispatched directly via the Typer command
+    # (src/cli/commands/model.py), same shape as before.
     try:
-        try:
-            args = parse_args_normalized(
-                parser, argv,
-                supported=SYSTEM_DEFAULT_SUPPORTED,
-                forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-            )
-        except (argparse.ArgumentError, ValueError) as e:
-            parser.error(str(e))
+        args = parse_model_argv(argv)
     except ParserExit as e:
         if e.status != 0:
             return e.status
@@ -567,11 +441,16 @@ def main(mode: Mode) -> int:
 
     try:
         if args.list_models:
-            return handle_list_models(args, conn)
+            return handle_list_models(args.experiment, conn)
         elif args.remove_model:
-            return handle_remove_model(args, conn)
+            return handle_remove_model(args.experiment, args.remove_model, conn)
         else:
-            parser.print_help()
+            # Unreachable: parse_model_argv's mutex-group check already
+            # guarantees exactly one of add_model/list_models/remove_model
+            # is set, and add_model was already handled by the early-
+            # return above — kept only as a defensive fallback, matching
+            # bcllm_run.py's equivalent branch.
+            print("Error: no valid model action specified.", file=sys.stderr)
             return 1
     finally:
         conn.close()

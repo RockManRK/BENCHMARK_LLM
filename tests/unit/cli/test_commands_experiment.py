@@ -94,6 +94,58 @@ class TestValidInvocations:
         assert result.output == "console"
 
 
+class TestReasoningTokensPositiveIntOnly:
+    """--max-reasoning removed 2026-08-21 (true synonym of
+    --reasoning-tokens — see docs/status/known-issues.md).
+    --reasoning-tokens now rejects 0/negative as a usage error."""
+
+    def test_zero_rejected(self):
+        with pytest.raises(ParserExit) as exc_info:
+            parse_experiment_argv(["--create-experiment", "exp1", "--reasoning-tokens", "0"])
+        assert exc_info.value.status == 2
+
+    def test_negative_rejected(self):
+        with pytest.raises(ParserExit) as exc_info:
+            parse_experiment_argv(["--create-experiment", "exp1", "--reasoning-tokens", "-5"])
+        assert exc_info.value.status == 2
+
+    def test_positive_accepted(self):
+        result = parse_experiment_argv(["--create-experiment", "exp1", "--reasoning-tokens", "1"])
+        assert result.reasoning_tokens == 1
+
+    def test_max_reasoning_flag_no_longer_exists(self):
+        with pytest.raises(ParserExit) as exc_info:
+            parse_experiment_argv(["--create-experiment", "exp1", "--max-reasoning", "500"])
+        assert exc_info.value.status == 2
+
+
+class TestReasoningEffortTokensSameLayerConflict:
+    """OpenRouter's reasoning object accepts only ONE of effort/max_tokens
+    — a concrete value for BOTH on the same command is a usage error
+    (docs/status/known-issues.md, 2026-08-21)."""
+
+    def test_both_concrete_is_usage_error(self):
+        with pytest.raises(ParserExit) as exc_info:
+            parse_experiment_argv([
+                "--create-experiment", "exp1", "--reasoning", "high", "--reasoning-tokens", "2000",
+            ])
+        assert exc_info.value.status == 2
+
+    def test_reasoning_concrete_plus_tokens_system_default_is_not_a_conflict(self):
+        result = parse_experiment_argv([
+            "--create-experiment", "exp1", "--reasoning", "high", "--reasoning-tokens", "system-default",
+        ])
+        assert result.reasoning == "high"
+        assert result.reasoning_tokens is FORCE_SYSTEM_DEFAULT
+
+    def test_reasoning_system_default_plus_tokens_concrete_is_not_a_conflict(self):
+        result = parse_experiment_argv([
+            "--create-experiment", "exp1", "--reasoning", "system-default", "--reasoning-tokens", "2000",
+        ])
+        assert result.reasoning is FORCE_SYSTEM_DEFAULT
+        assert result.reasoning_tokens == 2000
+
+
 class TestMutexGroup:
     def test_none_given_is_usage_error(self):
         with pytest.raises(ParserExit) as exc_info:

@@ -225,12 +225,15 @@ class TestPlannerConfigMapping:
     """Test that Planner correctly maps config keys to ModelConfig."""
 
     def test_planner_maps_all_config_keys(self):
-        """Verify Planner extracts all config keys from variant row."""
+        """Verify Planner extracts all config keys from variant row — calls
+        the real Planner._build_model_config directly (rewritten
+        2026-08-21; previously reimplemented the mapping logic inline,
+        which meant this test could pass while the real method diverged —
+        see docs/status/known-issues.md for the collapsing bug that
+        reimplementation masked)."""
         from src.core.planner import Planner
-        from src.core.execution_plan import ModelConfig
         import sqlite3
 
-        # Create a mock variant row with all config keys
         config_dict = {
             "MODEL_TEMPERATURE": 0.9,
             "MODEL_TOP_P": 0.7,
@@ -242,32 +245,12 @@ class TestPlannerConfigMapping:
             "MODEL_VISION": False,
             "STRUCTURED_OUTPUTS": False,
         }
+        variant_row = {"config": json.dumps(config_dict)}
 
-        # Mock sqlite3.Row
-        mock_row = {
-            "config": json.dumps(config_dict),
-        }
+        conn = sqlite3.connect(":memory:")
+        model_config = Planner(conn)._build_model_config(variant_row)
+        conn.close()
 
-        # Use a minimal approach: test the mapping logic directly
-        config = json.loads(mock_row["config"])
-        
-        reasoning_effort = config.get("MODEL_REASONING_EFFORT")
-        has_reasoning = reasoning_effort is not None and reasoning_effort != "none"
-
-        model_config = ModelConfig(
-            temperature=config.get("MODEL_TEMPERATURE"),
-            top_p=config.get("MODEL_TOP_P"),
-            top_k=config.get("MODEL_TOP_K"),
-            repeat_penalty=config.get("MODEL_REPEAT_PENALTY"),
-            max_output_tokens=config.get("MODEL_MAX_TOKENS_TOTAL"),
-            max_reasoning_tokens=config.get("MODEL_MAX_TOKENS_REASONING"),
-            reasoning_effort=reasoning_effort if has_reasoning else None,
-            enable_vision=config.get("MODEL_VISION", False),
-            structured_output=config.get("STRUCTURED_OUTPUTS", False),
-            reasoning_mode="effort" if has_reasoning else "off",
-        )
-
-        # Verify all fields are mapped correctly
         assert model_config.temperature == 0.9
         assert model_config.top_p == 0.7
         assert model_config.top_k == 50
@@ -279,32 +262,28 @@ class TestPlannerConfigMapping:
         assert model_config.enable_vision is False
         assert model_config.structured_output is False
 
-    def test_planner_handles_null_reasoning_effort(self):
-        """Verify Planner treats 'none' reasoning_effort as disabled."""
-        from src.core.execution_plan import ModelConfig
-        import json
+    def test_planner_preserves_none_reasoning_effort_as_explicit_literal(self):
+        """'none' is a real, explicit MODEL_REASONING_EFFORT value (sends
+        effort='none' to disable reasoning) — Planner must pass it through
+        unchanged, NOT collapse it to Python None. Collapsing it used to
+        silently re-enable reasoning whenever MODEL_MAX_TOKENS_REASONING
+        was also present (inherited or explicit), since the downstream
+        conflict check only ever saw reasoning_effort=None and never
+        fired — see docs/status/known-issues.md, 2026-08-21. Renamed from
+        test_planner_handles_null_reasoning_effort (its old name and
+        assertions described the very bug this now guards against)."""
+        from src.core.planner import Planner
+        import sqlite3
 
         config_dict = {
             "MODEL_TEMPERATURE": 0.9,
             "MODEL_REASONING_EFFORT": "none",
         }
+        variant_row = {"config": json.dumps(config_dict)}
 
-        config = json.loads(json.dumps(config_dict))
-        reasoning_effort = config.get("MODEL_REASONING_EFFORT")
-        has_reasoning = reasoning_effort is not None and reasoning_effort != "none"
+        conn = sqlite3.connect(":memory:")
+        model_config = Planner(conn)._build_model_config(variant_row)
+        conn.close()
 
-        model_config = ModelConfig(
-            temperature=config.get("MODEL_TEMPERATURE"),
-            top_p=config.get("MODEL_TOP_P"),
-            top_k=config.get("MODEL_TOP_K"),
-            repeat_penalty=config.get("MODEL_REPEAT_PENALTY"),
-            max_output_tokens=config.get("MODEL_MAX_TOKENS_TOTAL"),
-            max_reasoning_tokens=config.get("MODEL_MAX_TOKENS_REASONING"),
-            reasoning_effort=reasoning_effort if has_reasoning else None,
-            enable_vision=config.get("MODEL_VISION", False),
-            structured_output=config.get("STRUCTURED_OUTPUTS", False),
-            reasoning_mode="effort" if has_reasoning else "off",
-        )
-
-        assert model_config.reasoning_effort is None
-        assert model_config.reasoning_mode == "off"
+        assert model_config.reasoning_effort == "none"
+        assert model_config.reasoning_mode == "effort"

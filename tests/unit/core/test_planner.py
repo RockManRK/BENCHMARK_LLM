@@ -192,7 +192,8 @@ def test_planner_deduplicates_within_run(in_memory_db):
 
 @pytest.mark.domain_rule
 def test_planner_resolves_prompts_effective_run_override(in_memory_db):
-    """Planner uses run prompts when provided (override)."""
+    """Planner uses the run's OWN prompt when it differs from the
+    experiment's — proving run-level values aren't silently ignored."""
     # Arrange
     experiment = ExperimentFactory.create(
         name="test-exp",
@@ -211,10 +212,14 @@ def test_planner_resolves_prompts_effective_run_override(in_memory_db):
     )
     _insert_snapshot(in_memory_db, snapshot)
 
-    # Run with custom prompts (simulated via run data)
+    # Run with its own, distinct prompts — as ConfigResolver.build_run_config_dict
+    # would persist them when --system-prompt/--user-prompt were passed
+    # explicitly at --add-run time.
     run = RunFactory.create(
         experiment_id=experiment.experiment_id,
         randomization_seed=42,
+        system_prompt="Run-specific system prompt",
+        user_prompt="Run-specific user prompt",
     )
     _insert_run(in_memory_db, run)
 
@@ -224,15 +229,21 @@ def test_planner_resolves_prompts_effective_run_override(in_memory_db):
     plan = planner.build_plan("test-exp")
 
     # Assert
-    # For minimal schema, run doesn't have prompts, so experiment prompts are used
-    # This test verifies the structure is correct
-    assert plan.runs[0].prompts_effective.system == "Experiment system prompt"
-    assert plan.runs[0].prompts_effective.user == "Experiment user prompt"
+    assert plan.runs[0].prompts_effective.system == "Run-specific system prompt"
+    assert plan.runs[0].prompts_effective.user == "Run-specific user prompt"
 
 
 @pytest.mark.domain_rule
 def test_planner_resolves_prompts_effective_experiment_default(in_memory_db):
-    """Planner uses experiment prompts when run has none."""
+    """A run that inherited the experiment's prompt AT CREATION TIME
+    (ConfigResolver.build_run_config_dict bakes inheritance into the run's
+    own config — Run configuration is frozen at creation, see
+    docs/contracts/configuration-hierarchy.md) is read directly by
+    Planner, unchanged. Simulated here by passing the experiment's prompt
+    straight into RunFactory, exactly as the real resolver would have
+    persisted it — Planner performs no execution-time re-inheritance of
+    its own (see _resolve_prompts_effective's docstring, fixed
+    2026-08-21)."""
     # Arrange
     experiment = ExperimentFactory.create(
         name="test-exp",
@@ -251,7 +262,12 @@ def test_planner_resolves_prompts_effective_experiment_default(in_memory_db):
     )
     _insert_snapshot(in_memory_db, snapshot)
 
-    run = RunFactory.create(experiment_id=experiment.experiment_id, randomization_seed=42)
+    run = RunFactory.create(
+        experiment_id=experiment.experiment_id,
+        randomization_seed=42,
+        system_prompt="Default system prompt",
+        user_prompt="Default user prompt",
+    )
     _insert_run(in_memory_db, run)
 
     planner = Planner(in_memory_db)
@@ -262,6 +278,45 @@ def test_planner_resolves_prompts_effective_experiment_default(in_memory_db):
     # Assert
     assert plan.runs[0].prompts_effective.system == "Default system prompt"
     assert plan.runs[0].prompts_effective.user == "Default user prompt"
+
+
+@pytest.mark.domain_rule
+def test_planner_does_not_reinherit_prompt_when_run_explicitly_cleared_it(in_memory_db):
+    """--system-prompt/--user-prompt system-default breaks inheritance AT
+    RUN CREATION TIME (ConfigResolver persists None onto the run's own
+    config). Planner must NOT re-inherit the experiment's prompt at
+    execution time just because the run's own value is None — that would
+    silently defeat system-default, exactly the bug fixed 2026-08-21 (see
+    docs/status/known-issues.md)."""
+    experiment = ExperimentFactory.create(
+        name="test-exp",
+        system_prompt="Experiment system prompt",
+        user_prompt="Experiment user prompt",
+    )
+    _insert_experiment(in_memory_db, experiment)
+
+    variant = VariantFactory.create(experiment_id=experiment.experiment_id, model_id="openai/gpt-4")
+    _insert_variant(in_memory_db, variant)
+
+    snapshot = SnapshotFactory.create(
+        experiment_id=experiment.experiment_id,
+        question_id="q1",
+        question_payload={"stem": "Q?", "options": ["A", "B", "C", "D"], "answer_key": "B"},
+    )
+    _insert_snapshot(in_memory_db, snapshot)
+
+    # RunFactory's default (no system_prompt/user_prompt kwarg) persists
+    # an explicit None for both — exactly what build_run_config_dict
+    # persists for --system-prompt/--user-prompt system-default.
+    run = RunFactory.create(experiment_id=experiment.experiment_id, randomization_seed=42)
+    _insert_run(in_memory_db, run)
+
+    planner = Planner(in_memory_db)
+
+    plan = planner.build_plan("test-exp")
+
+    assert plan.runs[0].prompts_effective.system is None
+    assert plan.runs[0].prompts_effective.user is None
 
 
 @pytest.mark.domain_rule

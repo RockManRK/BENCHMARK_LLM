@@ -30,7 +30,7 @@ src/
 │   ├── __init__.py
 │   ├── bcllm_main.py     # Main help and entry point
 │   ├── bcllm_experiment.py # Experiment lifecycle management (Typer parsing since marco 4A, 2026-08-20)
-│   ├── bcllm_model.py    # Model variant management
+│   ├── bcllm_model.py    # Model variant management (Typer parsing since marco 4B, 2026-08-20)
 │   ├── bcllm_questions.py # Question snapshot management (Typer parsing since marco 4A, 2026-08-20)
 │   ├── bcllm_run.py      # Run management (Typer parsing since marco 4B, 2026-08-20)
 │   ├── bcllm_execute.py  # Execution entry point
@@ -42,7 +42,8 @@ src/
 │   │   ├── __init__.py
 │   │   ├── questions.py  # Typer command replacing bcllm_questions.py's former argparse create_parser() (marco 4A)
 │   │   ├── experiment.py # Typer command replacing bcllm_experiment.py's former argparse create_parser() (marco 4A)
-│   │   └── run.py        # Typer command replacing bcllm_run.py's former argparse create_parser() (marco 4B)
+│   │   ├── run.py        # Typer command replacing bcllm_run.py's former argparse create_parser() (marco 4B)
+│   │   └── model.py      # Typer command replacing bcllm_model.py's former argparse create_parser() (marco 4B)
 │   └── presentation/      # Rich-based presentation foundation (CLI migration Fase 2/6)
 │       ├── __init__.py
 │       ├── console.py     # Console/error_console singletons

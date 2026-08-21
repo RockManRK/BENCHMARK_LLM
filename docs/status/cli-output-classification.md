@@ -25,6 +25,20 @@ C2 (CLI output migration). It does **not** change any code. It reads every
   (cosmetic, no log needed) · `remoção por redundância` (drop — a
   logger call or another print already covers it).
 
+**Fixed 2026-08-20 (marco 4B, bcllm_model.py Typer slice):** the two
+`Event.MODEL_ADDED` gaps this document flags below — line 140 (the
+`--create-experiment --add-model` composite path) and line 415/the
+`bcllm_model.py:421` recommendation (the standalone `--add-model` path)
+— are both closed. Both paths run through the same
+`bcllm_model.py::add_model_action`, which now calls `emit_event(...,
+Event.MODEL_ADDED, experiment=..., model_id=..., variant_signature=...)`
+right after the DB write; see `tests/unit/cli/test_model_logging_events.py`
+for the standalone + real composite-flow proof (including a check that
+the composite path emits from this module, not the separate,
+unreachable-in-practice `bcllm_experiment.py::_add_models_at_creation`).
+The historical tables/line numbers below are left as-is (pre-conversion
+snapshot), not rewritten.
+
 This is the artifact Checkpoint C's user decision (2026-08-19, question 3)
 requires: "**Não adote a regra simplista de copiar toda saída do terminal
 para o arquivo de log. Para cada mensagem humana, o log deve

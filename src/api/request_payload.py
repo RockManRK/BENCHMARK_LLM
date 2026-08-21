@@ -109,8 +109,17 @@ def build_chat_completion_payload(
         payload["stop"] = stop
 
     # --- 4. Special Features: Reasoning ---
-    # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent.
-    # If both are defined, prioritize effort.
+    # OpenRouter contract: ONLY ONE of effort or max_tokens can be sent —
+    # see docs/Manuais_Diversos/openrouterdocs/reasoning_tokens.md ("One
+    # of the following (not both)"). The real enforcement of this
+    # exclusivity now happens upstream (a same-layer usage error at CLI
+    # parse time, and ConfigResolver._resolve_reasoning_pair's mode-
+    # suppression at resolution time) — by the time this function runs,
+    # at most one of the two should ever be non-None. The elif here
+    # (prioritize effort) is a defensive fallback for that invariant, not
+    # the primary mechanism — it exists to never construct an invalid
+    # payload even against pre-fix historical data (see
+    # docs/status/known-issues.md, 2026-08-21).
     reasoning_config: dict[str, Any] = {}
     if reasoning_effort is not None:
         reasoning_config["effort"] = reasoning_effort

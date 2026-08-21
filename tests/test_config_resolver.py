@@ -18,6 +18,7 @@ import json
 import pytest
 
 from src.core.config_resolver import ConfigResolver
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT
 
 
 class TestResolvePrompt:
@@ -585,7 +586,10 @@ class TestBuildExperimentConfigDict:
             "QUESTIONS_STATUS_ADD": "active",
             "QUESTIONS_STATUS_EXCLUDE": "draft",
             "BASE_URL": "https://api.example.com",
-            "MODEL_MAX_TOKENS_REASONING": "1000",
+            # MODEL_MAX_TOKENS_REASONING deliberately absent — set
+            # alongside MODEL_REASONING_EFFORT below would trip the
+            # reasoning-exclusivity guard (2026-08-21); this test only
+            # verifies dict shape/keys, not reasoning values specifically.
             "MODEL_MAX_TOKENS_TOTAL": "4096",
             "MODEL_REASONING_EFFORT": "high",
             "MODEL_REPEAT_PENALTY": "1.1",
@@ -605,7 +609,6 @@ class TestBuildExperimentConfigDict:
             user_prompt = None
             url = None
             reasoning_tokens = None
-            max_reasoning = None
             max_tokens = None
             reasoning = None
             repeat_penalty = None
@@ -721,7 +724,6 @@ class TestBuildExperimentConfigDict:
             user_prompt = None
             url = None
             reasoning_tokens = None
-            max_reasoning = None
             max_tokens = None
             reasoning = None
             repeat_penalty = None
@@ -770,7 +772,6 @@ class TestBuildModelConfigDict:
         class MockArgs:
             url = None
             reasoning_tokens = None
-            max_reasoning = None
             max_tokens = None
             reasoning = None
             repeat_penalty = None
@@ -946,7 +947,6 @@ class TestModelSeedResolution:
             user_prompt = None
             url = None
             reasoning_tokens = None
-            max_reasoning = None
             max_tokens = None
             reasoning = None
             repeat_penalty = None
@@ -967,7 +967,6 @@ class TestModelSeedResolution:
         class MockArgs:
             url = None
             reasoning_tokens = None
-            max_reasoning = None
             max_tokens = None
             reasoning = None
             repeat_penalty = None
@@ -993,7 +992,6 @@ class TestModelSeedResolution:
         class MockArgs:
             url = None
             reasoning_tokens = None
-            max_reasoning = None
             max_tokens = None
             reasoning = None
             repeat_penalty = None
@@ -1010,6 +1008,219 @@ class TestModelSeedResolution:
 
         result = resolver.build_model_config_dict(MockArgs(), MockExperiment())
         assert result["MODEL_SEED"] is None
+
+
+class TestReasoningModeSuppression:
+    """ConfigResolver._resolve_reasoning_pair's mode-suppression rule
+    (user decision, 2026-08-21, following --max-reasoning's removal as a
+    true synonym of --reasoning-tokens — see docs/status/known-issues.md):
+    a concrete value for effort or tokens at THIS layer suppresses the
+    OTHER field's inheritance entirely; system-default only clears its
+    own field and leaves the sibling's independent resolution untouched."""
+
+    class _BaseModelArgs:
+        url = None
+        reasoning_tokens = None
+        max_tokens = None
+        reasoning = None
+        repeat_penalty = None
+        model_seed = None
+        temperature = None
+        top_k = None
+        top_p = None
+        vision = None
+        structured = None
+        provider = None
+
+    class _BaseExperimentArgs:
+        randomization_seed = None
+        system_prompt = None
+        user_prompt = None
+        url = None
+        reasoning_tokens = None
+        max_tokens = None
+        reasoning = None
+        repeat_penalty = None
+        model_seed = None
+        temperature = None
+        top_k = None
+        top_p = None
+        vision = None
+        structured = None
+        experiment_name = "test_exp"
+
+    def test_experiment_level_concrete_effort_suppresses_env_inherited_tokens(self):
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_MAX_TOKENS_REASONING": "2000"}
+
+        class Args(self._BaseExperimentArgs):
+            reasoning = "high"
+
+        result = resolver.build_experiment_config_dict(Args())
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+
+    def test_experiment_level_concrete_tokens_suppresses_env_inherited_effort(self):
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_REASONING_EFFORT": "high"}
+
+        class Args(self._BaseExperimentArgs):
+            reasoning_tokens = 2000
+
+        result = resolver.build_experiment_config_dict(Args())
+        assert result["MODEL_MAX_TOKENS_REASONING"] == 2000
+        assert result["MODEL_REASONING_EFFORT"] is None
+
+    def test_experiment_level_effort_none_is_concrete_and_suppresses_tokens(self):
+        """'none' is a concrete mode selection, not an absence."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_MAX_TOKENS_REASONING": "2000"}
+
+        class Args(self._BaseExperimentArgs):
+            reasoning = "none"
+
+        result = resolver.build_experiment_config_dict(Args())
+        assert result["MODEL_REASONING_EFFORT"] == "none"
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+
+    def test_experiment_level_system_default_effort_does_not_suppress_tokens(self):
+        """system-default is NOT a mode selection — the sibling's own
+        (here: .env-inherited) resolution proceeds independently."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_MAX_TOKENS_REASONING": "2000"}
+
+        class Args(self._BaseExperimentArgs):
+            reasoning = FORCE_SYSTEM_DEFAULT
+
+        result = resolver.build_experiment_config_dict(Args())
+        assert result["MODEL_REASONING_EFFORT"] is None
+        assert result["MODEL_MAX_TOKENS_REASONING"] == 2000
+
+    def test_experiment_level_system_default_tokens_does_not_suppress_effort(self):
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_REASONING_EFFORT": "high"}
+
+        class Args(self._BaseExperimentArgs):
+            reasoning_tokens = FORCE_SYSTEM_DEFAULT
+
+        result = resolver.build_experiment_config_dict(Args())
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+
+    def test_experiment_level_neither_set_inherits_both_independently(self):
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_REASONING_EFFORT": "high"}
+
+        result = resolver.build_experiment_config_dict(self._BaseExperimentArgs())
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+
+    def test_model_level_concrete_effort_suppresses_experiment_inherited_tokens(self):
+        resolver = ConfigResolver()
+
+        class Args(self._BaseModelArgs):
+            reasoning = "high"
+
+        class MockExperiment:
+            config_json = json.dumps({"MODEL_MAX_TOKENS_REASONING": 2000})
+
+        result = resolver.build_model_config_dict(Args(), MockExperiment())
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+
+    def test_model_level_concrete_tokens_suppresses_experiment_inherited_effort(self):
+        resolver = ConfigResolver()
+
+        class Args(self._BaseModelArgs):
+            reasoning_tokens = 2000
+
+        class MockExperiment:
+            config_json = json.dumps({"MODEL_REASONING_EFFORT": "high"})
+
+        result = resolver.build_model_config_dict(Args(), MockExperiment())
+        assert result["MODEL_MAX_TOKENS_REASONING"] == 2000
+        assert result["MODEL_REASONING_EFFORT"] is None
+
+    def test_model_level_system_default_effort_does_not_suppress_inherited_tokens(self):
+        resolver = ConfigResolver()
+
+        class Args(self._BaseModelArgs):
+            reasoning = FORCE_SYSTEM_DEFAULT
+
+        class MockExperiment:
+            config_json = json.dumps({"MODEL_MAX_TOKENS_REASONING": 2000})
+
+        result = resolver.build_model_config_dict(Args(), MockExperiment())
+        assert result["MODEL_REASONING_EFFORT"] is None
+        assert result["MODEL_MAX_TOKENS_REASONING"] == 2000
+
+    def test_model_level_system_default_tokens_does_not_suppress_inherited_effort(self):
+        resolver = ConfigResolver()
+
+        class Args(self._BaseModelArgs):
+            reasoning_tokens = FORCE_SYSTEM_DEFAULT
+
+        class MockExperiment:
+            config_json = json.dumps({"MODEL_REASONING_EFFORT": "high"})
+
+        result = resolver.build_model_config_dict(Args(), MockExperiment())
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+
+    def test_model_level_neither_set_inherits_both_independently_from_experiment(self):
+        resolver = ConfigResolver()
+
+        class MockExperiment:
+            config_json = json.dumps({"MODEL_REASONING_EFFORT": "high"})
+
+        result = resolver.build_model_config_dict(self._BaseModelArgs(), MockExperiment())
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
+
+    def test_env_both_fields_set_with_no_cli_override_is_rejected(self):
+        """The one gap CLI-level same-layer conflict checking can't see —
+        .env has no exclusivity of its own, so a user filling in both
+        MODEL_REASONING_EFFORT and MODEL_MAX_TOKENS_REASONING in .env,
+        with neither --reasoning nor --reasoning-tokens passed on the
+        CLI, must be rejected explicitly rather than silently persisting
+        both. Found by Essence Guardian review, 2026-08-21 (same day as
+        the main fix) — see docs/status/known-issues.md."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {
+            "MODEL_REASONING_EFFORT": "high",
+            "MODEL_MAX_TOKENS_REASONING": "2000",
+        }
+
+        with pytest.raises(ValueError, match="reasoning"):
+            resolver.build_experiment_config_dict(self._BaseExperimentArgs())
+
+    def test_env_effort_plus_cli_tokens_is_rejected(self):
+        """Mixed source (one from .env, one from CLI) is the same
+        underlying conflict — both fields non-null, neither CLI value
+        concrete enough to trigger mode-suppression on its own since only
+        ONE of the two was passed on the CLI (tokens), which per the
+        mode-suppression rule SHOULD suppress the inherited effort... but
+        --reasoning-tokens being concrete does correctly suppress it. This
+        test exists to confirm mode-suppression (not the .env guard) is
+        what resolves this specific combination — the .env guard only
+        fires when NEITHER field is CLI-concrete."""
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_REASONING_EFFORT": "high"}
+
+        class Args(self._BaseExperimentArgs):
+            reasoning_tokens = 2000
+
+        result = resolver.build_experiment_config_dict(Args())
+        assert result["MODEL_MAX_TOKENS_REASONING"] == 2000
+        assert result["MODEL_REASONING_EFFORT"] is None
+
+    def test_env_only_one_field_set_is_not_rejected(self):
+        resolver = ConfigResolver()
+        resolver.env_dict = {"MODEL_REASONING_EFFORT": "high"}
+
+        result = resolver.build_experiment_config_dict(self._BaseExperimentArgs())
+        assert result["MODEL_REASONING_EFFORT"] == "high"
+        assert result["MODEL_MAX_TOKENS_REASONING"] is None
 
 
 class TestBuildRunConfigDict:

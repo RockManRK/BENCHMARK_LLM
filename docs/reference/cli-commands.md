@@ -194,6 +194,8 @@ bcllm --experiment <name> --add-model <model_id> [options]
 | `--structured <bool>` | Enable structured output (`true`, `false`) | Not sent in API request |
 | `--url <base_url>` | Model-specific API URL | Experiment-level URL |
 
+**`--reasoning`/`--reasoning-tokens` exclusivity (2026-08-21):** OpenRouter's `reasoning` object accepts only one of `effort`/`max_tokens` — never both. Passing both with concrete values on the same `--create-experiment`/`--add-model` command is a usage error (exit 2). A concrete value for either flag (including `--reasoning none`) suppresses the OTHER field's inheritance entirely, even from the experiment default; `system-default` on either only clears that field, leaving a validly-inherited sibling value untouched. `--reasoning-tokens` rejects `0` and negative values (exit 2) — use `--reasoning none` to disable reasoning explicitly. `--max-reasoning` (a former undocumented synonym of `--reasoning-tokens`) has been removed. Full normative detail: `docs/contracts/system-default-semantics.md`.
+
 ### --model-seed <int>
 
 **Purpose**: Set Model Seed — sent as the API request's `seed` field for deterministic inference. See `docs/status/model-seed-checkpoint-b-design.md`.

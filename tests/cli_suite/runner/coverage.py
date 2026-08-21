@@ -57,11 +57,24 @@ def discover_cli_flags() -> set[str]:
     flags: set[str] = set()
     for module_name in CLI_MODULES:
         module = importlib.import_module(module_name)
-        if not hasattr(module, "create_parser"):
+        if hasattr(module, "create_parser"):
+            parser = module.create_parser()
+            for action in parser._actions:
+                flags.update(o for o in action.option_strings if o.startswith("--"))
             continue
-        parser = module.create_parser()
-        for action in parser._actions:
-            flags.update(o for o in action.option_strings if o.startswith("--"))
+
+        # Typer-converted module (marco 4A/4B, 2026-08-20) — no
+        # create_parser() anymore; introspect the real Typer command's
+        # Click params instead (mirrors
+        # tests/unit/cli/test_system_default_classification_consistency.py's
+        # declared_dests() helper). Fixed as part of the model.py slice
+        # after this silently dropped questions/experiment/run's flags
+        # from the coverage report the moment each was converted — a
+        # `continue` with no fallback masked the gap instead of erroring.
+        short_name = module_name.rsplit(".", 1)[-1].removeprefix("bcllm_")
+        cmd_module = importlib.import_module(f"src.cli.commands.{short_name}")
+        for param in cmd_module._command.params:
+            flags.update(o for o in getattr(param, "opts", []) if o.startswith("--"))
     return flags
 
 

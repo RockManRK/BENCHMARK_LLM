@@ -586,6 +586,22 @@ class ExecutionEngine:
                 run_id=item.run_id, variant_id=item.variant_id, provider=provider_slug,
             )
 
+            # Should be unreachable for any variant belonging to an
+            # experiment created after 2026-08-21: ConfigResolver's
+            # mode-suppression (_resolve_reasoning_pair) guarantees at most
+            # one of reasoning_effort/max_reasoning_tokens is ever
+            # persisted non-null from a single CLI command; same-layer
+            # CLI conflicts are rejected at parse time (exit 2); and
+            # build_experiment_config_dict separately rejects (ValueError,
+            # exit 1) the one gap CLI-level suppression can't see — both
+            # keys set independently in .env with neither flag passed on
+            # the CLI (found by Essence Guardian review, 2026-08-21, same
+            # day as the main fix). Kept as a non-fatal defensive check
+            # for historical rows from BEFORE that .env guard existed (not
+            # migrated — see ADR-003, pre-production data scope) — a
+            # WARNING, not a blocker, so old data stays executable; the
+            # payload builder's own defensive priority (effort wins) still
+            # prevents an invalid request either way.
             if model_config.reasoning_effort is not None and model_config.max_reasoning_tokens is not None:
                 emit_event(
                     self._logger, Event.REASONING_CONFLICT, level=logging.WARNING,

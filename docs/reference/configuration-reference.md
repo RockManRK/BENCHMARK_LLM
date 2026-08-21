@@ -124,6 +124,8 @@ These values serve as defaults when creating model variants. Leave blank to use 
 | `MODEL_VISION` | `bool` | `false` | Enable vision/multimodal support |
 | `STRUCTURED_OUTPUTS` | `bool` | `false` | Enable JSON schema responses |
 
+**`MODEL_REASONING_EFFORT`/`MODEL_MAX_TOKENS_REASONING` exclusivity (2026-08-21):** OpenRouter's `reasoning` object accepts only one of `effort`/`max_tokens`. Setting BOTH in `.env` (with neither `--reasoning` nor `--reasoning-tokens` passed on the CLI at `--create-experiment` time, the only point `.env` is consulted for these keys) is rejected with an error — leave at most one blank-or-set. `--add-model` never reads `.env` — it inherits from the experiment's own already-resolved config instead, where the same exclusivity already holds by construction. See `docs/contracts/system-default-semantics.md` for the full exclusivity/mode-suppression rule.
+
 ---
 
 ### 5. Run Defaults

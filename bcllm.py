@@ -116,7 +116,6 @@ def _build_create_argv(argv: list[str], experiment_name: str) -> list[str]:
 _ACTION_RELEVANT_FLAGS = {
     "--add-model": [
         "--reasoning", "--max-tokens", "--reasoning-tokens",
-        "--max-reasoning",
         "--temperature", "--top-p", "--top-k", "--repeat-penalty",
         "--vision", "--structured", "--url", "--provider", "--model-seed",
     ],

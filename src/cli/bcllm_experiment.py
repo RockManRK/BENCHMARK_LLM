@@ -74,7 +74,7 @@ def _validate_expected_mode(mode: Mode) -> None:
 # truth.
 SYSTEM_DEFAULT_SUPPORTED = {
     'randomization_seed', 'system_prompt', 'user_prompt',
-    'max_reasoning', 'max_tokens', 'reasoning', 'repeat_penalty',
+    'max_tokens', 'reasoning', 'repeat_penalty',
     'model_seed', 'temperature', 'top_k', 'top_p', 'reasoning_tokens',
     'vision', 'structured', 'add_questions', 'provider_lock',
 }

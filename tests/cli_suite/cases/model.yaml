@@ -173,7 +173,7 @@ cases:
       unchanged_tables: [model_variants]
 
   - id: AM-008
-    name: "system-default funciona nas 7 flags numericas + --reasoning (regressao)"
+    name: "system-default funciona nas 6 flags numericas + --reasoning (regressao)"
     area: model
     profiles: [cli-unit, regression, full]
     priority: high
@@ -184,14 +184,18 @@ cases:
     setup:
       - ["--create-experiment", "{ns}_am008"]
     command:
-      # Fixed 2026-08-19: these 7 flags used plain type=int/type=float
+      # Fixed 2026-08-19: these flags used plain type=int/type=float
       # instead of parse_int_or_system_default/parse_float_or_system_default
       # (src/core/special_config_values.py), so 'system-default' failed
       # outright with "invalid int/float value" (exit 2) instead of being
       # recognized. --reasoning had the same bug via choices=[...] missing
       # 'system-default'. See docs/status/known-issues.md.
+      # --max-reasoning removed 2026-08-21 (true synonym of
+      # --reasoning-tokens — see docs/status/known-issues.md). --reasoning
+      # and --reasoning-tokens both system-default together is NOT a
+      # same-layer conflict (system-default is not a mode selection) —
+      # see docs/contracts/system-default-semantics.md.
       argv: ["--experiment", "{ns}_am008", "--add-model", "test/success",
-             "--max-reasoning", "system-default",
              "--max-tokens", "system-default",
              "--reasoning", "system-default",
              "--repeat-penalty", "system-default",
@@ -426,3 +430,53 @@ cases:
       exit_code: 2
       stderr_contains: ["system-default"]
       no_traceback: true
+
+
+  - id: AM-017
+    name: "--reasoning e --reasoning-tokens concretos juntos e usage error, exit 2, nada persistido"
+    area: model
+    profiles: [cli-unit, contracts, regression, full]
+    priority: high
+    tags: [negative, contracts, regression, reasoning]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am017"]
+    command:
+      # OpenRouter's reasoning object accepts only ONE of effort/max_tokens
+      # (docs/Manuais_Diversos/openrouterdocs/reasoning_tokens.md). A
+      # concrete value for both on the same command is a usage error, not
+      # silently resolved by priority. See docs/status/known-issues.md,
+      # 2026-08-21.
+      argv: ["--experiment", "{ns}_am017", "--add-model", "test/success",
+             "--reasoning", "high", "--reasoning-tokens", "2000"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [model_variants]
+
+  - id: AM-018
+    name: "--reasoning-tokens 0 e usage error, exit 2, nada persistido"
+    area: model
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [negative, contracts, regression, reasoning]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_am018"]
+    command:
+      # 0 is rejected, not silently treated as None/system-default —
+      # Anthropic's documented floor is 1024 tokens regardless of what's
+      # requested, so persisting a literal 0 would misrepresent what
+      # actually happens at execution. --reasoning none already exists to
+      # disable reasoning cleanly. See docs/status/known-issues.md.
+      argv: ["--experiment", "{ns}_am018", "--add-model", "test/success", "--reasoning-tokens", "0"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [model_variants]

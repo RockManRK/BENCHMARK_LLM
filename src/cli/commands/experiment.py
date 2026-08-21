@@ -16,6 +16,15 @@ via `callback=`, to avoid Typer's own post-callback list convertor — see
 `--output` is parsed and validated (choices) for CLI compatibility only —
 never read by any handler, matching the argparse version (a pre-existing,
 documented dead flag, see docs/status/known-issues.md).
+
+`--max-reasoning` removed 2026-08-21 (user decision, reasoning
+effort/tokens exclusivity checkpoint): true, undocumented synonym of
+`--reasoning-tokens` — see docs/status/known-issues.md and
+`src/cli/commands/model.py`'s equivalent note. `--reasoning` and
+`--reasoning-tokens` are mutually exclusive at this layer (usage error,
+exit 2, if both concrete); `--reasoning-tokens` rejects 0/negative.
+Inheritance-level suppression lives in
+`ConfigResolver._resolve_reasoning_pair`.
 """
 
 from __future__ import annotations
@@ -34,7 +43,7 @@ from src.cli.param_types import (
     typer_str_or_system_default,
 )
 from src.core.argv_utils import ParserExit
-from src.core.special_config_values import ForceSystemDefault
+from src.core.special_config_values import FORCE_SYSTEM_DEFAULT, ForceSystemDefault
 
 
 class OutputFormat(str, enum.Enum):
@@ -63,7 +72,6 @@ class ExperimentParsedArgs:
     system_prompt: StrOrSD
     user_prompt: StrOrSD
     url: str | None
-    max_reasoning: IntOrSD
     max_tokens: IntOrSD
     reasoning: StrOrSD
     repeat_penalty: FloatOrSD
@@ -117,10 +125,6 @@ def _experiment_command(
         None, "--url", callback=typer_reject_special_values, metavar="URL",
         help="Base URL for model API (model default)",
     ),
-    max_reasoning: str = typer.Option(
-        None, "--max-reasoning", callback=typer_int_or_system_default, metavar="TOKENS",
-        help="Max tokens for reasoning (model default)",
-    ),
     max_tokens: str = typer.Option(
         None, "--max-tokens", callback=typer_int_or_system_default, metavar="TOKENS",
         help="Max total tokens (model default)",
@@ -154,7 +158,8 @@ def _experiment_command(
     ),
     reasoning_tokens: str = typer.Option(
         None, "--reasoning-tokens", callback=typer_int_or_system_default, metavar="TOKENS",
-        help="Max tokens for reasoning (model default)",
+        help="Max tokens for reasoning (model default; positive integer; "
+             "mutually exclusive with --reasoning on this command)",
     ),
     vision: str = typer.Option(
         None, "--vision", callback=typer_str_or_system_default, metavar="VALUE",
@@ -198,6 +203,27 @@ def _experiment_command(
     where_resolved = typer_filter_list_or_system_default(where)
     exclude_resolved = typer_filter_list_or_system_default(exclude)
 
+    # --reasoning-tokens rejects 0/negative — see module docstring.
+    if isinstance(reasoning_tokens, int) and reasoning_tokens <= 0:
+        raise typer.BadParameter(
+            f"--reasoning-tokens must be a positive integer, got {reasoning_tokens}. "
+            "Use --reasoning none to disable reasoning, or omit --reasoning-tokens "
+            "to use the provider default."
+        )
+
+    # OpenRouter's reasoning object accepts only ONE of effort/max_tokens
+    # — see module docstring. Inheritance-level suppression is handled
+    # downstream in ConfigResolver._resolve_reasoning_pair.
+    reasoning_is_concrete = reasoning is not None and reasoning is not FORCE_SYSTEM_DEFAULT
+    reasoning_tokens_is_concrete = reasoning_tokens is not None and reasoning_tokens is not FORCE_SYSTEM_DEFAULT
+    if reasoning_is_concrete and reasoning_tokens_is_concrete:
+        raise typer.BadParameter(
+            "--reasoning and --reasoning-tokens are mutually exclusive — "
+            "OpenRouter's reasoning object accepts only one of effort/max_tokens. "
+            "Set --reasoning-tokens to system-default (or omit it) if you want "
+            "--reasoning's effort level to apply."
+        )
+
     group_flags_given = sum([
         create_experiment is not None,
         experiment is not None,
@@ -225,7 +251,6 @@ def _experiment_command(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         url=url,
-        max_reasoning=max_reasoning,
         max_tokens=max_tokens,
         reasoning=reasoning,
         repeat_penalty=repeat_penalty,
