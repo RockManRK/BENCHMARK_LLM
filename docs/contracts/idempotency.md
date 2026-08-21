@@ -67,8 +67,8 @@ Adding a model variant to an experiment:
 The system supports intelligent partial execution:
 
 ```bash
-# Execute only questions 1-10 for specific models
-bcllm --experiment <name> --execute --questions "1-10" --model <model_id>
+# Execute only questions 1-10 (by 1-based position) for specific models
+bcllm --experiment <name> --execute --questions "1-10" --models <variant_id>
 ```
 
 On subsequent executions:

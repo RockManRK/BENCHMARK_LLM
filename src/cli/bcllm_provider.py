@@ -15,16 +15,19 @@ The command is idempotent — running multiple times is safe and will skip
 already-resolved variants.
 """
 
-import argparse
 import json
 import os
 import sys
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
-from src.core.argv_utils import parse_args_normalized
+from src.core.argv_utils import ParserExit
+from src.cli.commands.provider import parse_provider_argv
 from src.db.repository import ExperimentRepository, VariantRepository
 from src.api.provider_resolver import ProviderResolver
+from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -47,62 +50,41 @@ def _validate_expected_mode(mode: Mode) -> None:
         sys.exit(1)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for --resolve-providers command.
-
-    Returns:
-        ArgumentParser configured with resolve-providers command.
-    """
-    parser = argparse.ArgumentParser(
-        prog="bcllm_provider.py",
-        description="Provider resolution for model variants",
-    )
-
-    parser.add_argument(
-        "--experiment",
-        required=True,
-        metavar="NAME",
-        help="Experiment name",
-    )
-
-    parser.add_argument(
-        "--resolve-providers",
-        action="store_true",
-        help="Resolve providers for all variants with PROVIDER=null in the experiment",
-    )
-
-    return parser
-
-
 # Explicit opt-in classification for system-default recognition — see
 # src/core/special_config_values.py::normalize_special_config_values and
 # docs/contracts/system-default-semantics.md for the full SUPPORTED/
 # FORBIDDEN/NOT_APPLICABLE contract this implements. --resolve-providers
 # is a boolean flag (NOT_APPLICABLE); --experiment is FORBIDDEN for
 # consistency with every other module's identity-selector flags — see
-# docs/status/known-issues.md (Essence Guardian finding, 2026-08-19).
+# docs/status/known-issues.md (Essence Guardian finding, 2026-08-19). Kept
+# as a module-level constant for cross-module consistency checks
+# (tests/unit/cli/test_system_default_classification_consistency.py) — no
+# longer consumed by parsing directly since the Typer conversion (marco
+# 4C, 2026-08-21): src/cli/commands/provider.py's _provider_command
+# declares the same classification via its per-option callback.
 SYSTEM_DEFAULT_FORBIDDEN = {
     'experiment',
 }
 
 
-def handle_resolve_providers(args, conn) -> int:
+def handle_resolve_providers(experiment_name: str, conn) -> int:
     """Resolve providers for all variants with PROVIDER=null in the experiment.
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
         conn: Database connection.
 
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    logger = get_logger('cli.provider')
     exp_repo = ExperimentRepository(conn)
     var_repo = VariantRepository(conn)
 
     # Load experiment by name
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
     # Get strategy from experiment config
@@ -113,7 +95,7 @@ def handle_resolve_providers(args, conn) -> int:
     provider_lock = exp_config.get("PROVIDER_LOCK", False)
     if not provider_lock:
         print(
-            f"Warning: PROVIDER_LOCK is not enabled for experiment '{args.experiment}'.",
+            f"Warning: PROVIDER_LOCK is not enabled for experiment '{experiment_name}'.",
             file=sys.stderr
         )
         print(
@@ -125,7 +107,7 @@ def handle_resolve_providers(args, conn) -> int:
     variants = var_repo.list_by_experiment(experiment.experiment_id)
 
     if not variants:
-        print(f"No model variants found in experiment '{args.experiment}'.")
+        print(f"No model variants found in experiment '{experiment_name}'.")
         return 0
 
     # Initialize API key from environment
@@ -179,8 +161,19 @@ def handle_resolve_providers(args, conn) -> int:
 
     resolver.close()
 
+    # Provider resolution mutates model_variants.config (writes PROVIDER)
+    # — previously zero log trace anywhere in this module (it had no
+    # logger at all). Emitted once per --resolve-providers invocation,
+    # after the resolution loop, mirroring the report's own counts — see
+    # docs/status/cli-output-classification.md's highest-priority C2 gap.
+    emit_event(
+        logger, Event.PROVIDERS_RESOLVED,
+        experiment=experiment_name, resolved_count=len(report["resolved"]),
+        skipped_count=len(report["skipped"]), failed_count=len(report["failed"]),
+    )
+
     # Print summary report
-    print(f"\nProvider Resolution Report for experiment '{args.experiment}':")
+    print(f"\nProvider Resolution Report for experiment '{experiment_name}':")
     print(f"  Resolved: {len(report['resolved'])}")
     print(f"  Skipped:  {len(report['skipped'])}")
     print(f"  Failed:   {len(report['failed'])}")
@@ -209,21 +202,27 @@ def main(mode: Mode) -> int:
         Exit code (0 for success, 1 for error).
     """
     _validate_expected_mode(mode)
-    parser = create_parser()
+    argv = sys.argv[1:]
+
     try:
-        args = parse_args_normalized(parser, forbidden=SYSTEM_DEFAULT_FORBIDDEN)
-    except argparse.ArgumentError as e:
-        # See src/cli/bcllm_model.py::main for why this is caught here
-        # rather than inside parse_args_normalized itself.
-        parser.error(str(e))
+        args = parse_provider_argv(argv)
+    except ParserExit as e:
+        if e.status != 0:
+            return e.status
+        return 0  # --help or other clean parser exit
 
     conn = get_database_connection()
 
     try:
         if args.resolve_providers:
-            return handle_resolve_providers(args, conn)
+            return handle_resolve_providers(args.experiment, conn)
         else:
-            parser.print_help()
+            # Reachable: --resolve-providers is a plain optional boolean
+            # (no mutex group in the argparse original either — this
+            # module has exactly one action, and running `bcllm
+            # --experiment X` without it falls through here, matching the
+            # pre-Typer behavior exactly).
+            print("Error: no valid provider action specified. Use --resolve-providers.", file=sys.stderr)
             return 1
     finally:
         conn.close()

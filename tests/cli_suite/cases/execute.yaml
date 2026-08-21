@@ -89,3 +89,169 @@ cases:
             WHERE e.name = ?
           params: ["{ns}_ex003"]
           equals: 1  # still exactly one — re-execute skipped the completed item
+
+  - id: EX-004
+    name: "--questions filtra por posicao (1-based), real via subprocess"
+    area: execute
+    profiles: [cli-unit, contracts, integration-mock, full]
+    priority: high
+    tags: [execution, stub, questions, contracts]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex004", "--add-questions", "1-3"]
+      - ["--experiment", "{ns}_ex004", "--add-model", "test/success"]
+      - ["--experiment", "{ns}_ex004", "--add-run"]
+    command:
+      # --questions selects by 1-based dataset position, not the source
+      # dataset's own question ID (user decision, 2026-08-21) — this
+      # experiment has 3 snapshots (positions 1-3); filtering to position
+      # 2 must execute exactly 1 item, not all 3.
+      argv: ["--experiment", "{ns}_ex004", "--execute", "--questions", "2"]
+      timeout: 60
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM responses resp
+            JOIN runs r ON r.run_id = resp.run_id
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_ex004"]
+          equals: 1
+
+  - id: EX-005
+    name: "--questions 0 e usage error, exit 2, nada persistido"
+    area: execute
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [negative, contracts, regression, questions]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex005", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex005", "--add-model", "test/success"]
+      - ["--experiment", "{ns}_ex005", "--add-run"]
+    command:
+      # 0/negative/inverted-range/empty-item/non-numeric are all usage
+      # errors (exit 2) per the position-spec grammar (user decision,
+      # 2026-08-21) — checked at parse time, before any DB connection.
+      argv: ["--experiment", "{ns}_ex005", "--execute", "--questions", "0"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [responses, errors]
+
+  - id: EX-006
+    name: "--questions Q001 (formato antigo) e usage error, exit 2"
+    area: execute
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [negative, contracts, regression, questions]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex006", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex006", "--add-model", "test/success"]
+      - ["--experiment", "{ns}_ex006", "--add-run"]
+    command:
+      # The old source-dataset-ID format (Q001) is removed entirely — no
+      # alias, no compatibility shim (user decision, 2026-08-21).
+      # --questions now selects by position only.
+      argv: ["--experiment", "{ns}_ex006", "--execute", "--questions", "Q001"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [responses, errors]
+
+  - id: EX-007
+    name: "--models filtra por variant_id, real via subprocess"
+    area: execute
+    profiles: [cli-unit, integration-mock, full]
+    priority: high
+    tags: [execution, stub, models]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex007", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex007", "--add-model", "test/success"]
+      - argv: ["--experiment", "{ns}_ex007", "--list-models"]
+        capture:
+          # bcllm_model.py's handle_add_model only prints the
+          # variant_signature ("Model variant 'sig-xxxx' added..."), not
+          # the variant_id --models actually filters on
+          # (validate_filters/Planner.build_plan match against
+          # ModelVariant.variant_id, format var_xxxxxxxx). --list-models's
+          # first column is the real variant_id, so resolve it from there.
+          variant_id: "(var_[0-9a-f]+)\\s"
+      - ["--experiment", "{ns}_ex007", "--add-run"]
+    command:
+      # --models is now a single comma-separated value (was nargs="+") —
+      # a single-variant selector still round-trips through the real
+      # validate_filters -> Planner.build_plan flow end-to-end.
+      argv: ["--experiment", "{ns}_ex007", "--execute", "--models", "{variant_id}"]
+      timeout: 60
+    expect:
+      exit_code: 0
+      no_traceback: true
+    db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM responses resp
+            JOIN runs r ON r.run_id = resp.run_id
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_ex007"]
+          equals: 1
+
+  - id: EX-008
+    name: "--experiment system-default e FORBIDDEN, exit 2 (identity selector, nunca normalizado)"
+    area: execute
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [system-default, contracts, regression]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    command:
+      # bcllm_execute.py had ZERO system-default classification before
+      # marco 4C (its pre-conversion main() called plain
+      # parser.parse_args(), never parse_args_normalized) — see
+      # docs/status/known-issues.md.
+      argv: ["--experiment", "system-default", "--execute"]
+    expect:
+      exit_code: 2
+      stderr_contains: ["system-default"]
+      no_traceback: true
+
+  - id: EX-009
+    name: "--models com item vazio (virgula dupla) e usage error, exit 2"
+    area: execute
+    profiles: [cli-unit, contracts, regression, full]
+    priority: normal
+    tags: [negative, contracts, regression, models]
+    fixture:
+      env: env_valid_minimal
+      dataset: dataset_small_valid
+    setup:
+      - ["--create-experiment", "{ns}_ex009", "--add-questions", "1"]
+      - ["--experiment", "{ns}_ex009", "--add-model", "test/success"]
+      - ["--experiment", "{ns}_ex009", "--add-run"]
+    command:
+      # --models grammar: comma-separated literal identifiers, empty
+      # item (e.g. a stray comma) rejected at parse time, exit 2 (user
+      # decision, 2026-08-21).
+      argv: ["--experiment", "{ns}_ex009", "--execute", "--models", "var-a,,var-b"]
+    expect:
+      exit_code: 2
+      no_traceback: true
+    db:
+      unchanged_tables: [responses, errors]

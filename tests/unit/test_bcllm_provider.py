@@ -67,7 +67,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             assert result == 0
@@ -101,7 +101,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             assert result == 0
@@ -143,7 +143,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             assert result == 0
@@ -165,7 +165,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             assert result == 1
@@ -192,7 +192,7 @@ class TestResolveProviders:
                 args.resolve_providers = True
 
                 # Act
-                result = handle_resolve_providers(args, in_memory_db)
+                result = handle_resolve_providers(args.experiment, in_memory_db)
 
                 # Assert
                 assert result == 1
@@ -226,7 +226,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            handle_resolve_providers(args, in_memory_db)
+            handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert: resolver was called with correct strategy
             MockResolver.return_value.resolve.assert_called_once()
@@ -264,7 +264,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             assert result == 0  # Still succeeds
@@ -300,7 +300,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            handle_resolve_providers(args, in_memory_db)
+            handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             stderr_output = mock_stderr.getvalue()
@@ -330,7 +330,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert: command should report failure but not crash
             assert result == 1
@@ -354,7 +354,7 @@ class TestResolveProviders:
             args.resolve_providers = True
 
             # Act
-            result = handle_resolve_providers(args, in_memory_db)
+            result = handle_resolve_providers(args.experiment, in_memory_db)
 
             # Assert
             assert result == 0

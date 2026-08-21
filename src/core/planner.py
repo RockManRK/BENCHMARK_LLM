@@ -132,7 +132,7 @@ class Planner:
         self,
         experiment_name: str,
         run_ids: list[str] | None = None,
-        question_ids: list[str] | None = None,
+        question_ids: list[int] | None = None,
         model_variant_ids: list[str] | None = None,
         retry_policy: RetryPolicy | None = None,
         operation_id: str | None = None,
@@ -142,7 +142,12 @@ class Planner:
         Args:
             experiment_name: Human-readable experiment name
             run_ids: Optional list of specific runs (default: all pending)
-            question_ids: Optional list of specific question IDs to filter
+            question_ids: Optional list of 1-based question_position values
+                to filter snapshots by (NOT the source dataset's own
+                question ID — see src/cli/commands/execute.py's
+                --questions position-spec grammar, the sole real caller).
+                Named question_ids for historical continuity with the CLI
+                flag's own dest name; holds positions, not ID strings.
             model_variant_ids: Optional list of specific variant IDs to filter
             retry_policy: Optional retry policy override (default: RetryPolicy())
             operation_id: Correlation ID for the CLI invocation building this
@@ -183,7 +188,19 @@ class Planner:
             variants = [v for v in variants if v["variant_id"] in model_variant_ids]
 
         if question_ids:
-            snapshots = [s for s in snapshots if s["question_id"] in question_ids]
+            # Fixed 2026-08-21 (marco 4C, bcllm_execute.py Typer conversion):
+            # this used to read s["question_id"], a column that has never
+            # existed on question_snapshots (the real columns are
+            # json_question_id and question_position — see
+            # src/db/schema.py) — every real invocation with a non-empty
+            # question_ids filter raised IndexError/KeyError, undetected
+            # because zero tests exercised this parameter before now (see
+            # docs/status/known-issues.md). `question_ids` now holds
+            # 1-based question_position values (bcllm_execute.py's
+            # --questions resolves its position-spec grammar to these
+            # before calling build_plan) — matching filtering by the
+            # dataset position, not the source dataset's own question ID.
+            snapshots = [s for s in snapshots if s["question_position"] in question_ids]
 
         # Get runs to execute
         runs = self._get_runs(experiment_row["experiment_id"], run_ids)

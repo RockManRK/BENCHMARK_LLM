@@ -12,13 +12,23 @@ This module provides the CLI command for executing benchmark runs:
 Usage:
     bcllm_execute.py --experiment <name> --execute
     bcllm_execute.py --experiment <name> --execute --run <run_id>
-    bcllm_execute.py --experiment <name> --execute --questions Q001 Q005
-    bcllm_execute.py --experiment <name> --execute --models var_xyz789
+    bcllm_execute.py --experiment <name> --execute --questions 1,3,10-20
+    bcllm_execute.py --experiment <name> --execute --models var_xyz789,var_abc
     bcllm_execute.py --experiment <name> --execute --retry-policy max_attempts=5,backoff=linear
+
+--questions/--models syntax changed 2026-08-21 (CLI migration marco 4C,
+user decision — see src/cli/commands/execute.py's module docstring for
+the full reasoning and docs/status/known-issues.md for the decision
+record): argparse's `nargs="+"` (space-separated, one flag occurrence)
+has no Click/Typer equivalent, so both flags moved to a single
+comma-separated value. --questions now also selects by 1-based POSITION
+in the dataset, not the source dataset's own question ID — the old
+`Q001` format is removed entirely, no alias.
 
 Exit Codes:
     0: Success
     1: Validation error (not found, invalid input, execution failure)
+    2: Usage error (malformed --questions/--models specification)
 
 Orchestration Flow:
     1. Validate experiment exists
@@ -36,14 +46,15 @@ CRITICAL: This module is ORCHESTRATION ONLY.
 - No mutable state (delegates to ResultWriter)
 """
 
-import argparse
 import sys
-import re
 import os
+import logging
 from typing import Any
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
+from src.core.argv_utils import ParserExit
+from src.cli.commands.execute import parse_execute_argv, ExecuteParsedArgs
 from src.db.repository import ExperimentRepository, RunRepository, VariantRepository, SnapshotRepository
 from src.core.planner import Planner, PlannerValidationError
 from src.core.async_orchestrator import AsyncOrchestrator
@@ -76,52 +87,27 @@ def _validate_expected_mode(mode: Mode) -> None:
         sys.exit(1)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for execute command.
-
-    Returns:
-        ArgumentParser configured with execute command arguments.
-    """
-    parser = argparse.ArgumentParser(
-        prog="bcllm_execute.py",
-        description="Execute benchmark runs with optional filters",
-    )
-
-    parser.add_argument(
-        "--experiment",
-        required=True,
-        metavar="NAME",
-        help="Experiment name",
-    )
-    parser.add_argument(
-        "--run",
-        metavar="RUN_ID",
-        help="Specific run ID to execute (default: all pending runs)",
-    )
-    parser.add_argument(
-        "--questions",
-        metavar="Q_ID",
-        nargs="+",
-        help="Specific question IDs to execute (e.g., Q001 Q005 or Q001-Q010 for range)",
-    )
-    parser.add_argument(
-        "--models",
-        metavar="VAR_ID",
-        nargs="+",
-        help="Specific model variant IDs to execute",
-    )
-    parser.add_argument(
-        "--retry-policy",
-        metavar="CONFIG",
-        help="Retry policy configuration (e.g., 'max_attempts=5,backoff=linear')",
-    )
-    parser.add_argument(
-        "--execute",
-        action="store_true",
-        help="Execute the run(s)",
-    )
-
-    return parser
+# Explicit opt-in classification for system-default recognition — see
+# src/core/special_config_values.py::normalize_special_config_values and
+# docs/contracts/system-default-semantics.md for the full SUPPORTED/
+# FORBIDDEN/NOT_APPLICABLE contract this implements. --experiment/--run
+# are FORBIDDEN identity selectors, consistent with every other module —
+# this classification did not exist before the marco 4C Typer conversion
+# (2026-08-21): the pre-conversion argparse version called plain
+# parser.parse_args() with zero system-default handling of any kind, so
+# `bcllm --experiment system-default --execute` previously produced a
+# confusing "Experiment not found: system-default" instead of an honest
+# usage error — see docs/status/known-issues.md. --questions/--models/
+# --retry-policy/--execute are NOT_APPLICABLE (no inheritance/creation-time
+# default concept — pure per-invocation runtime values). Kept as a
+# module-level constant for cross-module consistency checks
+# (tests/unit/cli/test_system_default_classification_consistency.py) — no
+# longer consumed by parsing directly: src/cli/commands/execute.py's
+# _execute_command declares the same classification via its per-option
+# callbacks.
+SYSTEM_DEFAULT_FORBIDDEN = {
+    'experiment', 'run',
+}
 
 
 def parse_retry_policy(config_str: str) -> RetryPolicy:
@@ -167,52 +153,20 @@ def parse_retry_policy(config_str: str) -> RetryPolicy:
     return RetryPolicy(**kwargs)
 
 
-def parse_question_ids(question_specs: list[str]) -> list[str]:
-    """Parse question ID specifications (supports ranges).
-
-    Args:
-        question_specs: List of question IDs or ranges (e.g., ["Q001", "Q005-Q010"])
-
-    Returns:
-        Expanded list of question IDs
-
-    Example:
-        >>> parse_question_ids(["Q001", "Q005-Q007"])
-        ['Q001', 'Q005', 'Q006', 'Q007']
-    """
-    question_ids = []
-
-    for spec in question_specs:
-        if "-" in spec:
-            # Range specification (e.g., Q001-Q010)
-            match = re.match(r"([A-Za-z]+)(\d+)-([A-Za-z]+)(\d+)", spec)
-            if match:
-                prefix_start, num_start, prefix_end, num_end = match.groups()
-                if prefix_start != prefix_end:
-                    raise ValueError(f"Invalid range: {spec} (prefix mismatch)")
-
-                start = int(num_start)
-                end = int(num_end)
-
-                for num in range(start, end + 1):
-                    question_ids.append(f"{prefix_start}{num:0{len(num_start)}d}")
-            else:
-                raise ValueError(f"Invalid question range: {spec}")
-        else:
-            # Single question ID
-            question_ids.append(spec)
-
-    return question_ids
-
-
-def validate_filters(conn, experiment_id: str, run_id: str | None, question_ids: list[str] | None, model_variant_ids: list[str] | None) -> list[str]:
+def validate_filters(
+    conn, experiment_id: str, run_id: str | None,
+    question_positions: list[int] | None, model_variant_ids: list[str] | None,
+) -> list[str]:
     """Validate that specified filters exist.
 
     Args:
         conn: Database connection
         experiment_id: Experiment identifier
         run_id: Optional run ID filter
-        question_ids: Optional question ID filters
+        question_positions: Optional 1-based question_position filters
+            (format already validated by src/cli/commands/execute.py's
+            parse_question_position_spec — this only checks EXISTENCE in
+            this experiment's snapshots)
         model_variant_ids: Optional model variant ID filters
 
     Returns:
@@ -229,20 +183,28 @@ def validate_filters(conn, experiment_id: str, run_id: str | None, question_ids:
         elif run.experiment_id != experiment_id:
             errors.append(f"Run '{run_id}' does not belong to this experiment")
 
-    # Validate question IDs exist in experiment
-    if question_ids:
+    # Validate question positions exist in experiment
+    if question_positions:
         snapshot_repo = SnapshotRepository(conn)
         snapshots = snapshot_repo.list_by_experiment(experiment_id)
-        existing_question_ids = {s.json_question_id for s in snapshots}
+        existing_positions = {s.question_position for s in snapshots}
 
-        for qid in question_ids:
-            if qid not in existing_question_ids:
-                errors.append(f"Question not found in experiment: {qid}")
+        for position in question_positions:
+            if position not in existing_positions:
+                errors.append(f"Question position not found in experiment: {position}")
 
     # Validate model variant IDs exist in experiment
     if model_variant_ids:
+        # Fixed 2026-08-21 (marco 4C): this called
+        # list_by_experiment(experiment_id, active_only=True), a keyword
+        # VariantRepository.list_by_experiment never accepted (there is
+        # no "active"/soft-delete concept on model_variants — see
+        # docs/contracts/immutability.md) — every real --execute --models
+        # invocation raised TypeError, undetected because the pre-existing
+        # test file mocked around the real repository call entirely. See
+        # docs/status/known-issues.md.
         variant_repo = VariantRepository(conn)
-        variants = variant_repo.list_by_experiment(experiment_id, active_only=True)
+        variants = variant_repo.list_by_experiment(experiment_id)
         existing_variant_ids = {v.variant_id for v in variants}
 
         for vid in model_variant_ids:
@@ -252,7 +214,7 @@ def validate_filters(conn, experiment_id: str, run_id: str | None, question_ids:
     return errors
 
 
-def handle_execute(args, conn, operation_id: str | None = None) -> int:
+def handle_execute(args: ExecuteParsedArgs, conn, operation_id: str | None = None) -> int:
     """Handle --execute command with filters. ORCHESTRATION ONLY.
 
     This function orchestrates the execution flow:
@@ -285,35 +247,41 @@ def handle_execute(args, conn, operation_id: str | None = None) -> int:
     # Validate experiment exists
     experiment = exp_repo.get_by_name(args.experiment)
     if not experiment:
-        logger.error(f"EXECUTE_ERROR | experiment={args.experiment} | error=Experiment not found")
+        emit_event(
+            logger, Event.EXECUTE_ERROR, level=logging.ERROR,
+            operation_id=operation_id, experiment=args.experiment,
+            error="Experiment not found",
+        )
         print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
         return 1
 
     experiment_id = experiment.experiment_id
     run_id = args.run
 
-    logger.info(f"EXECUTE_START | experiment={args.experiment} | run={run_id if run_id else 'all'} | experiment_id={experiment_id}")
+    emit_event(
+        logger, Event.EXECUTE_START, operation_id=operation_id,
+        experiment=args.experiment, run=run_id if run_id else "all",
+        experiment_id=experiment_id,
+    )
 
-    # Parse filters
-    question_ids = None
-    model_variant_ids = None
+    # Filters are already parsed AND format-validated by
+    # src/cli/commands/execute.py's Typer command (exit 2 for a malformed
+    # --questions/--models spec, before this function is ever called) —
+    # args.questions is a list[int] of 1-based positions, args.models a
+    # list[str] of literal variant identifiers, both already resolved.
+    question_positions = args.questions
+    model_variant_ids = args.models
 
-    if args.questions:
-        try:
-            question_ids = parse_question_ids(args.questions)
-        except ValueError as e:
-            logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Invalid question specification: {e}")
-            print(f"Error: Invalid question specification: {e}", file=sys.stderr)
-            return 1
-
-    if args.models:
-        model_variant_ids = args.models
-
-    # Validate filters
-    validation_errors = validate_filters(conn, experiment_id, run_id, question_ids, model_variant_ids)
+    # Validate filters exist in this experiment (domain-level, exit 1 —
+    # distinct from the exit-2 format validation above)
+    validation_errors = validate_filters(conn, experiment_id, run_id, question_positions, model_variant_ids)
     if validation_errors:
         for error in validation_errors:
-            logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error={error}")
+            emit_event(
+                logger, Event.EXECUTE_ERROR, level=logging.ERROR,
+                operation_id=operation_id, experiment=args.experiment,
+                experiment_id=experiment_id, error=error,
+            )
             print(f"Error: {error}", file=sys.stderr)
         return 1
 
@@ -323,7 +291,11 @@ def handle_execute(args, conn, operation_id: str | None = None) -> int:
         try:
             retry_policy = parse_retry_policy(args.retry_policy)
         except (ValueError, TypeError) as e:
-            logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Invalid retry policy: {e}")
+            emit_event(
+                logger, Event.EXECUTE_ERROR, level=logging.ERROR,
+                operation_id=operation_id, experiment=args.experiment,
+                experiment_id=experiment_id, error=f"Invalid retry policy: {e}",
+            )
             print(f"Error: Invalid retry policy: {e}", file=sys.stderr)
             return 1
 
@@ -335,20 +307,21 @@ def handle_execute(args, conn, operation_id: str | None = None) -> int:
         plan = planner.build_plan(
             args.experiment,
             run_ids=[run_id] if run_id else None,
-            question_ids=question_ids,
+            question_ids=question_positions,
             model_variant_ids=model_variant_ids,
             retry_policy=retry_policy,
             operation_id=operation_id,
         )
 
-        # Validate plan has work to do
+        # Validate plan has work to do. Planner.build_plan() already
+        # emits Event.PLAN_LOADED/PLAN_BUILD_COMPLETE (with
+        # experiment/models/questions/runs/total_items fields, including
+        # the total_items=0 case) — no redundant manual log line needed
+        # here, only the user-facing print() for the empty case.
         total_items = sum(len(run.items) for run in plan.runs)
         if not plan.runs or total_items == 0:
-            logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items=0 | status=no_pending_work")
             print("No pending items to execute. All items completed.", file=sys.stderr)
             return 0
-
-        logger.info(f"PLAN_LOADED | experiment={experiment_id} | run={run_id if run_id else 'all'} | items={total_items}")
 
         # Step 2: Execute plan via AsyncOrchestrator
         debug_enabled = os.getenv("OPENROUTER_DEBUG_ENABLED", "false").lower() == "true"
@@ -378,7 +351,11 @@ def handle_execute(args, conn, operation_id: str | None = None) -> int:
         failed = sum(1 for r in results if r.status == 'failure')
         total = succeeded + failed
 
-        logger.info(f"EXECUTE_COMPLETE | run={run_id if run_id else 'all'} | experiment={experiment_id} | total={total} | succeeded={succeeded} | failed={failed}")
+        emit_event(
+            logger, Event.EXECUTE_COMPLETE, operation_id=operation_id,
+            run=run_id if run_id else "all", experiment=args.experiment,
+            experiment_id=experiment_id, total=total, succeeded=succeeded, failed=failed,
+        )
 
         # Print summary (user-facing output stays as print)
         print(f"✓ Execution completed")
@@ -392,16 +369,28 @@ def handle_execute(args, conn, operation_id: str | None = None) -> int:
         return 0
 
     except PlannerValidationError as e:
-        logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=PlannerValidationError: {e}")
+        emit_event(
+            logger, Event.EXECUTE_ERROR, level=logging.ERROR,
+            operation_id=operation_id, experiment=args.experiment,
+            experiment_id=experiment_id, error=f"PlannerValidationError: {e}",
+        )
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except KeyError as e:
-        logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Missing configuration: {e}")
+        emit_event(
+            logger, Event.EXECUTE_ERROR, level=logging.ERROR,
+            operation_id=operation_id, experiment=args.experiment,
+            experiment_id=experiment_id, error=f"Missing configuration: {e}",
+        )
         print(f"Error: Missing required configuration: {e}", file=sys.stderr)
         print("Hint: Check that OPENROUTER_API_KEY is set in your system environment variables.", file=sys.stderr)
         return 1
     except Exception as e:
-        logger.error(f"EXECUTE_ERROR | experiment={experiment_id} | error=Unexpected error: {e}")
+        emit_event(
+            logger, Event.EXECUTE_ERROR, level=logging.ERROR,
+            operation_id=operation_id, experiment=args.experiment,
+            experiment_id=experiment_id, error=f"Unexpected error: {e}",
+        )
         print(f"Error: Execution failed: {e}", file=sys.stderr)
         print("Hint: Ensure OPENROUTER_API_KEY is set and all required configuration is present.", file=sys.stderr)
         return 1
@@ -422,8 +411,14 @@ def main(mode: Mode, operation_id: str | None = None) -> int:
         Exit code (0 for success, 1 for error).
     """
     _validate_expected_mode(mode)
-    parser = create_parser()
-    args = parser.parse_args()
+    argv = sys.argv[1:]
+
+    try:
+        args = parse_execute_argv(argv)
+    except ParserExit as e:
+        if e.status != 0:
+            return e.status
+        return 0  # --help or other clean parser exit
 
     conn = get_database_connection()
 
@@ -431,7 +426,12 @@ def main(mode: Mode, operation_id: str | None = None) -> int:
         if args.execute:
             return handle_execute(args, conn, operation_id=operation_id)
         else:
-            parser.print_help()
+            # Reachable: --execute is a plain optional boolean (no mutex
+            # group in the argparse original either — this module has
+            # exactly one action, and running `bcllm --experiment X`
+            # without it falls through here, matching the pre-Typer
+            # behavior exactly).
+            print("Error: no valid execute action specified. Use --execute.", file=sys.stderr)
             return 1
     except KeyboardInterrupt:
         emit_event(get_logger('cli.execute'), Event.COMMAND_INTERRUPTED, operation_id=operation_id, command="execute")

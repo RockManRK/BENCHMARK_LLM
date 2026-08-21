@@ -18,7 +18,7 @@ without anyone needing to remember to update this file too.
 
 from __future__ import annotations
 
-from src.cli import bcllm_experiment, bcllm_model, bcllm_run, bcllm_provider, bcllm_questions
+from src.cli import bcllm_experiment, bcllm_model, bcllm_run, bcllm_provider, bcllm_questions, bcllm_execute
 
 
 MODULES = {
@@ -33,6 +33,12 @@ MODULES = {
     # drift, so it must cover every module that classifies a dest, not
     # only the ones present when the guard was first written.
     "bcllm_questions": bcllm_questions,
+    # Added 2026-08-21 (marco 4C): bcllm_execute.py had ZERO system-default
+    # classification of any kind before this marco (its pre-conversion
+    # main() called plain parser.parse_args(), never
+    # parse_args_normalized) — --experiment/--run are now FORBIDDEN like
+    # every other module's identity selectors.
+    "bcllm_execute": bcllm_execute,
 }
 
 

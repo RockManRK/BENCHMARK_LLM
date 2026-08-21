@@ -75,6 +75,24 @@ class Event:
     # immutability contract — a `reason` field distinguishes which. ---
     MUTATION_REFUSED = "mutation_refused"
 
+    # --- bcllm_provider.py — NORMAL, new (marco 4C, 2026-08-21). Closes
+    # the highest-priority C2 gap identified in
+    # docs/status/cli-output-classification.md: --resolve-providers
+    # mutates model_variants.config (writes PROVIDER) with zero prior log
+    # trace, and the module had no logger at all. ---
+    PROVIDERS_RESOLVED = "providers_resolved"
+
+    # --- bcllm_execute.py — NORMAL, new (marco 4C, 2026-08-21). Migrates
+    # this module's own EXECUTE_START/EXECUTE_COMPLETE/EXECUTE_ERROR
+    # old-style logger.info()/logger.error() pipe-delimited f-strings
+    # (see cli-output-classification.md) to structured emit_event calls —
+    # distinct from planner.py's PLAN_LOADED/execution_engine.py's
+    # EXECUTION_START/EXECUTION_COMPLETE, which already existed and are
+    # unaffected. ---
+    EXECUTE_START = "execute_start"
+    EXECUTE_COMPLETE = "execute_complete"
+    EXECUTE_ERROR = "execute_error"
+
     # --- planner.py, existing (migrated verbatim) ---
     PLAN_BUILD_START = "plan_build_start"
     PLAN_LOADED = "plan_loaded"
@@ -176,6 +194,9 @@ EVENT_PROFILE: dict[str, LogProfile] = {
     Event.QUESTIONS_ADDED: LogProfile.NORMAL,
     Event.RUN_REMOVED: LogProfile.NORMAL,
     Event.MUTATION_REFUSED: LogProfile.NORMAL,
+    Event.PROVIDERS_RESOLVED: LogProfile.NORMAL,
+    Event.EXECUTE_START: LogProfile.NORMAL,
+    Event.EXECUTE_COMPLETE: LogProfile.NORMAL,
     Event.PLAN_BUILD_START: LogProfile.NORMAL,
     Event.PLAN_LOADED: LogProfile.NORMAL,
     Event.PLAN_BUILD_COMPLETE: LogProfile.NORMAL,

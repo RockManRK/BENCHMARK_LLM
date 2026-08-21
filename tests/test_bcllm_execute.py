@@ -1,443 +1,275 @@
 """Unit tests for bcllm_execute CLI module.
 
 Tests cover:
-- Argument parsing
-- Retry policy parsing
-- Question ID parsing (including ranges)
-- Filter validation
-- No pending items detection
+- Retry policy parsing (unchanged by the marco 4C Typer conversion)
+- Filter validation against the REAL schema (validate_filters)
+- handle_execute orchestration, using the real ExecuteParsedArgs type
+
+Rewritten 2026-08-21 (CLI migration marco 4C, second slice): the
+pre-conversion version of this file hand-rolled its own CREATE TABLE
+statements with a schema shape that had already drifted from
+src/db/schema.py (e.g. question_snapshots.question_id, which has never
+existed — the real columns are json_question_id/question_position; runs
+had its own seed/system_prompt/user_prompt columns instead of the real
+config JSON blob). Every test here now uses the real create_schema()
+instead, so a future schema change is actually caught here rather than
+silently validated against a fictional shape. --questions'
+--questions/--models parsing (nargs="+" -> comma-separated grammar) moved
+to src/cli/commands/execute.py — see tests/unit/cli/test_commands_execute.py
+for that grammar's own dedicated coverage; this file only exercises the
+DB-level existence checks (validate_filters) and handle_execute's
+orchestration, which are unaffected by the parsing-layer syntax change
+beyond the parameter shape (list[int] positions instead of list[str] IDs).
 """
 
-import pytest
+import json
 import sqlite3
-import tempfile
-import os
-from unittest.mock import Mock
+import uuid
+
+import pytest
 
 from src.cli.bcllm_execute import (
-    create_parser,
     parse_retry_policy,
-    parse_question_ids,
     validate_filters,
     handle_execute,
 )
+from src.cli.commands.execute import ExecuteParsedArgs
 from src.core.execution_plan import RetryPolicy
+from src.db.schema import create_schema
+from src.db.repository import ExperimentRepository, VariantRepository, SnapshotRepository, RunRepository
+from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
 
 
-class TestCreateParser:
-    """Test argument parser creation."""
+def _make_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    create_schema(conn)
+    return conn
 
-    def test_parser_creates_successfully(self):
-        """Parser should be created without errors."""
-        parser = create_parser()
-        assert parser is not None
-        assert parser.prog == "bcllm_execute.py"
 
-    def test_parser_requires_experiment(self):
-        """Experiment argument should be required."""
-        parser = create_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args([])
+def _make_experiment(conn, name: str = "test_exp", config: dict | None = None) -> Experiment:
+    exp = Experiment(
+        experiment_id=f"exp_{uuid.uuid4().hex[:8]}", name=name, description=None,
+        config_json=json.dumps(config or {}), config_hash="deadbeef",
+    )
+    ExperimentRepository(conn).save(exp)
+    return exp
 
-    def test_parser_accepts_experiment(self):
-        """Parser should accept experiment argument."""
-        parser = create_parser()
-        args = parser.parse_args(["--experiment", "test_exp"])
-        assert args.experiment == "test_exp"
 
-    def test_parser_accepts_run_filter(self):
-        """Parser should accept --run filter."""
-        parser = create_parser()
-        args = parser.parse_args([
-            "--experiment", "test_exp",
-            "--run", "run_abc123",
-        ])
-        assert args.run == "run_abc123"
+def _make_variant(conn, experiment_id: str, variant_id: str = "var-001", model_id: str = "openai/gpt-4") -> ModelVariant:
+    variant = ModelVariant(
+        variant_id=variant_id, experiment_id=experiment_id, model_id=model_id,
+        variant_signature=f"sig-{variant_id}", config="{}",
+    )
+    VariantRepository(conn).save(variant)
+    return variant
 
-    def test_parser_accepts_questions_filter(self):
-        """Parser should accept --questions filter."""
-        parser = create_parser()
-        args = parser.parse_args([
-            "--experiment", "test_exp",
-            "--questions", "Q001", "Q005",
-        ])
-        assert args.questions == ["Q001", "Q005"]
 
-    def test_parser_accepts_models_filter(self):
-        """Parser should accept --models filter."""
-        parser = create_parser()
-        args = parser.parse_args([
-            "--experiment", "test_exp",
-            "--models", "var_xyz789",
-        ])
-        assert args.models == ["var_xyz789"]
+def _make_snapshot(conn, experiment_id: str, position: int, json_question_id: str = "Q001") -> QuestionSnapshot:
+    payload = json.dumps({"stem": "test", "options": ["A", "B"], "answer_key": "A"})
+    snapshot = QuestionSnapshot(
+        snapshot_id=f"snap_{uuid.uuid4().hex[:8]}", experiment_id=experiment_id,
+        json_question_id=f"{json_question_id}{position}", question_position=position,
+        question_payload=payload,
+    )
+    SnapshotRepository(conn).save(snapshot)
+    return snapshot
 
-    def test_parser_accepts_retry_policy(self):
-        """Parser should accept --retry-policy."""
-        parser = create_parser()
-        args = parser.parse_args([
-            "--experiment", "test_exp",
-            "--retry-policy", "max_attempts=5,backoff=linear",
-        ])
-        assert args.retry_policy == "max_attempts=5,backoff=linear"
+
+def _make_run(conn, experiment_id: str, run_id: str = "run-001", status: str = "pending", randomization_seed=None) -> Run:
+    run = Run(
+        run_id=run_id, experiment_id=experiment_id,
+        config=json.dumps({"RANDOMIZATION_SEED": randomization_seed}), status=status,
+    )
+    RunRepository(conn).save(run, {"RANDOMIZATION_SEED": randomization_seed})
+    return run
 
 
 class TestParseRetryPolicy:
-    """Test retry policy parsing."""
+    """Test retry policy parsing. Unchanged by the marco 4C conversion."""
 
     def test_empty_config_returns_default(self):
-        """Empty config should return default RetryPolicy."""
         policy = parse_retry_policy("")
         assert policy.max_attempts == 3
         assert policy.backoff == "exponential"
 
     def test_none_config_returns_default(self):
-        """None config should return default RetryPolicy."""
         policy = parse_retry_policy(None)
         assert policy.max_attempts == 3
         assert policy.backoff == "exponential"
 
     def test_parse_max_attempts(self):
-        """Should parse max_attempts correctly."""
         policy = parse_retry_policy("max_attempts=5")
         assert policy.max_attempts == 5
 
     def test_parse_backoff_exponential(self):
-        """Should parse exponential backoff."""
         policy = parse_retry_policy("backoff=exponential")
         assert policy.backoff == "exponential"
 
     def test_parse_backoff_linear(self):
-        """Should parse linear backoff."""
         policy = parse_retry_policy("backoff=linear")
         assert policy.backoff == "linear"
 
     def test_parse_backoff_constant(self):
-        """Should parse constant backoff."""
         policy = parse_retry_policy("backoff=constant")
         assert policy.backoff == "constant"
 
     def test_parse_invalid_backoff_raises_error(self):
-        """Invalid backoff should raise ValueError."""
         with pytest.raises(ValueError, match="Invalid backoff"):
             parse_retry_policy("backoff=invalid")
 
     def test_parse_combined_config(self):
-        """Should parse combined configuration."""
         policy = parse_retry_policy("max_attempts=5,backoff=linear")
         assert policy.max_attempts == 5
         assert policy.backoff == "linear"
 
     def test_parse_retry_on(self):
-        """Should parse retry_on tuple (pipe-separated)."""
         policy = parse_retry_policy("retry_on=timeout|http_5xx")
         assert policy.retry_on == ("timeout", "http_5xx")
 
 
-class TestParseQuestionIds:
-    """Test question ID parsing with range support."""
-
-    def test_single_question_id(self):
-        """Should parse single question ID."""
-        result = parse_question_ids(["Q001"])
-        assert result == ["Q001"]
-
-    def test_multiple_question_ids(self):
-        """Should parse multiple question IDs."""
-        result = parse_question_ids(["Q001", "Q005", "Q010"])
-        assert result == ["Q001", "Q005", "Q010"]
-
-    def test_range_expansion(self):
-        """Should expand range notation."""
-        result = parse_question_ids(["Q001-Q003"])
-        assert result == ["Q001", "Q002", "Q003"]
-
-    def test_range_with_padding(self):
-        """Should maintain zero padding in range."""
-        result = parse_question_ids(["Q001-Q005"])
-        assert result == ["Q001", "Q002", "Q003", "Q004", "Q005"]
-
-    def test_mixed_single_and_range(self):
-        """Should handle mixed single IDs and ranges."""
-        result = parse_question_ids(["Q001", "Q005-Q007", "Q010"])
-        assert result == ["Q001", "Q005", "Q006", "Q007", "Q010"]
-
-    def test_invalid_range_prefix_mismatch(self):
-        """Should raise error for prefix mismatch in range."""
-        with pytest.raises(ValueError, match="prefix mismatch"):
-            parse_question_ids(["Q001-P005"])
-
-    def test_invalid_range_format(self):
-        """Should raise error for invalid range format."""
-        with pytest.raises(ValueError, match="Invalid question range"):
-            parse_question_ids(["Q001-"])
-
-
 class TestValidateFilters:
-    """Test filter validation."""
+    """Test filter validation against the real schema — question_ids are
+    now 1-based question_position values, not json_question_id strings."""
 
     @pytest.fixture
-    def temp_db(self):
-        """Create temporary test database with full schema."""
-        fd, path = tempfile.mkstemp(suffix=".db")
-        conn = sqlite3.connect(path)
-        conn.row_factory = sqlite3.Row
-        
-        conn.executescript("""
-            CREATE TABLE experiments (
-                experiment_id TEXT PRIMARY KEY,
-                name TEXT UNIQUE,
-                description TEXT,
-                config_json TEXT,
-                config_hash TEXT,
-                system_prompt TEXT,
-                user_prompt TEXT,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE runs (
-                run_id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                seed INTEGER,
-                system_prompt TEXT,
-                user_prompt TEXT,
-                status TEXT,
-                started_at TEXT,
-                finished_at TEXT,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE model_variants (
-                variant_id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                model_id TEXT,
-                variant_signature TEXT,
-                reasoning_mode TEXT DEFAULT 'off',
-                reasoning_effort TEXT,
-                max_output_tokens INTEGER,
-                vision_enabled BOOLEAN DEFAULT FALSE,
-                structured_output BOOLEAN DEFAULT FALSE,
-                web_access_enabled BOOLEAN DEFAULT FALSE,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE question_snapshots (
-                snapshot_id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                question_id TEXT,
-                question_payload TEXT,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-        """)
-        
-        conn.execute("""
-            INSERT INTO experiments 
-            (experiment_id, name, description, config_json, config_hash, system_prompt, user_prompt, created_at, is_active)
-            VALUES ('exp-001', 'test_exp', 'Test', '{}', 'hash123', 'system', 'user', '2024-01-01', 1)
-        """)
-        conn.execute("INSERT INTO runs VALUES ('run-001', 'exp-001', 42, '', '', 'pending', NULL, NULL, '2024-01-01', 1)")
-        conn.execute("INSERT INTO runs VALUES ('run-002', 'exp-001', 42, '', '', 'completed', NULL, NULL, '2024-01-01', 1)")
-        conn.execute("INSERT INTO model_variants VALUES ('var-001', 'exp-001', 'openai/gpt-4', 'sig1', 'off', NULL, NULL, 0, 0, 0, '2024-01-01', 1)")
-        conn.execute("INSERT INTO model_variants VALUES ('var-002', 'exp-001', 'anthropic/claude', 'sig2', 'off', NULL, NULL, 0, 0, 0, '2024-01-01', 1)")
-        conn.execute("INSERT INTO question_snapshots VALUES ('snap-001', 'exp-001', 'Q001', '{\"stem\":\"test\",\"options\":[\"A\",\"B\"],\"answer_key\":\"A\"}', '2024-01-01', 1)")
-        conn.execute("INSERT INTO question_snapshots VALUES ('snap-002', 'exp-001', 'Q005', '{\"stem\":\"test\",\"options\":[\"A\",\"B\"],\"answer_key\":\"A\"}', '2024-01-01', 1)")
-        conn.commit()
-        
-        yield conn
-        
+    def db(self):
+        conn = _make_conn()
+        exp = _make_experiment(conn, "test_exp")
+        _make_variant(conn, exp.experiment_id, "var-001", "openai/gpt-4")
+        _make_variant(conn, exp.experiment_id, "var-002", "anthropic/claude")
+        _make_snapshot(conn, exp.experiment_id, 1)
+        _make_snapshot(conn, exp.experiment_id, 2)
+        _make_run(conn, exp.experiment_id, "run-001", status="pending")
+        _make_run(conn, exp.experiment_id, "run-002", status="completed")
+        yield conn, exp
         conn.close()
-        try:
-            os.unlink(path)
-        except PermissionError:
-            pass
 
-    def test_valid_filters_return_empty_errors(self, temp_db):
-        """Valid filters should return empty error list."""
-        errors = validate_filters(temp_db, "exp-001", "run-001", ["Q001"], ["var-001"])
+    def test_valid_filters_return_empty_errors(self, db):
+        conn, exp = db
+        errors = validate_filters(conn, exp.experiment_id, "run-001", [1], ["var-001"])
         assert errors == []
 
-    def test_invalid_run_id(self, temp_db):
-        """Invalid run ID should return error."""
-        errors = validate_filters(temp_db, "exp-001", "run-invalid", None, None)
+    def test_invalid_run_id(self, db):
+        conn, exp = db
+        errors = validate_filters(conn, exp.experiment_id, "run-invalid", None, None)
         assert len(errors) == 1
         assert "Run not found" in errors[0]
 
-    def test_run_wrong_experiment(self, temp_db):
-        """Run from different experiment should return error."""
-        temp_db.execute("""
-            INSERT INTO experiments 
-            (experiment_id, name, description, config_json, config_hash, system_prompt, user_prompt, created_at, is_active)
-            VALUES ('exp-002', 'other_exp', 'Test', '{}', 'hash123', 'system', 'user', '2024-01-01', 1)
-        """)
-        temp_db.execute("INSERT INTO runs VALUES ('run-003', 'exp-002', 42, '', '', 'pending', NULL, NULL, '2024-01-01', 1)")
-        temp_db.commit()
-        
-        errors = validate_filters(temp_db, "exp-001", "run-003", None, None)
+    def test_run_wrong_experiment(self, db):
+        conn, exp = db
+        other_exp = _make_experiment(conn, "other_exp")
+        _make_run(conn, other_exp.experiment_id, "run-003", status="pending")
+
+        errors = validate_filters(conn, exp.experiment_id, "run-003", None, None)
         assert len(errors) == 1
         assert "does not belong" in errors[0]
 
-    def test_invalid_question_id(self, temp_db):
-        """Invalid question ID should return error."""
-        errors = validate_filters(temp_db, "exp-001", None, ["Q999"], None)
+    def test_invalid_question_position(self, db):
+        conn, exp = db
+        errors = validate_filters(conn, exp.experiment_id, None, [999], None)
         assert len(errors) == 1
-        assert "Question not found" in errors[0]
+        assert "Question position not found" in errors[0]
+        assert "999" in errors[0]
 
-    def test_invalid_model_variant_id(self, temp_db):
-        """Invalid model variant ID should return error."""
-        errors = validate_filters(temp_db, "exp-001", None, None, ["var-999"])
+    def test_valid_question_positions_no_error(self, db):
+        conn, exp = db
+        errors = validate_filters(conn, exp.experiment_id, None, [1, 2], None)
+        assert errors == []
+
+    def test_invalid_model_variant_id(self, db):
+        conn, exp = db
+        errors = validate_filters(conn, exp.experiment_id, None, None, ["var-999"])
         assert len(errors) == 1
         assert "Model variant not found" in errors[0]
 
-    def test_multiple_validation_errors(self, temp_db):
-        """Should collect multiple validation errors."""
-        errors = validate_filters(temp_db, "exp-001", "run-invalid", ["Q999"], ["var-999"])
+    def test_multiple_validation_errors(self, db):
+        conn, exp = db
+        errors = validate_filters(conn, exp.experiment_id, "run-invalid", [999], ["var-999"])
         assert len(errors) == 3
 
 
 class TestHandleExecute:
-    """Test execute command handler."""
+    """Test execute command handler against the real schema."""
 
-    @pytest.fixture
-    def temp_db(self):
-        """Create temporary test database with full schema."""
-        fd, path = tempfile.mkstemp(suffix=".db")
-        conn = sqlite3.connect(path)
-        conn.row_factory = sqlite3.Row
-        
-        conn.executescript("""
-            CREATE TABLE experiments (
-                experiment_id TEXT PRIMARY KEY,
-                name TEXT UNIQUE,
-                description TEXT,
-                config_json TEXT,
-                config_hash TEXT,
-                system_prompt TEXT,
-                user_prompt TEXT,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE runs (
-                run_id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                seed INTEGER,
-                system_prompt TEXT,
-                user_prompt TEXT,
-                status TEXT,
-                started_at TEXT,
-                finished_at TEXT,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE model_variants (
-                variant_id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                model_id TEXT,
-                variant_signature TEXT,
-                reasoning_mode TEXT DEFAULT 'off',
-                reasoning_effort TEXT,
-                max_output_tokens INTEGER,
-                vision_enabled BOOLEAN DEFAULT FALSE,
-                structured_output BOOLEAN DEFAULT FALSE,
-                web_access_enabled BOOLEAN DEFAULT FALSE,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE question_snapshots (
-                snapshot_id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                question_id TEXT,
-                question_payload TEXT,
-                created_at TEXT,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            
-            CREATE TABLE responses (
-                response_id TEXT PRIMARY KEY,
-                run_id TEXT,
-                variant_id TEXT,
-                snapshot_id TEXT,
-                model_id TEXT,
-                question_id TEXT,
-                status TEXT,
-                finish_reason TEXT,
-                error_details TEXT,
-                response_text TEXT,
-                selected_answer TEXT,
-                is_correct BOOLEAN,
-                parse_confidence TEXT,
-                needs_review BOOLEAN,
-                manual_answer TEXT,
-                latency_ms INTEGER,
-                input_tokens INTEGER,
-                output_tokens INTEGER,
-                created_at TEXT,
-                UNIQUE(run_id, variant_id, snapshot_id)
-            );
-            
-            CREATE TABLE errors (
-                error_id TEXT PRIMARY KEY,
-                run_id TEXT,
-                variant_id TEXT,
-                snapshot_id TEXT,
-                model_id TEXT,
-                question_id TEXT,
-                error_type TEXT,
-                error_message TEXT,
-                attempt_count INTEGER
-            );
-        """)
-        
-        yield conn
-        
-        conn.close()
-        try:
-            os.unlink(path)
-        except PermissionError:
-            pass
-
-    def test_experiment_not_found(self, temp_db):
-        """Should return error when experiment not found."""
-        args = Mock(
-            experiment="nonexistent",
-            run=None,
-            questions=None,
-            models=None,
-            retry_policy=None,
+    def _args(self, experiment, run=None, questions=None, models=None, retry_policy=None):
+        return ExecuteParsedArgs(
+            experiment=experiment, run=run, questions=questions,
+            models=models, retry_policy=retry_policy, execute=True,
         )
-        
-        result = handle_execute(args, temp_db)
+
+    def test_experiment_not_found(self):
+        conn = _make_conn()
+        args = self._args("nonexistent")
+
+        result = handle_execute(args, conn)
+        conn.close()
+
         assert result == 1
 
-    def test_no_pending_items_message(self, temp_db):
-        """Should display message when no pending items."""
-        temp_db.execute("""
-            INSERT INTO experiments 
-            (experiment_id, name, description, config_json, config_hash, system_prompt, user_prompt, created_at, is_active)
-            VALUES ('exp-001', 'test_exp', 'Test', '{}', 'hash123', 'system', 'user', '2024-01-01', 1)
-        """)
-        temp_db.execute("INSERT INTO model_variants VALUES ('var-001', 'exp-001', 'openai/gpt-4', 'sig1', 'off', NULL, NULL, 0, 0, 0, '2024-01-01', 1)")
-        temp_db.execute("INSERT INTO question_snapshots VALUES ('snap-001', 'exp-001', 'Q001', '{\"stem\":\"test\",\"options\":[\"A\",\"B\"],\"answer_key\":\"A\"}', '2024-01-01', 1)")
-        temp_db.execute("INSERT INTO runs VALUES ('run-001', 'exp-001', 42, '', '', 'completed', NULL, NULL, '2024-01-01', 1)")
-        temp_db.commit()
+    def test_no_pending_items_message(self, capsys):
+        conn = _make_conn()
+        exp = _make_experiment(conn, "test_exp")
+        _make_variant(conn, exp.experiment_id)
+        _make_snapshot(conn, exp.experiment_id, 1)
+        _make_run(conn, exp.experiment_id, "run-001", status="completed")
 
-        args = Mock(
-            experiment="test_exp",
-            run=None,
-            questions=None,
-            models=None,
-            retry_policy=None,
-        )
+        args = self._args("test_exp")
+        result = handle_execute(args, conn)
+        conn.close()
 
-        result = handle_execute(args, temp_db)
         assert result == 0
+        captured = capsys.readouterr()
+        assert "No pending items to execute" in captured.err
 
+    def test_invalid_question_position_filter_returns_1(self):
+        conn = _make_conn()
+        exp = _make_experiment(conn, "test_exp")
+        _make_variant(conn, exp.experiment_id)
+        _make_snapshot(conn, exp.experiment_id, 1)
+        _make_run(conn, exp.experiment_id, "run-001")
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        args = self._args("test_exp", questions=[999])
+        result = handle_execute(args, conn)
+        conn.close()
+
+        assert result == 1
+
+    def test_invalid_model_filter_returns_1(self):
+        conn = _make_conn()
+        exp = _make_experiment(conn, "test_exp")
+        _make_variant(conn, exp.experiment_id)
+        _make_snapshot(conn, exp.experiment_id, 1)
+        _make_run(conn, exp.experiment_id, "run-001")
+
+        args = self._args("test_exp", models=["var-does-not-exist"])
+        result = handle_execute(args, conn)
+        conn.close()
+
+        assert result == 1
+
+    def test_invalid_run_filter_returns_1(self):
+        conn = _make_conn()
+        exp = _make_experiment(conn, "test_exp")
+        _make_variant(conn, exp.experiment_id)
+        _make_snapshot(conn, exp.experiment_id, 1)
+
+        args = self._args("test_exp", run="run-does-not-exist")
+        result = handle_execute(args, conn)
+        conn.close()
+
+        assert result == 1
+
+    def test_invalid_retry_policy_returns_1(self):
+        conn = _make_conn()
+        exp = _make_experiment(conn, "test_exp")
+        _make_variant(conn, exp.experiment_id)
+        _make_snapshot(conn, exp.experiment_id, 1)
+        _make_run(conn, exp.experiment_id, "run-001")
+
+        args = self._args("test_exp", retry_policy="backoff=not-a-real-strategy")
+        result = handle_execute(args, conn)
+        conn.close()
+
+        assert result == 1

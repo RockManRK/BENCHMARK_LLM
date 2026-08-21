@@ -33,7 +33,8 @@ src/
 │   ├── bcllm_model.py    # Model variant management (Typer parsing since marco 4B, 2026-08-20)
 │   ├── bcllm_questions.py # Question snapshot management (Typer parsing since marco 4A, 2026-08-20)
 │   ├── bcllm_run.py      # Run management (Typer parsing since marco 4B, 2026-08-20)
-│   ├── bcllm_execute.py  # Execution entry point
+│   ├── bcllm_provider.py # Provider resolution (Typer parsing since marco 4C, 2026-08-21)
+│   ├── bcllm_execute.py  # Execution entry point (Typer parsing since marco 4C, 2026-08-21)
 │   ├── bcllm_export.py   # Export results
 │   ├── bcllm_review.py   # Review UI
 │   ├── database.py       # DB connection helper
@@ -43,7 +44,9 @@ src/
 │   │   ├── questions.py  # Typer command replacing bcllm_questions.py's former argparse create_parser() (marco 4A)
 │   │   ├── experiment.py # Typer command replacing bcllm_experiment.py's former argparse create_parser() (marco 4A)
 │   │   ├── run.py        # Typer command replacing bcllm_run.py's former argparse create_parser() (marco 4B)
-│   │   └── model.py      # Typer command replacing bcllm_model.py's former argparse create_parser() (marco 4B)
+│   │   ├── model.py      # Typer command replacing bcllm_model.py's former argparse create_parser() (marco 4B)
+│   │   ├── provider.py   # Typer command replacing bcllm_provider.py's former argparse create_parser() (marco 4C)
+│   │   └── execute.py    # Typer command replacing bcllm_execute.py's former argparse create_parser() (marco 4C) — also owns the --questions/--models comma-separated grammar (parse_question_position_spec/parse_model_id_list), since Click/Typer has no nargs="+" equivalent (see module docstring and docs/status/known-issues.md)
 │   └── presentation/      # Rich-based presentation foundation (CLI migration Fase 2/6)
 │       ├── __init__.py
 │       ├── console.py     # Console/error_console singletons
@@ -136,7 +139,7 @@ src/
 | `bcllm_provider.py` | `--resolve-providers` | Provider resolution for model variants |
 | `bcllm_questions.py` | `--add-questions`, `--list-questions` | Question snapshot management (no removal command — QuestionSnapshot is immutable) |
 | `bcllm_run.py` | `--add-run`, `--list-runs`, `--run`, `--remove-run` | Run management (corrected 2026-08-20: the real, tested flag is `--add-run` — `--create-run` was a pre-existing doc-drift error, never a real flag, see `docs/status/known-issues.md`) |
-| `bcllm_execute.py` | `--execute` | Execution orchestration (Planner → Engine → Writer) |
+| `bcllm_execute.py` | `--execute`, `--questions`, `--models`, `--run`, `--retry-policy` | Execution orchestration (Planner → Engine → Writer). `--questions`/`--models` use a single comma-separated value (marco 4C, 2026-08-21) — see `docs/reference/cli-commands.md` and `docs/status/known-issues.md` for the grammar and the design decision that replaced the old argparse `nargs="+"` form. |
 | `bcllm_export.py` | `--export` | Export results to CSV/JSON |
 | `bcllm_review.py` | `--review-experiment`, `--review-all` | Review UI entry point |
 | `database.py` | (internal) | Database connection helper |

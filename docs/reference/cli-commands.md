@@ -365,8 +365,33 @@ bcllm --experiment <name> --execute [options]
 | Flag | Description |
 |------|-------------|
 | `--run <run_id>` | Execute specific run only |
-| `--questions <spec>` | Execute specific questions only |
-| `--models <variant_id>` | Execute specific model variants only |
+| `--questions <spec>` | Execute specific question positions only |
+| `--models <spec>` | Execute specific model variants only |
+
+**`--questions` syntax (as of 2026-08-21, marco 4C):** a single comma-separated
+value selecting by the question's 1-based **position** in the experiment's
+dataset (`question_position`), not its source-dataset ID (e.g. `Q001` — that
+format is rejected with exit code 2, no alias/compatibility shim). Grammar:
+single position (`1`), list (`1,3,5`), inclusive range (`10-20`), or a
+combination (`1,3,10-20`). Whitespace around commas/hyphens is accepted once
+the shell has delivered a single argument (`--questions "1, 3, 10-20"`);
+without spaces, no quoting is needed (`--questions 1,3,10-20` — the
+documented preferred form). Duplicates are normalized; results are ordered by
+first occurrence, not numerically sorted. Malformed specs (`0`, negative,
+inverted range, empty item, non-numeric text, oversized range) fail at parse
+time with exit code 2, before any DB connection; a well-formed position not
+present in the experiment fails with exit code 1 (domain error). This differs
+from `--add-questions`' spec grammar (`bcllm --experiment <name>
+--add-questions <spec>`), which still accepts both bare-numeric and
+`Q`-prefixed IDs — the two flags serve different purposes (dataset selection
+at snapshot time vs. execution-time filtering by position) and are not
+required to share a grammar.
+
+**`--models` syntax:** a single comma-separated value of literal
+`variant_id`s (e.g. `--models var_abc123,var_def456`) — no numeric grammar,
+each item is a literal identifier. An empty item (e.g. a stray comma) fails
+at parse time with exit code 2; a well-formed ID not present in the
+experiment fails with exit code 1.
 
 **Partial Execution:** System automatically skips already-completed items
 

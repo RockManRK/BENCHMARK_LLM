@@ -666,3 +666,75 @@ def test_planner_item_count_matches_combinations(in_memory_db):
     # Assert
     # 3 variants × 4 snapshots = 12 items
     assert len(plan.runs[0].items) == 12
+
+
+class TestBuildPlanQuestionIdsPositionFilter:
+    """Planner.build_plan()'s question_ids filter — fixed 2026-08-21
+    (marco 4C): previously read s["question_id"], a column that has
+    never existed on question_snapshots (the real columns are
+    json_question_id and question_position). Every real invocation with
+    a non-empty question_ids filter raised IndexError, undetected since
+    zero tests exercised this parameter before now. question_ids now
+    holds 1-based question_position values, matching
+    bcllm_execute.py's --questions position-spec grammar (the sole real
+    caller)."""
+
+    def _setup(self, in_memory_db, num_snapshots=4):
+        experiment = ExperimentFactory.create(name="test-exp-qf")
+        _insert_experiment(in_memory_db, experiment)
+
+        variant = VariantFactory.create(experiment_id=experiment.experiment_id, model_id="openai/gpt-4")
+        _insert_variant(in_memory_db, variant)
+
+        for position in range(1, num_snapshots + 1):
+            snapshot = SnapshotFactory.create(
+                experiment_id=experiment.experiment_id,
+                question_id=f"q{position}",
+                question_position=position,
+                question_payload={"stem": f"Q{position}?", "options": ["A", "B", "C", "D"], "answer_key": "A"},
+            )
+            _insert_snapshot(in_memory_db, snapshot)
+
+        run = RunFactory.create(experiment_id=experiment.experiment_id, randomization_seed=42)
+        _insert_run(in_memory_db, run)
+
+        return experiment
+
+    @pytest.mark.domain_rule
+    def test_no_filter_includes_all_snapshots(self, in_memory_db):
+        self._setup(in_memory_db, num_snapshots=4)
+        planner = Planner(in_memory_db)
+
+        plan = planner.build_plan("test-exp-qf")
+
+        assert len(plan.runs[0].items) == 4
+
+    @pytest.mark.domain_rule
+    def test_single_position_filters_to_one_item(self, in_memory_db):
+        self._setup(in_memory_db, num_snapshots=4)
+        planner = Planner(in_memory_db)
+
+        plan = planner.build_plan("test-exp-qf", question_ids=[2])
+
+        assert len(plan.runs[0].items) == 1
+
+    @pytest.mark.domain_rule
+    def test_multiple_positions_filter_to_matching_items(self, in_memory_db):
+        self._setup(in_memory_db, num_snapshots=4)
+        planner = Planner(in_memory_db)
+
+        plan = planner.build_plan("test-exp-qf", question_ids=[1, 3])
+
+        assert len(plan.runs[0].items) == 2
+
+    @pytest.mark.domain_rule
+    def test_position_not_present_yields_zero_items_not_a_crash(self, in_memory_db):
+        """Confirms the fix: this used to raise IndexError unconditionally
+        whenever question_ids was non-empty — now a non-matching position
+        just filters down to zero items, a normal (if unusual) plan."""
+        self._setup(in_memory_db, num_snapshots=4)
+        planner = Planner(in_memory_db)
+
+        plan = planner.build_plan("test-exp-qf", question_ids=[999])
+
+        assert len(plan.runs[0].items) == 0
