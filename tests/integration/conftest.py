@@ -99,7 +99,7 @@ def mock_api_client():
         content="The answer is (B).",
         model_id="openai/gpt-4",
         input_tokens=50,
-        output_tokens=10,
+        response_tokens=10,
         latency_ms=500,
     ))
     return client
@@ -138,17 +138,18 @@ def full_experiment_setup(in_memory_db):
     snap_repo = SnapshotRepository(in_memory_db)
     run_repo = RunRepository(in_memory_db)
     
-    # Create experiment
+    # Create experiment (prompts live in config_json, not dedicated columns)
     experiment_id = f"exp_{uuid.uuid4().hex[:8]}"
     from src.db.models import Experiment
     experiment = Experiment(
         experiment_id=experiment_id,
         name="test-experiment",
         description="Test experiment for integration tests",
-        config_json="{}",
+        config_json=json.dumps({
+            "SYSTEM_PROMPT": "You are a helpful assistant.",
+            "USER_PROMPT": "Answer the following question.",
+        }),
         config_hash="",
-        system_prompt="You are a helpful assistant.",
-        user_prompt="Answer the following question.",
     )
     exp_repo.save(experiment)
     
@@ -355,7 +356,7 @@ def create_mock_api_response(
     content: str = "The answer is (B).",
     model_id: str = "openai/gpt-4",
     input_tokens: int = 50,
-    output_tokens: int = 10,
+    response_tokens: int = 10,
     latency_ms: int = 500,
 ) -> CompletionResponse:
     """Helper to create mock API responses with custom values.
@@ -364,7 +365,7 @@ def create_mock_api_response(
         content: Response content.
         model_id: Model identifier.
         input_tokens: Input token count.
-        output_tokens: Output token count.
+        response_tokens: Output token count.
         latency_ms: API latency.
     
     Returns:
@@ -374,7 +375,7 @@ def create_mock_api_response(
         content=content,
         model_id=model_id,
         input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        response_tokens=response_tokens,
         latency_ms=latency_ms,
     )
 

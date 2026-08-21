@@ -78,10 +78,8 @@ class TestFullExperimentLifecycle:
             experiment_id=exp_id,
             name="test-exp",
             description="",
-            config_json="{}",
+            config_json='{"SYSTEM_PROMPT": "You are helpful.", "USER_PROMPT": "Answer: {question}"}',
             config_hash="",
-            system_prompt="You are helpful.",
-            user_prompt="Answer: {question}",
         )
         ExperimentRepository(in_memory_db).save(exp)
         
@@ -174,10 +172,8 @@ class TestFullExperimentLifecycle:
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="multi-model-exp",
             description="",
-            config_json="{}",
+            config_json='{"SYSTEM_PROMPT": "You are helpful.", "USER_PROMPT": "Answer: {question}"}',
             config_hash="",
-            system_prompt="You are helpful.",
-            user_prompt="Answer: {question}",
         )
         exp_repo.save(experiment)
         
@@ -235,7 +231,7 @@ class TestFullExperimentLifecycle:
                 content=f"The answer is (B).",
                 model_id=model_id,
                 input_tokens=50,
-                output_tokens=10,
+                response_tokens=10,
                 latency_ms=500,
             )
         mock_api_client.chat_completion.side_effect = side_effect
@@ -283,10 +279,8 @@ class TestFullExperimentLifecycle:
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="multi-run-exp",
             description="",
-            config_json="{}",
+            config_json='{"SYSTEM_PROMPT": "You are helpful.", "USER_PROMPT": "Answer: {question}"}',
             config_hash="",
-            system_prompt="You are helpful.",
-            user_prompt="Answer: {question}",
         )
         exp_repo.save(experiment)
         
@@ -469,7 +463,7 @@ class TestExecutionFlow:
                 content="The answer is (B).",
                 model_id="openai/gpt-4",
                 input_tokens=50,
-                output_tokens=10,
+                response_tokens=10,
                 latency_ms=500,
             )
         
@@ -563,7 +557,7 @@ class TestReviewWorkflow:
             parse_confidence="clear",
             latency_ms=500,
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             error_type=None,
             error_message=None,
             attempt_count=1,
@@ -588,7 +582,7 @@ class TestReviewWorkflow:
             parse_confidence="no_answer",
             latency_ms=500,
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             error_type=None,
             error_message=None,
             attempt_count=1,
@@ -613,7 +607,7 @@ class TestReviewWorkflow:
             parse_confidence="low_confidence",
             latency_ms=500,
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             error_type=None,
             error_message=None,
             attempt_count=1,
@@ -653,7 +647,7 @@ class TestReviewWorkflow:
             content="The answer is (A).",  # Wrong answer
             model_id="openai/gpt-4",
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             latency_ms=500,
         ))
         
@@ -708,10 +702,8 @@ class TestErrorHandling:
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="no-models-exp",
             description="",
-            config_json="{}",
+            config_json='{"SYSTEM_PROMPT": "You are helpful.", "USER_PROMPT": "Answer: {question}"}',
             config_hash="",
-            system_prompt="You are helpful.",
-            user_prompt="Answer: {question}",
         )
         exp_repo.save(experiment)
         
@@ -745,10 +737,8 @@ class TestErrorHandling:
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="no-snapshots-exp",
             description="",
-            config_json="{}",
+            config_json='{"SYSTEM_PROMPT": "You are helpful.", "USER_PROMPT": "Answer: {question}"}',
             config_hash="",
-            system_prompt="You are helpful.",
-            user_prompt="Answer: {question}",
         )
         exp_repo.save(experiment)
         
