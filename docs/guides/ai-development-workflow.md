@@ -200,7 +200,7 @@ When you change code, update docs in this order:
 
 ### General
 
-- Python 3.10+
+- Python >=3.14 (validated: 3.14.2)
 - Type hints required
 - Docstrings for public APIs
 - No mutable global state

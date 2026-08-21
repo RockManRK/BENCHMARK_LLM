@@ -33,6 +33,7 @@ from src.core.execution_engine import ExecutionEngine, ExecutionResult
 from src.core.randomizer import AnswerRandomizer
 from src.core.answer_parser import AnswerParser
 from src.core.execution_plan import ExecutionPlan
+from src.core.retry import RetryHandler
 from src.core.run_finalizer import RunFinalizer
 from src.utils.logging_config import get_logger
 from src.utils.log_emitter import emit_event
@@ -292,8 +293,6 @@ class AsyncOrchestrator:
         Returns:
             List of ExecutionResult for this run
         """
-        from src.core.retry import RetryHandler
-
         results: list[ExecutionResult] = []
         total_items = len(run.items)
         completed = 0

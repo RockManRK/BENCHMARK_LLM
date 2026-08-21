@@ -94,6 +94,38 @@ def _make_failure_result(item_id: str, error_type: str = "api_error") -> Executi
     )
 
 
+class _SelectiveFailureResultWriter(ResultWriter):
+    """Wraps the REAL ResultWriter (real SQLite writes on success),
+    injecting failures keyed by `item_id` + per-item attempt number —
+    never a global call counter, which conflates a retried item's earlier
+    failed attempts with entirely different items being processed next
+    (the exact bug the pre-rewrite G8 tests had — see
+    docs/status/known-issues.md, 2026-08-21).
+
+    `fail_until_attempt`: item_id -> N. Attempts 1..N for that item_id
+    raise; attempt N+1 delegates to the real write. N=None means the item
+    fails on every attempt (permanent failure — exhausts AsyncWriter's
+    retries and triggers fail-fast abort). item_ids absent from the dict
+    never fail.
+    """
+
+    def __init__(self, *args, fail_until_attempt: dict | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._fail_until_attempt = fail_until_attempt or {}
+        self._attempts_by_item: dict[str, int] = {}
+
+    def write_result(self, result):
+        item_id = result.item_id
+        attempt = self._attempts_by_item.get(item_id, 0) + 1
+        self._attempts_by_item[item_id] = attempt
+        fail_until = self._fail_until_attempt.get(item_id, 0)
+        if fail_until is None or attempt <= fail_until:
+            raise sqlite3.OperationalError(
+                f"Simulated failure for {item_id}, attempt {attempt}"
+            )
+        return super().write_result(result)
+
+
 def _seed_db_with_prerequisites(conn):
     """Insert prerequisite rows that ResultWriter needs (variant, run, snapshot)."""
     cursor = conn.cursor()
@@ -237,80 +269,83 @@ class TestAsyncWriterIncrementalPersistence:
         assert list1 == list2
 
 
-class TestAsyncWriterFailureResilience:
-    """Test that AsyncWriter survives DB failures gracefully."""
+class TestAsyncWriterFailFastContract:
+    """Normative contract (user decision, 2026-08-21, following an
+    independent G8 investigation that confirmed the pre-existing tests
+    here were wrong but also surfaced a real coverage gap — the suite had
+    no test actually proving fail-fast behavior): AsyncWriter keeps its
+    CURRENT fail-fast behavior. After a permanent write failure (all
+    retries exhausted): run the configured retries; set aborted=True;
+    fill abort_info; emit the CRITICAL event; stop consuming; stop new
+    items from being produced (the caller sees abort_event set); finalize
+    the Run via the existing RunFinalizer flow; do NOT silently continue
+    processing later items. Production was NOT changed to implement
+    "per-item resilience" — these tests exist to lock in the fail-fast
+    contract that was already true in the code, not to test new
+    behavior. See docs/status/known-issues.md."""
 
     @pytest.mark.asyncio
-    async def test_consume_survives_db_write_failure(self):
-        """Verify writer continues consuming after a DB write failure.
-
-        When ResultWriter.write_result() raises, the AsyncWriter must:
-        1. Log the error
-        2. Increment error count
-        3. Continue consuming subsequent results
-        4. NOT crash the consume loop
-        """
+    async def test_transient_failure_then_retry_succeeds(self, db_connection):
+        """One attempt fails, the retry succeeds: written increments,
+        errors does NOT increment (a retried item that ultimately
+        succeeds is not an error), aborted stays False."""
         queue: asyncio.Queue = asyncio.Queue()
-        mock_db = MagicMock()
 
-        writer = AsyncWriter(queue, mock_db)
+        def _writer_factory(*args, **kwargs):
+            return _SelectiveFailureResultWriter(
+                *args, fail_until_attempt={"item-001": 1}, **kwargs
+            )
 
-        result_ok_1 = _make_success_result("item-001")
-        result_fail = _make_success_result("item-002")
-        result_ok_2 = _make_success_result("item-003")
-
-        # Patch ResultWriter to fail on the second result only
-        call_order = [0]
-
-        class FailingResultWriter:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def write_result(self, result):
-                call_order[0] += 1
-                if call_order[0] == 2:
-                    raise sqlite3.OperationalError("Simulated DB constraint violation")
-                # Otherwise succeed
-
-        with patch(
-            'src.core.async_writer.ResultWriter',
-            FailingResultWriter,
-        ):
-            await queue.put(result_ok_1)
-            await queue.put(result_fail)
-            await queue.put(result_ok_2)
+        with patch('src.core.async_writer.ResultWriter', side_effect=_writer_factory):
+            writer = AsyncWriter(queue, db_connection)
+            await queue.put(_make_success_result("item-001"))
             await queue.put(None)
-
             stats = await writer.consume()
 
-        # All 3 were consumed, 2 succeeded, 1 errored
-        assert stats["written"] == 2
-        assert stats["errors"] == 1
-        assert len(writer.results_written) == 2
-        assert writer.results_written[0].item_id == "item-001"
-        assert writer.results_written[1].item_id == "item-003"
+        assert stats["written"] == 1
+        assert stats["errors"] == 0
+        assert stats["aborted"] is False
+        assert stats["abort_info"] is None
+        assert len(writer.results_written) == 1
 
     @pytest.mark.asyncio
-    async def test_consume_survives_all_db_failures(self):
-        """Verify writer survives when every DB write fails."""
+    async def test_permanent_failure_on_second_item_fails_fast(self, db_connection):
+        """Permanent failure (all retries exhausted) on the SECOND item:
+        the first item is persisted; the second fails permanently;
+        written=1, errors=1, aborted=True, abort_info correctly
+        identifies the failing write; the third item and the sentinel
+        are never even dequeued — fail-fast, not per-item resilience."""
         queue: asyncio.Queue = asyncio.Queue()
-        mock_db = MagicMock()
 
-        with patch(
-            'src.core.async_writer.ResultWriter',
-            side_effect=RuntimeError("DB completely down"),
-        ):
-            writer = AsyncWriter(queue, mock_db)
+        def _writer_factory(*args, **kwargs):
+            return _SelectiveFailureResultWriter(
+                *args, fail_until_attempt={"item-002": None}, **kwargs
+            )
 
+        with patch('src.core.async_writer.ResultWriter', side_effect=_writer_factory):
+            writer = AsyncWriter(queue, db_connection)
             await queue.put(_make_success_result("item-001"))
             await queue.put(_make_success_result("item-002"))
+            await queue.put(_make_success_result("item-003"))
             await queue.put(None)
-
             stats = await writer.consume()
 
-            assert stats["written"] == 0
-            assert stats["errors"] == 2
-            assert len(writer.results_written) == 0
+        assert stats["written"] == 1
+        assert stats["errors"] == 1
+        assert stats["aborted"] is True
+        assert stats["abort_info"] is not None
+        assert stats["abort_info"]["run_id"] == "run-001"
+        assert stats["abort_info"]["variant_id"] == "var-001"
+        assert stats["abort_info"]["snapshot_id"] == "snap-000"
+        assert stats["abort_info"]["attempts"] == AsyncWriter.MAX_RETRIES
+        assert "item-002" in stats["abort_info"]["error"]
+        assert len(writer.results_written) == 1
+        assert writer.results_written[0].item_id == "item-001"
+
+        # item-003 and the sentinel were never dequeued at all (not just
+        # un-acknowledged) — the consume loop broke before calling
+        # queue.get() again.
+        assert queue.qsize() == 2
 
     @pytest.mark.asyncio
     async def test_consume_handles_cancelled_error(self):
@@ -343,39 +378,33 @@ class TestAsyncWriterStats:
     """Test that AsyncWriter stats are accurate."""
 
     @pytest.mark.asyncio
-    async def test_stats_track_written_errors(self):
-        """Verify stats accurately reflect written and error counts.
-
-        The stats dict must contain:
-        - written: number of successfully written results
-        - errors: number of write failures
-        """
+    async def test_stats_distinguish_retry_attempts_from_item_outcomes(self, db_connection):
+        """written/errors reflect logical ITEM outcomes, not raw
+        write_result() call counts — a transient failure's retry
+        attempts on the SAME item must not be miscounted as a separate
+        item or a separate error. Selection is by item_id, never a
+        global call counter (the bug the old version of this test had:
+        "every 3rd call fails" conflated a retry attempt with the next
+        item — see docs/status/known-issues.md, 2026-08-21)."""
         queue: asyncio.Queue = asyncio.Queue()
-        mock_db = MagicMock()
 
-        call_count = [0]
+        def _writer_factory(*args, **kwargs):
+            return _SelectiveFailureResultWriter(
+                *args, fail_until_attempt={"item-002": 1}, **kwargs
+            )
 
-        class SelectiveFailingWriter:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def write_result(self, result):
-                call_count[0] += 1
-                if call_count[0] % 3 == 0:
-                    raise Exception("Every 3rd write fails")
-
-        with patch('src.core.async_writer.ResultWriter', SelectiveFailingWriter):
-            writer = AsyncWriter(queue, mock_db)
-
-            # 5 results: 3rd will fail
-            for i in range(5):
+        with patch('src.core.async_writer.ResultWriter', side_effect=_writer_factory):
+            writer = AsyncWriter(queue, db_connection)
+            for i in range(1, 6):
                 await queue.put(_make_success_result(f"item-{i:03d}"))
             await queue.put(None)
-
             stats = await writer.consume()
 
-        assert stats["written"] == 4
-        assert stats["errors"] == 1
+        # item-002's one failed attempt is a retry, not a separate item —
+        # all 5 items ultimately succeed, zero errors.
+        assert stats["written"] == 5
+        assert stats["errors"] == 0
+        assert stats["aborted"] is False
 
     @pytest.mark.asyncio
     async def test_stats_property_reflects_current_state(self):
@@ -393,34 +422,35 @@ class TestAsyncWriterStats:
         assert initial_stats["errors"] == 0
 
     @pytest.mark.asyncio
-    async def test_stats_after_partial_consume(self, db_connection):
-        """Verify stats are accurate after consuming a mix of success and failure results."""
+    async def test_stats_select_failing_item_by_id_not_position(self, db_connection):
+        """The item that fails is selected by item_id, not by its
+        position in the queue or a global call counter — proves
+        failure-injection targets the correct logical item regardless of
+        processing order, and (per the fail-fast contract) that a
+        permanent failure stops consumption before later items are
+        reached."""
         queue: asyncio.Queue = asyncio.Queue()
-        mock_db = MagicMock()
 
-        fail_count = [0]
+        def _writer_factory(*args, **kwargs):
+            return _SelectiveFailureResultWriter(
+                *args, fail_until_attempt={"item-003": None}, **kwargs
+            )
 
-        class FailOnSecond:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def write_result(self, result):
-                fail_count[0] += 1
-                if fail_count[0] == 2:
-                    raise ValueError("Second write fails")
-
-        with patch('src.core.async_writer.ResultWriter', FailOnSecond):
-            writer = AsyncWriter(queue, mock_db)
-
+        with patch('src.core.async_writer.ResultWriter', side_effect=_writer_factory):
+            writer = AsyncWriter(queue, db_connection)
             await queue.put(_make_success_result("item-001"))
             await queue.put(_make_success_result("item-002"))
             await queue.put(_make_success_result("item-003"))
+            await queue.put(_make_success_result("item-004"))
             await queue.put(None)
-
             stats = await writer.consume()
 
         assert stats["written"] == 2
         assert stats["errors"] == 1
+        assert stats["aborted"] is True
+        assert [r.item_id for r in writer.results_written] == ["item-001", "item-002"]
+        # item-004 and the sentinel are never reached.
+        assert queue.qsize() == 2
 
 
 class TestAsyncWriterSentinel:
@@ -428,14 +458,26 @@ class TestAsyncWriterSentinel:
 
     @pytest.mark.asyncio
     async def test_sentinel_at_start_exits_immediately(self):
-        """Verify writer exits cleanly when sentinel is first item on queue."""
+        """Verify writer exits cleanly when sentinel is first item on
+        queue. Checks the specific fields that matter, not brittle
+        whole-dict equality — the real stats dict also carries
+        aborted/abort_info, which a strict `==` against a 2-key dict
+        would break on every time a new field is added (see
+        docs/status/known-issues.md, 2026-08-21). db_connection is
+        deliberately not needed here: the sentinel is the first item, so
+        no write ever happens — a bare MagicMock() for db_connection is
+        appropriate (nothing touches it; ResultWriter.__init__ itself
+        never accesses the connection, only write_result() does)."""
         queue: asyncio.Queue = asyncio.Queue()
         await queue.put(None)
 
         writer = AsyncWriter(queue, MagicMock())
         stats = await writer.consume()
 
-        assert stats == {"written": 0, "errors": 0}
+        assert stats["written"] == 0
+        assert stats["errors"] == 0
+        assert stats["aborted"] is False
+        assert stats["abort_info"] is None
 
     @pytest.mark.asyncio
     async def test_sentinel_after_results(self, db_connection):
@@ -455,29 +497,70 @@ class TestAsyncWriterSentinel:
         assert queue.empty()
 
     @pytest.mark.asyncio
-    async def test_task_done_called_for_each_item(self):
-        """Verify task_done() is called for each consumed item including sentinel.
-
-        We verify this by checking queue.qsize() and ensuring all items
-        were properly acknowledged.
-        """
+    async def test_task_done_called_for_each_item_on_the_happy_path(self, db_connection):
+        """On the happy path (no failures), task_done() is called for
+        every consumed item including the sentinel — proven via
+        queue.join() completing promptly, the public asyncio.Queue API
+        for exactly this question (no private attribute reads)."""
         queue: asyncio.Queue = asyncio.Queue()
-        mock_db = MagicMock()
+        writer = AsyncWriter(queue, db_connection)
 
-        writer = AsyncWriter(queue, mock_db)
-
-        # Push 2 results + sentinel = 3 items total
         await queue.put(_make_success_result("item-001"))
         await queue.put(_make_success_result("item-002"))
         await queue.put(None)
 
-        # Before consuming, queue has 3 items
         assert queue.qsize() == 3
 
-        await writer.consume()
+        stats = await writer.consume()
 
-        # After consuming, all items should be processed
+        assert stats["written"] == 2
         assert queue.qsize() == 0
+        # join() must complete promptly — every get() had a matching
+        # task_done(), including the sentinel.
+        await asyncio.wait_for(queue.join(), timeout=0.5)
+
+    @pytest.mark.asyncio
+    async def test_task_done_not_called_for_the_item_that_triggers_abort(self, db_connection):
+        """Documents the REAL, current task_done() semantics around a
+        permanent failure — deliberately NOT changed here, per
+        instruction: a queue-semantics change needs its own impact
+        analysis presented first, not bundled into a test rewrite.
+
+        consume()'s permanent-failure branch (`else: break` after
+        `_write_result_with_retry` returns False) exits the loop WITHOUT
+        calling task_done() for the item that triggered the abort —
+        unlike every other path (success, or the sentinel), which always
+        calls task_done(). Practical consequence: after an abort,
+        task_done() has been called one fewer time than get() for the
+        items actually dequeued, so a caller that later awaited
+        queue.join() on this same queue would hang. Today's real caller
+        (AsyncOrchestrator) never calls queue.join() after an abort (see
+        execute()'s abort_event handling), so this is inert in
+        production today — but is exactly the trap the next person
+        adding a queue.join() call would fall into without this test
+        documenting it explicitly. See docs/status/known-issues.md,
+        2026-08-21."""
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def _writer_factory(*args, **kwargs):
+            return _SelectiveFailureResultWriter(
+                *args, fail_until_attempt={"item-001": None}, **kwargs
+            )
+
+        with patch('src.core.async_writer.ResultWriter', side_effect=_writer_factory):
+            writer = AsyncWriter(queue, db_connection)
+            await queue.put(_make_success_result("item-001"))
+            await queue.put(None)
+            stats = await writer.consume()
+
+        assert stats["aborted"] is True
+        # A join() issued now must NOT complete promptly — the aborting
+        # item's task_done() was never called (the sentinel's get() was
+        # never even reached, since consume() broke out of the loop
+        # before getting to it — but the aborting item WAS dequeued via
+        # get() and still owes a task_done() that never came).
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(queue.join(), timeout=0.1)
 
 
 class TestAsyncWriterWithFailureResults:

@@ -64,5 +64,9 @@ setup(
         ],
     },
     install_requires=_read_runtime_requirements(),
-    python_requires=">=3.10",
+    # Python >=3.14 required (user decision, 2026-08-21): the project
+    # prioritizes its real, currently-running environment (3.14.2) over
+    # backward compatibility with 3.10-3.13 — no version matrix is tested
+    # or supported. See docs/status/known-issues.md.
+    python_requires=">=3.14",
 )

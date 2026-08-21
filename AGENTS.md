@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Benchmark LLM is a Python 3.10+ CLI system for reproducible LLM benchmarking. Root `bcllm.py` dispatches CLI modes; implementation lives under `src/`:
+Benchmark LLM is a Python >=3.14 (validated: 3.14.2) CLI system for reproducible LLM benchmarking. Root `bcllm.py` dispatches CLI modes; implementation lives under `src/`:
 
 - `src/cli/`: command modules for experiments, models, questions, runs, execution, export, and review.
 - `src/core/`: planner, immutable execution plans, execution engine, result writers, config resolution, retry, parsing, and randomization.

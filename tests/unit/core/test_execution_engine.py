@@ -12,6 +12,7 @@ Key Domain Rules:
 
 import pytest
 from datetime import datetime
+from typing import Callable
 from unittest.mock import MagicMock, AsyncMock, patch
 from dataclasses import dataclass, replace
 import asyncio
@@ -93,7 +94,7 @@ class MockOpenRouterClient:
         """Set the return value for chat_completion."""
         self._chat_completion_return_value = value
 
-    def set_side_effect(self, effect: Exception | callable) -> None:
+    def set_side_effect(self, effect: Exception | Callable) -> None:
         """Set side effect for chat_completion (exception or callable)."""
         self._chat_completion_side_effect = effect
 

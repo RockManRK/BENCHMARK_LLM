@@ -151,14 +151,16 @@ class TestHelpDoesNotListIt:
         with pytest.raises(ParserExit) as exc_info:
             parse_questions_argv(["--help"])
         assert exc_info.value.status == 0
-        # Click writes --help output directly to stdout via echo(), not
-        # captured by ParserExit — verify via the Click command's own
-        # rendered help text instead.
-        from src.cli.commands.questions import _command
-        import click
-        ctx = click.Context(_command)
-        help_text = _command.get_help(ctx)
-        assert "--remove-question" not in help_text
+        # --help writes its output directly, not captured by ParserExit —
+        # verify via Typer's own public testing interface
+        # (typer.testing.CliRunner) instead of reaching into Click
+        # directly, which is only a transitive/vendored dependency of
+        # Typer, not a declared one (see docs/status/known-issues.md).
+        import typer.testing
+        from src.cli.commands.questions import _app
+
+        result = typer.testing.CliRunner().invoke(_app, ["--help"])
+        assert "--remove-question" not in result.output
 
     def test_top_level_curated_help_omits_remove_question(self):
         from src.cli.bcllm_main import create_parser

@@ -140,7 +140,7 @@ SQLite Database (benchmark.db)
 
 | Component | Technology |
 |-----------|------------|
-| Language | Python 3.10+ |
+| Language | Python >=3.14 (validated: 3.14.2) |
 | Database | SQLite 3 |
 | CLI | argparse |
 | TUI (Review) | Rich |

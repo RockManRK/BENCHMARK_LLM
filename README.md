@@ -36,7 +36,7 @@ python bcllm.py --experiment my_exp --execute
 ```
 
 **Requirements:**
-- Python 3.10+
+- Python >=3.14 (validated: 3.14.2)
 - `OPENROUTER_API_KEY` set as system environment variable (not in `.env`)
 
 ---
