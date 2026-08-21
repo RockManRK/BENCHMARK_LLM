@@ -30,9 +30,10 @@ _MODULE_MAP = {
     "--questions": "bcllm_questions",
     "--list-questions": "bcllm_questions",
 
-    # Run module
+    # Run module — "--create-run" removed 2026-08-20: never a real flag
+    # anywhere (bcllm_run.py's parser has always declared "--add-run"),
+    # a dead/never-reachable duplicate entry — see docs/status/known-issues.md.
     "--add-run": "bcllm_run",
-    "--create-run": "bcllm_run",
     "--list-runs": "bcllm_run",
     "--run": "bcllm_run",
     "--remove-run": "bcllm_run",
@@ -172,8 +173,8 @@ def resolve_module(argv: List[str]) -> Optional[str]:
     PRIORITY_FLAGS = [
         # Provider resolution (MODIFY operation - must check before --experiment)
         "--resolve-providers",
-        # Run actions
-        "--create-run", "--list-runs", "--run", "--remove-run",
+        # Run actions (--add-run already handled by ADD_ACTION_FLAGS above)
+        "--list-runs", "--run", "--remove-run",
         # Model actions (already handled ADD_MODEL above, but list/remove need this)
         "--list-models", "--remove-model",
         # Question actions (already handled ADD_QUESTIONS above; no

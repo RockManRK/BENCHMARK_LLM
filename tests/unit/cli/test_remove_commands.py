@@ -121,9 +121,7 @@ class TestRemoveRunSoftDelete:
         exp = _make_experiment(conn)
         run = _make_run(conn, exp.experiment_id)
 
-        exit_code = handle_remove_run(
-            _Args(experiment=exp.name, remove_run=run.run_id), conn
-        )
+        exit_code = handle_remove_run(exp.name, run.run_id, conn)
 
         assert exit_code == 0
         row = conn.execute("SELECT status FROM runs WHERE run_id = ?", (run.run_id,)).fetchone()
@@ -137,7 +135,7 @@ class TestRemoveRunSoftDelete:
         exp = _make_experiment(conn)
         run = _make_run(conn, exp.experiment_id)
 
-        handle_remove_run(_Args(experiment=exp.name, remove_run=run.run_id), conn)
+        handle_remove_run(exp.name, run.run_id, conn)
 
         row = conn.execute("SELECT config FROM runs WHERE run_id = ?", (run.run_id,)).fetchone()
         assert row is not None
@@ -151,7 +149,7 @@ class TestRemoveRunSoftDelete:
 
         exp = _make_experiment(conn)
         run = _make_run(conn, exp.experiment_id)
-        handle_remove_run(_Args(experiment=exp.name, remove_run=run.run_id), conn)
+        handle_remove_run(exp.name, run.run_id, conn)
 
         planner = Planner(db_connection=conn)
         remaining = planner._get_runs(exp.experiment_id)
@@ -173,7 +171,7 @@ class TestRemoveRunSoftDelete:
 
         exp = _make_experiment(conn)
         run = _make_run(conn, exp.experiment_id)
-        handle_remove_run(_Args(experiment=exp.name, remove_run=run.run_id), conn)
+        handle_remove_run(exp.name, run.run_id, conn)
 
         planner = Planner(db_connection=conn)
         remaining = planner._get_runs(exp.experiment_id, run_ids=[run.run_id])
@@ -186,9 +184,7 @@ class TestRemoveRunSoftDelete:
         from src.cli.bcllm_run import handle_remove_run
 
         exp = _make_experiment(conn)
-        exit_code = handle_remove_run(
-            _Args(experiment=exp.name, remove_run="run_doesnotexist"), conn
-        )
+        exit_code = handle_remove_run(exp.name, "run_doesnotexist", conn)
         assert exit_code == 1
 
     def test_status_check_constraint_accepts_removed(self, conn):

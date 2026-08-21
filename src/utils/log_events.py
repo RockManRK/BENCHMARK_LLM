@@ -65,6 +65,10 @@ class Event:
     RUN_CREATED = "run_created"
     QUESTIONS_ADDED = "questions_added"
 
+    # --- Entity removal — NORMAL, new (marco 4B, 2026-08-20). Run has a
+    # real soft-delete (status='removed'), unlike QuestionSnapshot. ---
+    RUN_REMOVED = "run_removed"
+
     # --- Refused destructive/mutating commands — NORMAL, new (marco 4A,
     # 2026-08-20). Shared by --remove-experiment and --provider-lock on an
     # existing --experiment, both deliberately disabled to protect the
@@ -170,6 +174,7 @@ EVENT_PROFILE: dict[str, LogProfile] = {
     Event.MODEL_ADDED: LogProfile.NORMAL,
     Event.RUN_CREATED: LogProfile.NORMAL,
     Event.QUESTIONS_ADDED: LogProfile.NORMAL,
+    Event.RUN_REMOVED: LogProfile.NORMAL,
     Event.MUTATION_REFUSED: LogProfile.NORMAL,
     Event.PLAN_BUILD_START: LogProfile.NORMAL,
     Event.PLAN_LOADED: LogProfile.NORMAL,

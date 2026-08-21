@@ -155,17 +155,17 @@ bcllm --experiment meu_exp --add-questions Q051-Q100
 ### 2.4 Criar Run
 
 ```bash
-bcllm --experiment <nome> --create-run --seed <valor>
+bcllm --experiment <nome> --add-run --seed <valor>
 ```
 
 **Exemplos:**
 
 ```bash
 # Criar run com seed do experimento
-bcllm --experiment meu_exp --create-run
+bcllm --experiment meu_exp --add-run
 
 # Criar run com seed específico
-bcllm --experiment meu_exp --create-run --seed 123
+bcllm --experiment meu_exp --add-run --seed 123
 ```
 
 **O que acontece:**
@@ -428,7 +428,7 @@ bcllm --create-experiment meu_exp --questions Q001-Q010
 bcllm --experiment meu_exp --add-model openai/gpt-4
 
 # 3. Criar run
-bcllm --experiment meu_exp --create-run
+bcllm --experiment meu_exp --add-run
 
 # 4. Executar
 bcllm --experiment meu_exp --run
@@ -441,7 +441,7 @@ bcllm --experiment meu_exp --run
 **EXPECTATIVA ERRADA:**
 ```bash
 # Run criado com Q001-Q050
-bcllm --experiment meu_exp --create-run
+bcllm --experiment meu_exp --add-run
 
 # Adicionar Q051-Q100
 bcllm --experiment meu_exp --add-questions Q051-Q100
@@ -515,7 +515,7 @@ bcllm --experiment meu_exp --run --models openai/gpt-4
 
 | Comando | Descrição |
 |---------|-----------|
-| `--experiment <nome> --create-run` | Criar run |
+| `--experiment <nome> --add-run` | Criar run |
 | `--experiment <nome> --run` | Executar run |
 
 ### 6.3 Revisão

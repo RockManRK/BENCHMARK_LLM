@@ -115,7 +115,7 @@ survives the migration.
 ## Related Documents
 
 - `C:\Users\rockm\.claude\plans\deep-growing-dragon.md` — the full CLI Typer/Rich migration plan this ADR is Fase 1 of.
-- [reference/cli-commands.md](../../reference/cli-commands.md) — current documented command surface (has known drift from code — `--create-run` vs `--add-run`, `--data-set`, composite-flow example contradiction — to be corrected as each affected group is migrated).
+- [reference/cli-commands.md](../../reference/cli-commands.md) — current documented command surface (had known drift from code — `--create-run` vs `--add-run` corrected 2026-08-20 as part of marco 4B's `bcllm_run.py` migration; `--data-set` and the composite-flow example contradiction remain open, to be corrected as their affected groups are migrated).
 - [contracts/configuration-hierarchy.md](../../contracts/configuration-hierarchy.md) — per-key chains corrected to include CLI precedence explicitly (documentation-only, see Decision 4).
 - [contracts/determinism.md](../../contracts/determinism.md) — seed inheritance chain corrected the same way (documentation-only, see Decision 4).
 - [status/known-issues.md](../../status/known-issues.md) — new entry tracking that current (pre-migration) CLI output has not been audited against `interaction-contracts.md` Section 2; to be closed incrementally as each group migrates in Fase 4.

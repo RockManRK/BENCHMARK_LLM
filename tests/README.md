@@ -18,7 +18,7 @@ bcllm --create-experiment my_exp --questions Q001-Q050 --seed 42
 bcllm --experiment my_exp --add-model openai/gpt-4 --add-model anthropic/claude-3
 
 # 3. Create run
-bcllm --experiment my_exp --create-run
+bcllm --experiment my_exp --add-run
 
 # 4. Execute
 bcllm --experiment my_exp --run

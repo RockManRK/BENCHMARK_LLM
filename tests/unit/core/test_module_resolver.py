@@ -192,17 +192,17 @@ class TestModuleResolverRun:
         # Assert
         assert result == "bcllm_run"
     
-    def test_create_run_flag(self):
-        """--create-run resolves to bcllm_run."""
-        # Arrange
+    def test_create_run_flag_does_not_resolve_to_any_module(self):
+        """Normative (2026-08-20): --create-run was never a real flag —
+        bcllm_run.py has always used --add-run. Removed as a dead/never-
+        reachable duplicate entry from _MODULE_MAP/PRIORITY_FLAGS — see
+        docs/status/known-issues.md."""
         argv = ["bcllm", "--create-run", "run-001"]
-        
-        # Act
+
         result = resolve_module(argv)
-        
-        # Assert
-        assert result == "bcllm_run"
-    
+
+        assert result is None
+
     def test_list_runs_flag(self):
         """--list-runs resolves to bcllm_run."""
         # Arrange
@@ -388,13 +388,18 @@ class TestModuleResolverPriority:
         assert result == "bcllm_model"
     
     def test_first_match_wins_run_flags(self):
-        """--create-run --list-runs resolves to bcllm_run (first match)."""
+        """--run --list-runs resolves to bcllm_run (first match).
+        Updated 2026-08-20: previously used the dead --create-run flag
+        (never real, see docs/status/known-issues.md) — swapped for
+        --run, a genuine PRIORITY_FLAGS member, preserving this test's
+        original intent (multiple run-tier flags together still resolve
+        deterministically to bcllm_run)."""
         # Arrange
-        argv = ["bcllm", "--create-run", "run-001", "--list-runs"]
-        
+        argv = ["bcllm", "--run", "run-001", "--list-runs"]
+
         # Act
         result = resolve_module(argv)
-        
+
         # Assert
         assert result == "bcllm_run"
     

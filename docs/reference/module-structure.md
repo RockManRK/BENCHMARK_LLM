@@ -32,7 +32,7 @@ src/
 │   ├── bcllm_experiment.py # Experiment lifecycle management (Typer parsing since marco 4A, 2026-08-20)
 │   ├── bcllm_model.py    # Model variant management
 │   ├── bcllm_questions.py # Question snapshot management (Typer parsing since marco 4A, 2026-08-20)
-│   ├── bcllm_run.py      # Run management
+│   ├── bcllm_run.py      # Run management (Typer parsing since marco 4B, 2026-08-20)
 │   ├── bcllm_execute.py  # Execution entry point
 │   ├── bcllm_export.py   # Export results
 │   ├── bcllm_review.py   # Review UI
@@ -41,7 +41,8 @@ src/
 │   ├── commands/         # Real typer.Typer command definitions, one per migrated module (CLI migration Fase 4)
 │   │   ├── __init__.py
 │   │   ├── questions.py  # Typer command replacing bcllm_questions.py's former argparse create_parser() (marco 4A)
-│   │   └── experiment.py # Typer command replacing bcllm_experiment.py's former argparse create_parser() (marco 4A)
+│   │   ├── experiment.py # Typer command replacing bcllm_experiment.py's former argparse create_parser() (marco 4A)
+│   │   └── run.py        # Typer command replacing bcllm_run.py's former argparse create_parser() (marco 4B)
 │   └── presentation/      # Rich-based presentation foundation (CLI migration Fase 2/6)
 │       ├── __init__.py
 │       ├── console.py     # Console/error_console singletons
@@ -133,7 +134,7 @@ src/
 | `bcllm_model.py` | `--add-model`, `--list-models`, `--remove-model` | Model variant management (including `--provider`) |
 | `bcllm_provider.py` | `--resolve-providers` | Provider resolution for model variants |
 | `bcllm_questions.py` | `--add-questions`, `--list-questions` | Question snapshot management (no removal command — QuestionSnapshot is immutable) |
-| `bcllm_run.py` | `--create-run`, `--list-runs`, `--run`, `--remove-run` | Run management |
+| `bcllm_run.py` | `--add-run`, `--list-runs`, `--run`, `--remove-run` | Run management (corrected 2026-08-20: the real, tested flag is `--add-run` — `--create-run` was a pre-existing doc-drift error, never a real flag, see `docs/status/known-issues.md`) |
 | `bcllm_execute.py` | `--execute` | Execution orchestration (Planner → Engine → Writer) |
 | `bcllm_export.py` | `--export` | Export results to CSV/JSON |
 | `bcllm_review.py` | `--review-experiment`, `--review-all` | Review UI entry point |

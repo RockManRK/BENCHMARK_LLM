@@ -14,6 +14,20 @@ status: active
 
 ## Bugs
 
+### ℹ️ Untracked, unreproduced `cli_suite` flakes — evidence only, not investigated
+
+**Severity:** Low (not blocking — explicit user decision, 2026-08-20: "não bloqueia o marco 4B porque não foi reproduzido... não altere testes ou expectativas para acomodar um flake não compreendido")
+**Impact:** None confirmed — both occurrences vanished on an immediate re-run of the full `cli_suite --profile full` (same workspace, same DB, no code change in between), so nothing about their outcome or root cause is understood yet.
+**Evidence (exactly as observed, not diagnosed):**
+1. `EX-002` ("resposta ambígua deve ser marcada para revisão") — one run reported `state: ERROR`, `reasons: ["setup command failed (exit 1): --experiment t_ex002_ex002 --add-model test/ambiguous"]`. Occurred during the marco 4A pre-4B diff-audit verification pass. Re-run: PASS.
+2. `RN-003` ("--remove-run em id inexistente falha sem tocar o banco") — one run reported `state: FAIL`, `reasons: ["unexpected Python traceback in stderr", "stderr missing expected term: 'not found'"]`, `exit_code: 1`. Occurred during the `--remove-question` removal's verification pass — `bcllm_run.py` was not touched by that change. Re-run: PASS.
+**Discovered:** 2026-08-20, both during otherwise-clean full-suite verification runs this session.
+**Suggested Fix:** None proposed — explicitly not to be chased speculatively. If either (or a new) case flakes again, especially with the SAME symptom, that repetition is real signal worth investigating (likely candidates given both symptoms — `EX-002`'s setup-step failure and `RN-003`'s "unexpected Python traceback" — a shared-workspace-DB timing/locking issue in the `cli_suite` runner's own concurrency, not this project's CLI code, but not confirmed). Do not adjust test expectations, retries, or `known_issue` tags to paper over a single unreproduced occurrence.
+**Effort:** Not evaluated — no action until the pattern recurs.
+**Dependencies:** None.
+
+---
+
 ### ℹ️ [Partially resolved] No CI pipeline exercises Python tests
 
 **Severity:** Low-Medium (not a functional bug — a process gap)
@@ -487,6 +501,15 @@ existing suite re-run with zero regressions.
 **Removed:** the `--remove-question` Typer option and `remove_question` field (`src/cli/commands/questions.py`); the mutex-group validation updated to 2-way (`--add-questions`/`--list-questions` only); `handle_remove_question` and its `main()` dispatch branch (`src/cli/bcllm_questions.py`); `remove_question` from `SYSTEM_DEFAULT_FORBIDDEN`; `--remove-question` from `module_resolver.py`'s flag→module map and `PRIORITY_FLAGS`; `Event.QUESTION_REMOVED` (`src/utils/log_events.py`); `SnapshotRepository.delete()` itself (`src/db/repository.py` — audited, confirmed zero other callers anywhere in the codebase or test suite before removal); the flag from `bcllm_main.py`'s curated top-level help; `AQ-006` (`tests/cli_suite/cases/questions.yaml`); all references in `docs/status/cli-output-classification.md` (the C2 map, counts corrected 162→158), `docs/contracts/system-default-semantics.md`'s FORBIDDEN table, `docs/reference/module-structure.md`, and `docs/architecture/gap-reports/03-cli-system-gap.md` (corrected in place with a dated note, not rewritten — it's a historical planning snapshot).
 **Verification:** 7 new normative tests (`tests/unit/cli/test_remove_question_removed.py`) proving: the flag doesn't exist in the Typer command; using it returns exit 2 before any DB connection opens; `--help` doesn't list it; no public action can remove a `QuestionSnapshot`; the composite flow never forwards the flag; existing snapshots survive an attempted use untouched; `docs/contracts/immutability.md` still states growth-only-by-addition. Full `pytest`/`cli_suite` re-run — see the marco 4A entry below for final counts.
 **Impact:** Closes the tension the Guardian found; `QuestionSnapshot`'s immutability contract now has no code path that can violate it, not just a documented intent.
+
+### ✅ `--create-run` doc/dead-routing drift corrected — the real, tested flag has always been `--add-run`
+
+**Resolved:** 2026-08-20 (found and fixed while migrating `bcllm_run.py` for marco 4B, first slice)
+**Description:** `bcllm_run.py`'s parser has always declared `--add-run` — `--create-run` was never a real flag anywhere in its implementation, past or present. Despite that, it was documented as real in several places and had a dead (never-reachable-with-effect, since `--add-run` already correctly routes) duplicate entry in the dispatcher: `src/core/module_resolver.py`'s `_MODULE_MAP` and `PRIORITY_FLAGS`; `src/cli/bcllm_main.py`'s curated top-level `--help` text (both the summary line and its own `argparse.add_argument`); `docs/reference/cli-commands.md` (a composite-flow example, a standalone "Create Run" example, and the system-default-forbidden list); `docs/reference/module-structure.md`'s command table; `docs/architecture/adr/adr-002-cli-presentation.md` (already correctly flagged as *known* drift, now resolved); `tests/MANUAL.md` (6 occurrences) and `tests/README.md` (1) — manual-testing guide docs that would have led a human tester to run a command that always failed as unrecognized.
+**Discovered:** 2026-08-20, while updating `docs/reference/module-structure.md`'s `bcllm_run.py` row for the marco 4B Typer conversion and noticing the table itself still said `--create-run`.
+**Fix:** All of the above corrected to `--add-run`. `module_resolver.py`'s dead `_MODULE_MAP`/`PRIORITY_FLAGS` entries removed outright (not aliased — there is no reason to keep routing a flag that was never real). Normative regression test added/updated in `tests/unit/core/test_module_resolver.py`: `test_create_run_flag_does_not_resolve_to_any_module` (confirms `resolve_module` no longer maps it) and `test_first_match_wins_run_flags` (swapped its use of the dead flag for `--run`, a genuine `PRIORITY_FLAGS` member, preserving the test's original intent).
+**Impact:** No documentation or manual-testing guide anywhere in the active docs tree still tells a human or an AI agent to use `--create-run`. `docs/tests/plano-de-testes.cli.md`'s existing note ("O comando antigo `--create-run` deve ser tratado como obsoleto") was already accurate and needed no change.
+**Not fixed by this change:** `--data-set` (documented, never a real flag anywhere — separate, still-open drift) and `cli-commands.md`'s composite-flow-vs-"models must be added separately" contradiction (a distinct, larger claim needing its own verification) — both noted in `adr-002-cli-presentation.md`, neither touched here.
 
 ### ✅ CLI Typer migration marco 4A — `bcllm_questions.py` and `bcllm_experiment.py` converted from argparse
 

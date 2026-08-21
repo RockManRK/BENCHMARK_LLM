@@ -56,9 +56,9 @@ bcllm --create-experiment my_exp --system-prompt "You are a helpful assistant."
 bcllm --create-experiment my_exp --system-prompt You are a helpful assistant.
 ```
 
-**Composite Flow:** Can combine `--create-experiment` with `--add-questions` and `--create-run` in single command:
+**Composite Flow:** Can combine `--create-experiment` with `--add-questions` and `--add-run` in single command (corrected 2026-08-20 — `--create-run` was never a real flag, see `docs/status/known-issues.md`):
 ```bash
-bcllm --create-experiment my_exp --add-questions 1-10 --create-run
+bcllm --create-experiment my_exp --add-questions 1-10 --add-run
 ```
 
 **Model Variants Must Be Added Separately:** Creating an experiment and adding model variants in the same command is **NOT supported**. Model variants must be added after experiment creation, one per command:
@@ -302,7 +302,7 @@ bcllm --experiment <name> --list-questions
 ### Create Run
 
 ```bash
-bcllm --experiment <name> --create-run [options]
+bcllm --experiment <name> --add-run [options]
 ```
 
 **Purpose:** Create a new run (execution instance)
@@ -425,7 +425,7 @@ Most configuration flags support `system-default` value, which bypasses inherita
 - `--create-experiment`, `--experiment` (structural)
 - `--url`, `--data-set` (must be explicit)
 - `--add-model`, `--remove-model` (require explicit model ID)
-- `--create-run`, `--remove-run` (structural)
+- `--add-run`, `--remove-run` (structural)
 - `--execute` (structural)
 
 ---

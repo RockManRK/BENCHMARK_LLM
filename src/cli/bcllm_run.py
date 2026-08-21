@@ -32,7 +32,6 @@ see run_add_run()'s docstring and docs/status/known-issues.md ("same
 action, same path" invariant).
 """
 
-import argparse
 import json
 import sys
 import uuid
@@ -40,10 +39,14 @@ from dataclasses import dataclass
 
 from src.core.mode import Mode
 from src.cli.database import get_database_connection
-from src.core.argv_utils import parse_args_normalized, has_flag, NonExitingArgumentParser, ParserExit
+from src.core.argv_utils import has_flag, ParserExit
 from src.core.special_config_values import ForceSystemDefault
+from src.cli.commands.run import parse_run_argv
 from src.db.models import Run
 from src.db.repository import ExperimentRepository, RunRepository
+from src.utils.logging_config import get_logger
+from src.utils.log_emitter import emit_event
+from src.utils.log_events import Event
 
 
 def _validate_expected_mode(mode: Mode) -> None:
@@ -75,85 +78,16 @@ def _validate_expected_mode(mode: Mode) -> None:
         sys.exit(1)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for run commands.
-
-    Returns:
-        NonExitingArgumentParser configured with all run commands — see
-        src/core/argv_utils.py for why this is NOT a plain
-        argparse.ArgumentParser: --add-run can run inside bcllm.py's
-        composite flow, where an uncontrolled sys.exit() (argparse's
-        default for both --help and any usage error) would skip the
-        composite flow's experiment rollback.
-    """
-    parser = NonExitingArgumentParser(
-        prog="bcllm_run.py",
-        description="Run lifecycle management",
-    )
-
-    parser.add_argument(
-        "--experiment",
-        required=True,
-        metavar="NAME",
-        help="Experiment name",
-    )
-
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--add-run",
-        action="store_true",
-        help="Create new run",
-    )
-    group.add_argument(
-        "--list-runs",
-        action="store_true",
-        help="List all runs in experiment",
-    )
-    group.add_argument(
-        "--run",
-        metavar="RUN_ID",
-        help="Show run details",
-    )
-    group.add_argument(
-        "--remove-run",
-        metavar="RUN_ID",
-        help="Remove run (soft delete)",
-    )
-
-    parser.add_argument(
-        "--randomization-seed",
-        type=str,
-        metavar="N",
-        help="Randomization Seed for answer option shuffling (AUTO, number, "
-             "or empty for None) — controls AnswerRandomizer only, never sent to the API",
-    )
-
-    parser.add_argument(
-        "--system-prompt",
-        metavar="PROMPT",
-        help="Custom system prompt (inherits from experiment if not specified)",
-    )
-
-    parser.add_argument(
-        "--user-prompt",
-        metavar="PROMPT",
-        help="Custom user prompt (inherits from experiment if not specified)",
-    )
-
-    parser.add_argument(
-        "--output",
-        choices=["console", "json", "csv", "markdown"],
-        default="console",
-        help="Output format",
-    )
-
-    return parser
-
-
 # Explicit opt-in classification for system-default recognition — see
 # src/core/special_config_values.py::normalize_special_config_values and
 # docs/contracts/system-default-semantics.md for the full SUPPORTED/
-# FORBIDDEN/NOT_APPLICABLE contract this implements.
+# FORBIDDEN/NOT_APPLICABLE contract this implements. Kept as module-level
+# constants for cross-module consistency checks
+# (tests/unit/cli/test_system_default_classification_consistency.py) —
+# no longer consumed by parsing directly since the Typer conversion
+# (marco 4B, 2026-08-20): src/cli/commands/run.py's _run_command declares
+# the same classification via its per-option callbacks — see that module
+# for the real, executed source of truth.
 SYSTEM_DEFAULT_SUPPORTED = {
     'randomization_seed', 'system_prompt', 'user_prompt',
 }
@@ -235,6 +169,11 @@ def add_run_action(request: AddRunRequest, conn, *, commit: bool = True) -> AddR
         str(config_dict.get('RANDOMIZATION_SEED'))
         if config_dict.get('RANDOMIZATION_SEED') is not None else "None"
     )
+    emit_event(
+        get_logger('cli.run'), Event.RUN_CREATED,
+        experiment=request.experiment, run_id=run.run_id,
+        randomization_seed=randomization_seed_display,
+    )
     return AddRunResult(exit_code=0, run_id=run.run_id, randomization_seed_display=randomization_seed_display)
 
 
@@ -254,18 +193,7 @@ def parse_add_run_request(argv: list[str]) -> AddRunRequest:
     database connection or acquiring the composite flow's transaction
     lock — see docs/status/composite-flow-unit-of-work-design.md point 3.
     """
-    parser = create_parser()
-    try:
-        args = parse_args_normalized(
-            parser, argv,
-            supported=SYSTEM_DEFAULT_SUPPORTED,
-            forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-        )
-        if isinstance(args.randomization_seed, str):
-            from src.core.config_resolver import parse_randomization_seed_strict
-            parse_randomization_seed_strict(args.randomization_seed)
-    except (argparse.ArgumentError, ValueError) as e:
-        parser.error(str(e))  # raises ParserExit(2, ...)
+    args = parse_run_argv(argv)  # raises ParserExit for any usage error, including the randomization-seed FORMAT check
 
     return AddRunRequest(
         experiment=args.experiment,
@@ -287,8 +215,9 @@ def run_add_run(
     applies to both callers automatically — no divergent duplicate logic
     to keep in sync.
 
-    Never lets argparse's own sys.exit() escape (create_parser() returns
-    a NonExitingArgumentParser) — always returns an exit code.
+    Never lets a usage error's own SystemExit escape (parse_run_argv
+    invokes the Typer command with standalone_mode=False and translates
+    any UsageError/--help into ParserExit) — always returns an exit code.
 
     A usage error NEVER opens a database connection: when `conn` is not
     supplied, get_database_connection() is only called AFTER parsing
@@ -339,11 +268,11 @@ def run_add_run(
             conn.close()
 
 
-def handle_list_runs(args, conn) -> int:
+def handle_list_runs(experiment_name: str, conn) -> int:
     """Handle --list-runs command.
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
         conn: Database connection.
 
     Returns:
@@ -352,9 +281,9 @@ def handle_list_runs(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     run_repo = RunRepository(conn)
 
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
     runs = run_repo.list_by_experiment(experiment.experiment_id)
@@ -377,11 +306,12 @@ def handle_list_runs(args, conn) -> int:
     return 0
 
 
-def handle_show_run(args, conn) -> int:
+def handle_show_run(experiment_name: str, run_id: str, conn) -> int:
     """Handle --run command.
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
+        run_id: Run ID to show.
         conn: Database connection.
 
     Returns:
@@ -390,18 +320,18 @@ def handle_show_run(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     run_repo = RunRepository(conn)
 
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
-    run = run_repo.get_by_id(args.run)
+    run = run_repo.get_by_id(run_id)
     if not run:
-        print(f"Error: Run not found: {args.run}", file=sys.stderr)
+        print(f"Error: Run not found: {run_id}", file=sys.stderr)
         return 1
 
     if run.experiment_id != experiment.experiment_id:
-        print(f"Error: Run '{args.run}' is not in experiment '{args.experiment}'", file=sys.stderr)
+        print(f"Error: Run '{run_id}' is not in experiment '{experiment_name}'", file=sys.stderr)
         return 1
 
     config = json.loads(run.config) if run.config else {}
@@ -417,7 +347,7 @@ def handle_show_run(args, conn) -> int:
     return 0
 
 
-def handle_remove_run(args, conn) -> int:
+def handle_remove_run(experiment_name: str, run_id: str, conn) -> int:
     """Handle --remove-run command.
 
     Soft delete: sets status='removed' rather than deleting the row.
@@ -444,7 +374,8 @@ def handle_remove_run(args, conn) -> int:
     enough).
 
     Args:
-        args: Parsed command-line arguments.
+        experiment_name: Experiment name.
+        run_id: Run ID to remove.
         conn: Database connection.
 
     Returns:
@@ -453,21 +384,25 @@ def handle_remove_run(args, conn) -> int:
     exp_repo = ExperimentRepository(conn)
     run_repo = RunRepository(conn)
 
-    experiment = exp_repo.get_by_name(args.experiment)
+    experiment = exp_repo.get_by_name(experiment_name)
     if not experiment:
-        print(f"Error: Experiment not found: {args.experiment}", file=sys.stderr)
+        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
         return 1
 
-    run = run_repo.get_by_id(args.remove_run)
+    run = run_repo.get_by_id(run_id)
     if not run:
-        print(f"Error: Run not found: {args.remove_run}", file=sys.stderr)
+        print(f"Error: Run not found: {run_id}", file=sys.stderr)
         return 1
 
     if run.experiment_id != experiment.experiment_id:
-        print(f"Error: Run '{args.remove_run}' is not in experiment '{args.experiment}'", file=sys.stderr)
+        print(f"Error: Run '{run_id}' is not in experiment '{experiment_name}'", file=sys.stderr)
         return 1
 
     run_repo.update_status(run.run_id, "removed")
+    emit_event(
+        get_logger('cli.run'), Event.RUN_REMOVED,
+        experiment=experiment_name, run_id=run.run_id,
+    )
     print(f"✓ Run '{run.run_id}' removed")
     return 0
 
@@ -492,18 +427,10 @@ def main(mode: Mode) -> int:
         return run_add_run(argv)
 
     # --list-runs / --run / --remove-run have no composite-flow
-    # counterpart — parsed and dispatched directly, same shape as before,
-    # just adapted to NonExitingArgumentParser.
-    parser = create_parser()
+    # counterpart — parsed and dispatched directly via the Typer command
+    # (src/cli/commands/run.py), same shape as before.
     try:
-        try:
-            args = parse_args_normalized(
-                parser, argv,
-                supported=SYSTEM_DEFAULT_SUPPORTED,
-                forbidden=SYSTEM_DEFAULT_FORBIDDEN,
-            )
-        except (argparse.ArgumentError, ValueError) as e:
-            parser.error(str(e))
+        args = parse_run_argv(argv)
     except ParserExit as e:
         if e.status != 0:
             return e.status
@@ -513,13 +440,18 @@ def main(mode: Mode) -> int:
 
     try:
         if args.list_runs:
-            return handle_list_runs(args, conn)
+            return handle_list_runs(args.experiment, conn)
         elif args.run:
-            return handle_show_run(args, conn)
+            return handle_show_run(args.experiment, args.run, conn)
         elif args.remove_run:
-            return handle_remove_run(args, conn)
+            return handle_remove_run(args.experiment, args.remove_run, conn)
         else:
-            parser.print_help()
+            # Unreachable: parse_run_argv's mutex-group check already
+            # guarantees exactly one of add_run/list_runs/run/remove_run
+            # is set, and add_run was already handled by the early-return
+            # above — kept only as a defensive fallback, matching the
+            # original argparse version's equivalent branch.
+            print("Error: no valid run action specified.", file=sys.stderr)
             return 1
     finally:
         conn.close()
