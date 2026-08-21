@@ -85,7 +85,6 @@ def _make_mock_answer_parser(answer: str = "B", confidence: str = "clear") -> An
     parser.parse.return_value = ParsedAnswer(
         answer=answer,
         confidence=confidence,
-        raw_matches=[answer],
     )
     return parser
 
