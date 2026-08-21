@@ -66,14 +66,14 @@ class TestCompletionResponse:
             content="Answer is (B).",
             model_id="openai/gpt-4",
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             latency_ms=500,
         )
 
         assert response.content == "Answer is (B)."
         assert response.model_id == "openai/gpt-4"
         assert response.input_tokens == 50
-        assert response.output_tokens == 10
+        assert response.response_tokens == 10
         assert response.latency_ms == 500
 
     @pytest.mark.domain_rule
@@ -83,7 +83,7 @@ class TestCompletionResponse:
             content="Answer",
             model_id="test/model",
             input_tokens=10,
-            output_tokens=5,
+            response_tokens=5,
             latency_ms=100,
         )
 
@@ -94,14 +94,14 @@ class TestCompletionResponse:
         """CompletionResponse can include raw provider response."""
         raw = {
             "id": "chatcmpl-123",
-            "choices": [{"message": {"content": "Answer"}}],
+            "choices": [{"delta": {"content": "Answer"}}],
         }
 
         response = CompletionResponse(
             content="Answer",
             model_id="test/model",
             input_tokens=10,
-            output_tokens=5,
+            response_tokens=5,
             latency_ms=100,
             raw_response=raw,
         )
@@ -154,8 +154,8 @@ class TestOpenRouterClientChatCompletion:
             
             # Mock SSE stream with chunks (cumulative content in streaming)
             sse_chunks = [
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": null}], "debug": {"test": true}}',
-                'data: {"choices": [{"message": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": null}], "debug": {"test": true}}',
+                'data: {"choices": [{"delta": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}',
                 'data: [DONE]',
             ]
             
@@ -175,7 +175,7 @@ class TestOpenRouterClientChatCompletion:
             assert isinstance(response, CompletionResponse)
             assert response.content == "Answer is (B)."  # Aggregated from all chunks
             assert response.input_tokens == 50
-            assert response.output_tokens == 10
+            assert response.response_tokens == 10
             assert isinstance(response.raw_response, list)
             assert len(response.raw_response) == 2  # 2 data chunks (excluding [DONE])
 
@@ -191,7 +191,7 @@ class TestOpenRouterClientChatCompletion:
             
             # Mock SSE stream
             sse_chunks = [
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
                 'data: [DONE]',
             ]
             
@@ -235,7 +235,7 @@ class TestOpenRouterClientChatCompletion:
             
             # Mock SSE stream
             sse_chunks = [
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
                 'data: [DONE]',
             ]
             
@@ -271,7 +271,7 @@ class TestOpenRouterClientChatCompletion:
             
             # Mock SSE stream
             sse_chunks = [
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
                 'data: [DONE]',
             ]
             
@@ -305,7 +305,7 @@ class TestOpenRouterClientChatCompletion:
             
             # Mock SSE stream
             sse_chunks = [
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
                 'data: [DONE]',
             ]
             
@@ -490,8 +490,8 @@ class TestOpenRouterClientStreaming:
             # Mock SSE stream with debug chunk first (as OpenRouter sends)
             sse_chunks = [
                 'data: {"debug": {"request_id": "abc-123"}, "choices": []}',
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": null}]}',
-                'data: {"choices": [{"message": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": null}]}',
+                'data: {"choices": [{"delta": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}',
                 'data: [DONE]',
             ]
             
@@ -533,10 +533,10 @@ class TestOpenRouterClientStreaming:
             
             # Mock SSE stream with some empty content chunks
             sse_chunks = [
-                'data: {"choices": [{"message": {"content": ""}, "finish_reason": null}]}',
-                'data: {"choices": [{"message": {"content": "Answer"}, "finish_reason": null}]}',
-                'data: {"choices": [{"message": {"content": ""}, "finish_reason": null}]}',
-                'data: {"choices": [{"message": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+                'data: {"choices": [{"delta": {"content": ""}, "finish_reason": null}]}',
+                'data: {"choices": [{"delta": {"content": "Answer"}, "finish_reason": null}]}',
+                'data: {"choices": [{"delta": {"content": ""}, "finish_reason": null}]}',
+                'data: {"choices": [{"delta": {"content": " is (B)."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
                 'data: [DONE]',
             ]
             
@@ -556,4 +556,4 @@ class TestOpenRouterClientStreaming:
             # Verify only non-empty content is aggregated
             assert response.content == "Answer is (B)."
             assert response.input_tokens == 10
-            assert response.output_tokens == 5
+            assert response.response_tokens == 5
