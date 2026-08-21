@@ -28,6 +28,14 @@ Once a question is snapshotted into an experiment:
 - **Cannot be deleted** — Even if the source dataset changes, snapshots remain
 - **Can only be added** — New snapshots can be added to an experiment, never removed
 
+**Enforcement (2026-08-20):** this is a hard invariant, not just a
+documented intent — `SnapshotRepository` (`src/db/repository.py`) has no
+`delete()` method at all. A `--remove-question` CLI flag briefly existed
+and was removed the same day it was found to violate this contract (a
+real hard `DELETE`, contradicting its own "soft delete" docstring) — see
+`docs/status/known-issues.md`. No public action anywhere in the system
+can remove a `QuestionSnapshot`.
+
 **Rationale:** If the original dataset is updated, existing experiment data must remain reproducible. Snapshots guarantee that running the same experiment tomorrow produces the same results.
 
 **Implementation:** `QuestionSnapshot` entity in `src/db/models.py`

@@ -269,7 +269,11 @@ class VariantRepository:
 # =============================================================================
 
 class SnapshotRepository:
-    """CRUD operations for question snapshots."""
+    """Create/Read operations for question snapshots. Deliberately no
+    delete: QuestionSnapshot is immutable — an experiment can only grow
+    by adding snapshots, never shrink (docs/contracts/immutability.md
+    §1). Removed 2026-08-20 along with --remove-question — see
+    docs/status/known-issues.md."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         """Initialize with database connection."""
@@ -342,18 +346,6 @@ class SnapshotRepository:
             ORDER BY created_at ASC
         """, (experiment_id,))
         return [self._row_to_snapshot(row) for row in cursor.fetchall()]
-
-    def delete(self, snapshot_id: str) -> None:
-        """Delete snapshot by ID.
-
-        Args:
-            snapshot_id: Primary key.
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            DELETE FROM question_snapshots WHERE snapshot_id = ?
-        """, (snapshot_id,))
-        self.conn.commit()
 
     @staticmethod
     def _row_to_snapshot(row: sqlite3.Row) -> QuestionSnapshot:

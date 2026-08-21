@@ -4,14 +4,19 @@
 This module provides CLI commands for managing question snapshots within experiments:
 - Add question snapshots to experiments (with range and filter support)
 - List question snapshots in an experiment
-- Remove question snapshots (soft delete)
+
+Deliberately no removal command: QuestionSnapshot is immutable
+(docs/contracts/immutability.md §1) — an experiment can only grow by
+adding snapshots, never shrink. A `--remove-question` flag existed
+briefly during marco 4A's initial Typer conversion but was removed the
+same day, before marco 4B, once its implementation was found to
+hard-delete rows — see docs/status/known-issues.md.
 
 Usage:
     bcllm_questions.py --experiment <name> --add-questions <spec>
     bcllm_questions.py --experiment <name> --add-questions <spec> --where status=valid
     bcllm_questions.py --experiment <name> --add-questions <spec> --exclude status=annulled
     bcllm_questions.py --experiment <name> --list-questions
-    bcllm_questions.py --experiment <name> --remove-question <snapshot_id>
 
 Exit Codes:
     0: Success
@@ -84,14 +89,14 @@ def _validate_expected_mode(mode: Mode) -> None:
 # (marco 4A, 2026-08-20): src/cli/commands/questions.py's
 # _questions_command declares the same classification via its per-option
 # callbacks (typer_str_or_system_default for add_questions,
-# typer_reject_special_values for experiment/remove_question/source_file)
+# typer_reject_special_values for experiment/source_file)
 # and the explicit typer_filter_list_or_system_default() call for
 # where/exclude — see that module for the real, executed source of truth.
 SYSTEM_DEFAULT_SUPPORTED = {
     'add_questions',
 }
 SYSTEM_DEFAULT_FORBIDDEN = {
-    'experiment', 'remove_question', 'source_file',
+    'experiment', 'source_file',
 }
 
 
@@ -568,44 +573,6 @@ def handle_list_questions(experiment_name: str, conn) -> int:
     return 0
 
 
-def handle_remove_question(experiment_name: str, snapshot_id: str, conn) -> int:
-    """Handle --remove-question command.
-
-    Args:
-        experiment_name: Experiment name.
-        snapshot_id: Snapshot ID to remove.
-        conn: Database connection.
-
-    Returns:
-        Exit code (0 for success, 1 for error).
-    """
-    exp_repo = ExperimentRepository(conn)
-    snap_repo = SnapshotRepository(conn)
-
-    experiment = exp_repo.get_by_name(experiment_name)
-    if not experiment:
-        print(f"Error: Experiment not found: {experiment_name}", file=sys.stderr)
-        return 1
-
-    snapshot = snap_repo.get_by_id(snapshot_id)
-    if not snapshot:
-        print(f"Error: Snapshot not found: {snapshot_id}", file=sys.stderr)
-        return 1
-
-    if snapshot.experiment_id != experiment.experiment_id:
-        print(f"Error: Snapshot '{snapshot_id}' is not in experiment '{experiment_name}'", file=sys.stderr)
-        return 1
-
-    snap_repo.delete(snapshot.snapshot_id)
-    emit_event(
-        get_logger("cli.questions"), Event.QUESTION_REMOVED,
-        experiment=experiment.name, snapshot_id=snapshot.snapshot_id,
-        question_id=snapshot.json_question_id,
-    )
-    print(f"✓ Question '{snapshot.json_question_id}' removed from '{experiment.name}'")
-    return 0
-
-
 def main(mode: Mode) -> int:
     """Main entry point.
 
@@ -625,8 +592,8 @@ def main(mode: Mode) -> int:
     if has_flag(argv, '--add-questions') or has_flag(argv, '--questions'):
         return run_add_questions(argv)
 
-    # --list-questions / --remove-question have no composite-flow
-    # counterpart — parsed and dispatched directly via the Typer command
+    # --list-questions has no composite-flow counterpart — parsed and
+    # dispatched directly via the Typer command
     # (src/cli/commands/questions.py), same shape as before.
     try:
         args = parse_questions_argv(argv)
@@ -640,15 +607,13 @@ def main(mode: Mode) -> int:
     try:
         if args.list_questions:
             return handle_list_questions(args.experiment, conn)
-        elif args.remove_question:
-            return handle_remove_question(args.experiment, args.remove_question, conn)
         else:
             # Unreachable: parse_questions_argv's mutex-group check
-            # already guarantees exactly one of
-            # add_questions/list_questions/remove_question is set, and
-            # add_questions was already handled by the early-return above
-            # — kept only as a defensive fallback, matching the original
-            # argparse version's equivalent branch.
+            # already guarantees exactly one of add_questions/
+            # list_questions is set, and add_questions was already
+            # handled by the early-return above — kept only as a
+            # defensive fallback, matching the original argparse
+            # version's equivalent branch.
             print("Error: no valid question action specified.", file=sys.stderr)
             return 1
     finally:

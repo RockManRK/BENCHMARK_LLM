@@ -1,7 +1,18 @@
 """Typer command definition for the `bcllm_questions.py` CLI surface
-(--experiment, --add-questions/--questions, --list-questions,
---remove-question, --where, --exclude, --output, --source-file) — CLI
-migration marco 4A (2026-08-20).
+(--experiment, --add-questions/--questions, --list-questions, --where,
+--exclude, --output, --source-file) — CLI migration marco 4A
+(2026-08-20).
+
+No removal command exists for question snapshots, deliberately —
+QuestionSnapshot is immutable (docs/contracts/immutability.md §1): an
+experiment can only grow by adding snapshots, never shrink. A
+`--remove-question` flag existed briefly during marco 4A's initial
+conversion but was removed the same day, before marco 4B, once its
+implementation was found to hard-delete rows (contradicting its own
+"soft delete" docstring and the immutability contract) — see
+docs/status/known-issues.md. Do not re-add a removal flag for this
+command without a real product decision to change the immutability
+contract itself.
 
 External syntax is unchanged: same flag names, types, choices, and
 special values (system-default/null) as the argparse implementation it
@@ -52,7 +63,6 @@ class QuestionsParsedArgs:
     experiment: str
     add_questions: str | ForceSystemDefault | None
     list_questions: bool
-    remove_question: str | None
     where: list[str] | ForceSystemDefault
     exclude: list[str] | ForceSystemDefault
     output: str
@@ -71,10 +81,6 @@ def _questions_command(
     ),
     list_questions: bool = typer.Option(
         False, "--list-questions", help="List all questions in experiment",
-    ),
-    remove_question: str = typer.Option(
-        None, "--remove-question", callback=typer_reject_special_values, metavar="SNAPSHOT_ID",
-        help="Remove question snapshot (soft delete)",
     ),
     where: list[str] = typer.Option(
         None, "--where", metavar="FILTER",
@@ -116,24 +122,21 @@ def _questions_command(
     group_flags_given = sum([
         add_questions is not None,
         list_questions,
-        remove_question is not None,
     ])
     if group_flags_given == 0:
         raise typer.BadParameter(
             "one of the arguments --add-questions/--questions --list-questions "
-            "--remove-question is required"
+            "is required"
         )
     if group_flags_given > 1:
         raise typer.BadParameter(
-            "--add-questions/--questions, --list-questions, and --remove-question "
-            "are mutually exclusive"
+            "--add-questions/--questions and --list-questions are mutually exclusive"
         )
 
     return QuestionsParsedArgs(
         experiment=experiment,
         add_questions=add_questions,
         list_questions=list_questions,
-        remove_question=remove_question,
         where=where,
         exclude=exclude,
         output=output.value,

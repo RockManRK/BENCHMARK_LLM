@@ -162,16 +162,17 @@ class TestModuleResolverQuestions:
         # Assert
         assert result == "bcllm_questions"
     
-    def test_remove_question_flag(self):
-        """--remove-question resolves to bcllm_questions."""
-        # Arrange
+    def test_remove_question_flag_does_not_resolve_to_any_module(self):
+        """Normative (marco 4A, 2026-08-20): --remove-question was
+        removed from the system entirely — QuestionSnapshot is immutable,
+        an experiment can only grow by adding snapshots. It must not
+        resolve to bcllm_questions (or any module) via a bare flag-only
+        argv — see docs/status/known-issues.md."""
         argv = ["bcllm", "--remove-question", "q1"]
-        
-        # Act
+
         result = resolve_module(argv)
-        
-        # Assert
-        assert result == "bcllm_questions"
+
+        assert result is None
 
 
 class TestModuleResolverRun:

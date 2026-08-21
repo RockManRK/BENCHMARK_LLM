@@ -84,8 +84,7 @@ Implementation: `src/core/special_config_values.py::normalize_special_config_val
 | `--remove-model` | `model` | Identity: the variant being removed |
 | `--run` | `run` | Identity: which run to show |
 | `--remove-run` | `run` | Identity: which run to remove |
-| `--remove-question` | `questions` (target semantics — module not yet wired to this mechanism, see Fase 4 note above) | Identity: which snapshot to remove |
-| `--source-file` | `questions` (target semantics — same caveat) | Structural: the dataset file path must be explicitly provided, same reasoning as `--url` |
+| `--source-file` | `questions` | Structural: the dataset file path must be explicitly provided, same reasoning as `--url` |
 | `--add-run` | `run` | Structural command (boolean flag; listed for completeness, not independently enforceable as a value) |
 | `--execute` | `execute` | Structural command (boolean flag; listed for completeness) |
 

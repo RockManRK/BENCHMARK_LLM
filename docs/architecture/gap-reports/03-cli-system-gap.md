@@ -4,7 +4,11 @@
 **Domain:** CLI System  
 **Version:** 1.0  
 **Date:** 2026-03-29  
-**Status:** Actionable  
+**Status:** Actionable — QUESTIONS row correction below (2026-08-20)
+
+---
+
+**Correction (2026-08-20):** the QUESTIONS "Remove" row further below, listing `--remove-question <snapshot_id>` as a "✅ New / Soft delete" feature, describes a plan that was implemented then removed the same day it shipped (CLI Typer migration marco 4A): its actual implementation was a hard delete, contradicting `docs/contracts/immutability.md`, and the decision was to remove the command entirely rather than build real soft-delete — QuestionSnapshot stays immutable, an experiment can only grow. See `docs/status/known-issues.md`. This table's other rows are unaffected and still reflect the V1→V2 planning comparison as originally written.
 
 ---
 

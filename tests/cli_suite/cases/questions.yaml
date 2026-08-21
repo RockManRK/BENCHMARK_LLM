@@ -165,23 +165,37 @@ cases:
       no_traceback: true
 
   - id: AQ-006
-    name: "--remove-question em id inexistente falha sem tocar o banco"
+    name: "--remove-question nao existe mais no sistema, exit 2, banco intocado (QuestionSnapshot e imutavel)"
     area: questions
-    profiles: [cli-unit, full]
-    priority: normal
-    tags: [negative]
+    profiles: [cli-unit, contracts, regression, full]
+    priority: high
+    tags: [negative, contracts, regression, immutability]
     fixture:
       env: env_valid_minimal
       dataset: dataset_small_valid
     setup:
-      - ["--create-experiment", "{ns}_aq006"]
+      - ["--create-experiment", "{ns}_aq006", "--add-questions", "1-3"]
     command:
+      # Decisão definitiva (2026-08-20, mesmo dia em que a Essence
+      # Guardian encontrou a tensão): --remove-question foi removido do
+      # sistema inteiramente, não desabilitado — QuestionSnapshot é
+      # imutável, um experimento só pode crescer. A flag agora é um
+      # argumento desconhecido para bcllm_questions.py's Typer command,
+      # rejeitado antes de qualquer conexão de banco. Ver
+      # docs/status/known-issues.md.
       argv: ["--experiment", "{ns}_aq006", "--remove-question", "snap_doesnotexist"]
     expect:
-      exit_code: 1
-      stderr_contains: ["not found"]
+      exit_code: 2
+      stderr_contains: ["remove-question"]
       no_traceback: true
     db:
+      assertions:
+        - query: >-
+            SELECT COUNT(*) FROM question_snapshots qs
+            JOIN experiments e ON e.experiment_id = qs.experiment_id
+            WHERE e.name = ?
+          params: ["{ns}_aq006"]
+          equals: 3
       unchanged_tables: [question_snapshots]
 
   - id: AQ-007

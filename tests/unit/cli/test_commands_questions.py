@@ -21,7 +21,6 @@ class TestValidInvocations:
         assert result.experiment == "exp1"
         assert result.add_questions == "1-5"
         assert result.list_questions is False
-        assert result.remove_question is None
 
     def test_questions_alias(self):
         result = parse_questions_argv(["--experiment", "exp1", "--questions", "1-5"])
@@ -31,11 +30,6 @@ class TestValidInvocations:
         result = parse_questions_argv(["--experiment", "exp1", "--list-questions"])
         assert result.list_questions is True
         assert result.add_questions is None
-        assert result.remove_question is None
-
-    def test_remove_question(self):
-        result = parse_questions_argv(["--experiment", "exp1", "--remove-question", "snap_abc"])
-        assert result.remove_question == "snap_abc"
 
     def test_where_exclude_concrete_filters(self):
         result = parse_questions_argv([
@@ -114,12 +108,22 @@ class TestMutexGroup:
         result = parse_questions_argv(["--experiment", "exp1", "--questions", "1-5"])
         assert result.add_questions == "1-5"
 
-    def test_add_questions_and_remove_question_is_usage_error(self):
+
+class TestRemoveQuestionDoesNotExist:
+    """Normative (2026-08-20): --remove-question was removed from the
+    system entirely — QuestionSnapshot is immutable, an experiment can
+    only grow by adding snapshots. See docs/status/known-issues.md and
+    tests/unit/cli/test_remove_question_removed.py for the full
+    cross-module normative proof."""
+
+    def test_remove_question_is_an_unrecognized_option(self):
         with pytest.raises(ParserExit) as exc_info:
-            parse_questions_argv([
-                "--experiment", "exp1", "--add-questions", "1-5", "--remove-question", "snap_x",
-            ])
+            parse_questions_argv(["--experiment", "exp1", "--remove-question", "snap_x"])
         assert exc_info.value.status == 2
+
+    def test_no_remove_question_field_on_parsed_args(self):
+        result = parse_questions_argv(["--experiment", "exp1", "--list-questions"])
+        assert not hasattr(result, "remove_question")
 
 
 class TestForbiddenExperimentAndOthers:
@@ -131,11 +135,6 @@ class TestForbiddenExperimentAndOthers:
     def test_experiment_null_rejected(self):
         with pytest.raises(ParserExit) as exc_info:
             parse_questions_argv(["--experiment", "null", "--list-questions"])
-        assert exc_info.value.status == 2
-
-    def test_remove_question_system_default_rejected(self):
-        with pytest.raises(ParserExit) as exc_info:
-            parse_questions_argv(["--experiment", "exp1", "--remove-question", "system-default"])
         assert exc_info.value.status == 2
 
     def test_source_file_system_default_rejected(self):

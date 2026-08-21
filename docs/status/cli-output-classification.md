@@ -66,7 +66,14 @@ calls** — one below the ~163 the design doc estimated mid-investigation;
 the earlier 169 figure quoted at that point was the raw, unfiltered grep
 count with neither exclusion applied.
 
-Per-file breakdown of the 162:
+**Corrected 2026-08-20:** `--remove-question` and its 4 `print()` calls
+(`bcllm_questions.py` lines 655/660/664/668) were removed from the
+system the same day (see that module's section below) — the real,
+current count is **158**, not 162. The 162 figure above is kept as the
+original investigation's number; every count below this point reflects
+the correction.
+
+Per-file breakdown of the 158 (post-correction):
 
 | File | Real print() calls |
 |---|---|
@@ -75,12 +82,12 @@ Per-file breakdown of the 162:
 | `bcllm_execute.py` | 18 |
 | `bcllm_provider.py` | 15 |
 | `bcllm_model.py` | 13 |
-| `bcllm_questions.py` | 13 |
+| `bcllm_questions.py` | 9 |
 | `bcllm.py` (root) | 11 |
 | `bcllm_export.py` | 7 |
 | `bcllm_review.py` | 6 |
 | `bcllm_main.py` | 1 |
-| **Total** | **162** |
+| **Total** | **158** |
 
 ## Cross-module shared pattern: dispatcher-bug guard
 
@@ -168,7 +175,19 @@ starts after this line.
 | 519 | `Error: Variant '...' is not in experiment '...'` | erro de uso | stderr | |
 | **523** | `✓ Model '...' removed from '...'` | **resultado / evento auditável** | stdout **+ evento de log** | Highest-priority gap in this file: model *removal* has **zero** log trace anywhere today — not even an unstructured `logger.info`, unlike creation paths. Recommend a new `Event.MODEL_REMOVED` (NORMAL tier) — there is no existing unused constant for this one (unlike `MODEL_ADDED`/`EXPERIMENT_CREATED`), so `log_events.py` needs a genuinely new addition here, not just wiring an existing constant. |
 
-## `bcllm_questions.py` (13 calls)
+## `bcllm_questions.py` (9 calls)
+
+**Corrected 2026-08-20** (down from the original 13): `--remove-question`
+and its handler (`handle_remove_question`, the 4 rows previously listed
+here at lines 655/660/664/668) were **removed from the system entirely**
+the same day — QuestionSnapshot is immutable, an experiment can only
+grow by adding snapshots; the command's real implementation was a hard
+delete, contradicting its own "soft delete" docstring and
+`docs/contracts/immutability.md`. See
+`docs/status/known-issues.md`. `Event.QUESTION_REMOVED` (recommended
+below in the original text) was also removed rather than wired — there
+is nothing left to migrate for this action. `QUESTIONS_ADDED` (row 594's
+note) was wired during marco 4A, separately from this correction.
 
 | Line(s) | Snippet | Category | Destination | Notes |
 |---|---|---|---|---|
@@ -178,10 +197,6 @@ starts after this line.
 | 625 | `No questions in experiment '...'` | resultado | stdout | |
 | 628–630 | List header, column header, separator | resultado / somente terminal | stdout | Same shape as `bcllm_model.py`. |
 | 635 | Per-snapshot row (loop) | resultado | stdout | |
-| 655 | `Error: Experiment not found` (`--remove-question`) | erro de uso | stderr | |
-| 660 | `Error: Snapshot not found` | erro de uso | stderr | |
-| 664 | `Error: Snapshot '...' is not in experiment '...'` | erro de uso | stderr | |
-| **668** | `✓ Question '...' removed from '...'` | **resultado / evento auditável** | stdout **+ evento de log** | Same gap class as `bcllm_model.py:523` — question-snapshot removal has zero log trace. `QUESTIONS_ADDED` exists as an unused constant for the *add* path (see `add_questions_action`'s internal `messages`, not currently emitting any event either — see row above) but there is no removal counterpart; recommend a new `Event.QUESTION_REMOVED` (NORMAL). |
 
 ## `bcllm_run.py` (25 calls)
 
@@ -321,26 +336,30 @@ command path today:
 
 ## Summary
 
-**Confirmed count**: 162 real builtin `print()` calls across the 9
+**Confirmed count (as of the original 2026-08-20 investigation, before
+the same-day `--remove-question` removal — see the correction in the
+Method section above): 162** real builtin `print()` calls across the 9
 `src/cli` command modules + root `bcllm.py` — one below the design doc's
 mid-investigation ~163 estimate once both the 6 docstring false positives
 and the 1 non-builtin `error_console.print()` call are excluded (see
 Method section above). That non-builtin call exists in the not-yet-live
 `presentation/errors.py` and is covered in its own section, not in this
-count.
+count. **Current real count, post-correction: 158** (4 removed with
+`handle_remove_question`).
 
-**By category** (162 total, tallied per individual call site, including
-each line inside a grouped table row — e.g. the 4 calls spanning
-`bcllm_experiment.py:343-346` count as 4, not 1):
+**By category** (162 total as originally tallied, per individual call
+site, including each line inside a grouped table row — e.g. the 4 calls
+spanning `bcllm_experiment.py:343-346` count as 4, not 1; **post-`--remove-question`-removal
+totals in parentheses**, 3 `erro de uso` + 1 `resultado` removed):
 
 | Category | Count |
 |---|---|
-| erro de uso | 76 |
-| resultado | 63 |
+| erro de uso | 76 (73) |
+| resultado | 63 (62) |
 | diagnóstico | 22 |
 | progresso | 1 (bcllm_experiment.py:635 — see note; most "progress-shaped" lines in bcllm_questions.py are folded into its single `messages` loop, row above, tallied there as resultado for simplicity) |
 | ajuda | 0 (excluded — see `parser.print_help()` section) |
-| **Total** | **162** |
+| **Total** | **162 (158)** |
 
 Per-file category breakdown, for auditability of the totals above:
 
@@ -348,7 +367,7 @@ Per-file category breakdown, for auditability of the totals above:
 |---|---|---|---|---|---|
 | `bcllm_experiment.py` | 4 | 33 | 15 | 1 | 53 |
 | `bcllm_model.py` | 1 | 5 | 7 | 0 | 13 |
-| `bcllm_questions.py` | 1 | 5 | 7 | 0 | 13 |
+| `bcllm_questions.py` | 1 | 2 | 6 | 0 | 9 |
 | `bcllm_run.py` | 1 | 8 | 16 | 0 | 25 |
 | `bcllm_execute.py` | 2 | 9 | 7 | 0 | 18 |
 | `bcllm_export.py` | 1 | 4 | 2 | 0 | 7 |
@@ -356,7 +375,7 @@ Per-file category breakdown, for auditability of the totals above:
 | `bcllm_provider.py` | 4 | 2 | 9 | 0 | 15 |
 | `bcllm_main.py` | 1 | 0 | 0 | 0 | 1 |
 | `bcllm.py` (root) | 4 | 7 | 0 | 0 | 11 |
-| **Total** | **22** | **76** | **63** | **1** | **162** |
+| **Total** | **22** | **73** | **62** | **1** | **158** |
 
 **By recommended destination**:
 
@@ -378,8 +397,10 @@ Per-file category breakdown, for auditability of the totals above:
 
   1. `bcllm_model.py:523` — model removal, **zero** log trace (not even
      old-style). New `Event.MODEL_REMOVED` needed.
-  2. `bcllm_questions.py:668` — question-snapshot removal, **zero** log
-     trace. New `Event.QUESTION_REMOVED` needed.
+  2. ~~`bcllm_questions.py:668` — question-snapshot removal~~ — **removed
+     from the system entirely, 2026-08-20** (`--remove-question` and its
+     handler no longer exist; QuestionSnapshot is immutable). No event
+     needed — nothing left to migrate.
   3. `bcllm_run.py:471` — run soft-removal, **zero** log trace. New
      `Event.RUN_REMOVED` needed.
   4. `bcllm_provider.py:183-186` — provider resolution (mutates

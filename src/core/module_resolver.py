@@ -23,11 +23,12 @@ _MODULE_MAP = {
     "--list-models": "bcllm_model",
     "--remove-model": "bcllm_model",
 
-    # Questions module
+    # Questions module — no removal flag: QuestionSnapshot is immutable,
+    # an experiment can only grow by adding snapshots (marco 4A,
+    # 2026-08-20 — see docs/status/known-issues.md).
     "--add-questions": "bcllm_questions",
     "--questions": "bcllm_questions",
     "--list-questions": "bcllm_questions",
-    "--remove-question": "bcllm_questions",
 
     # Run module
     "--add-run": "bcllm_run",
@@ -175,8 +176,9 @@ def resolve_module(argv: List[str]) -> Optional[str]:
         "--create-run", "--list-runs", "--run", "--remove-run",
         # Model actions (already handled ADD_MODEL above, but list/remove need this)
         "--list-models", "--remove-model",
-        # Question actions (already handled ADD_QUESTIONS above)
-        "--list-questions", "--remove-question",
+        # Question actions (already handled ADD_QUESTIONS above; no
+        # removal flag — QuestionSnapshot is immutable)
+        "--list-questions",
         # Experiment structure actions
         "--create-experiment", "--remove-experiment",
         # Review actions

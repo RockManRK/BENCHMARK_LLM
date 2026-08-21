@@ -132,7 +132,7 @@ src/
 | `bcllm_experiment.py` | `--create-experiment`, `--experiment`, `--list-experiments`, `--remove-experiment` | Experiment lifecycle (including `--provider-lock`) |
 | `bcllm_model.py` | `--add-model`, `--list-models`, `--remove-model` | Model variant management (including `--provider`) |
 | `bcllm_provider.py` | `--resolve-providers` | Provider resolution for model variants |
-| `bcllm_questions.py` | `--add-questions`, `--list-questions`, `--remove-question` | Question snapshot management |
+| `bcllm_questions.py` | `--add-questions`, `--list-questions` | Question snapshot management (no removal command — QuestionSnapshot is immutable) |
 | `bcllm_run.py` | `--create-run`, `--list-runs`, `--run`, `--remove-run` | Run management |
 | `bcllm_execute.py` | `--execute` | Execution orchestration (Planner → Engine → Writer) |
 | `bcllm_export.py` | `--export` | Export results to CSV/JSON |

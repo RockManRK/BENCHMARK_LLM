@@ -65,10 +65,6 @@ class Event:
     RUN_CREATED = "run_created"
     QUESTIONS_ADDED = "questions_added"
 
-    # --- Entity removal — NORMAL, new (wired incrementally per Checkpoint
-    # C2's cli-output-classification.md map, marco 4A, 2026-08-20) ---
-    QUESTION_REMOVED = "question_removed"
-
     # --- Refused destructive/mutating commands — NORMAL, new (marco 4A,
     # 2026-08-20). Shared by --remove-experiment and --provider-lock on an
     # existing --experiment, both deliberately disabled to protect the
@@ -174,7 +170,6 @@ EVENT_PROFILE: dict[str, LogProfile] = {
     Event.MODEL_ADDED: LogProfile.NORMAL,
     Event.RUN_CREATED: LogProfile.NORMAL,
     Event.QUESTIONS_ADDED: LogProfile.NORMAL,
-    Event.QUESTION_REMOVED: LogProfile.NORMAL,
     Event.MUTATION_REFUSED: LogProfile.NORMAL,
     Event.PLAN_BUILD_START: LogProfile.NORMAL,
     Event.PLAN_LOADED: LogProfile.NORMAL,

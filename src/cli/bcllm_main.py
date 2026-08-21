@@ -45,7 +45,7 @@ Examples:
 Commands:
   Experiments: --create-experiment, --experiment, --list-experiments, --remove-experiment
   Models:      --add-model, --list-models, --remove-model
-  Questions:   --add-questions, --list-questions, --remove-question
+  Questions:   --add-questions, --list-questions
   Runs:        --create-run, --list-runs, --run, --remove-run
   Execution:   --execute
   Export:      --export
@@ -65,8 +65,7 @@ Commands:
     
     parser.add_argument("--add-questions", metavar="SPEC", nargs="*", help="Add questions to experiment")
     parser.add_argument("--list-questions", action="store_true", help="List questions in experiment")
-    parser.add_argument("--remove-question", metavar="SNAPSHOT_ID", help="Remove question snapshot")
-    
+
     parser.add_argument("--create-run", action="store_true", help="Create run in experiment")
     parser.add_argument("--list-runs", action="store_true", help="List runs in experiment")
     parser.add_argument("--run", metavar="RUN_ID", help="Show run details")
