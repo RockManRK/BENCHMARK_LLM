@@ -65,28 +65,28 @@ def setup_test_data(in_memory_db: sqlite3.Connection) -> dict:
     """
     cursor = in_memory_db.cursor()
 
-    # Insert experiment
+    # Insert experiment (prompts live in config_json, not dedicated columns)
     cursor.execute("""
-        INSERT INTO experiments (experiment_id, name, system_prompt, user_prompt)
-        VALUES ('exp-test-001', 'Test Experiment', 'System prompt', 'User prompt')
+        INSERT INTO experiments (experiment_id, name, config_json, config_hash)
+        VALUES ('exp-test-001', 'Test Experiment', '{"SYSTEM_PROMPT": "System prompt", "USER_PROMPT": "User prompt"}', 'test-hash')
     """)
 
-    # Insert model variant
+    # Insert model variant (config is NOT NULL in current schema)
     cursor.execute("""
-        INSERT INTO model_variants (variant_id, experiment_id, model_id, variant_signature)
-        VALUES ('var-abc-123', 'exp-test-001', 'openai/gpt-4', 'gpt-4-default')
+        INSERT INTO model_variants (variant_id, experiment_id, model_id, variant_signature, config)
+        VALUES ('var-abc-123', 'exp-test-001', 'openai/gpt-4', 'gpt-4-default', '{}')
     """)
 
-    # Insert question snapshot
+    # Insert question snapshot (columns are json_question_id + question_position, not question_id)
     cursor.execute("""
-        INSERT INTO question_snapshots (snapshot_id, experiment_id, question_id, question_payload)
-        VALUES ('snap-xyz-789', 'exp-test-001', 'q1', '{"stem": "What is 2+2?", "options": ["3", "4", "5", "6"], "answer_key": "4"}')
+        INSERT INTO question_snapshots (snapshot_id, experiment_id, json_question_id, question_position, question_payload)
+        VALUES ('snap-xyz-789', 'exp-test-001', 'q1', 1, '{"stem": "What is 2+2?", "options": ["3", "4", "5", "6"], "answer_key": "4"}')
     """)
 
-    # Insert run
+    # Insert run (seed lives in config_json, not a dedicated column)
     cursor.execute("""
-        INSERT INTO runs (run_id, experiment_id, seed, status)
-        VALUES ('run-test-001', 'exp-test-001', 42, 'pending')
+        INSERT INTO runs (run_id, experiment_id, config, status)
+        VALUES ('run-test-001', 'exp-test-001', '{"RANDOMIZATION_SEED": 42}', 'pending')
     """)
 
     in_memory_db.commit()
