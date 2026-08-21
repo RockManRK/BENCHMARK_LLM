@@ -127,13 +127,24 @@ class TestLoadDataset:
         assert len(questions) == 2
 
     def test_load_default_path_when_env_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that default path is used when env var is not set."""
+        """Test that the versioned default dataset is used when the env var is not set.
+
+        `data/enamed_questions.json` is a real, git-tracked asset that ships
+        with every checkout of this repository (not generated, not gitignored)
+        — so the documented fallback in
+        `QuestionLoader._resolve_dataset_path` ("data/enamed_questions.json")
+        always resolves to a real file, never to a missing one. The previous
+        version of this test asserted the opposite (`FileNotFoundError`),
+        which could only ever be true if the shipped dataset were deleted.
+        """
         monkeypatch.delenv("QUESTIONS_DATASET_PATH", raising=False)
-        
+
         loader = QuestionLoader()
-        
-        with pytest.raises(FileNotFoundError):
-            loader.load_dataset(None)
+        questions = loader.load_dataset(None)
+
+        assert isinstance(questions, list)
+        assert len(questions) > 0
+        assert {"stem", "options", "answer_key"}.issubset(questions[0].keys())
 
     def test_load_dataset_returns_list(self, valid_json_file: Path) -> None:
         """Test that load_dataset returns a list."""
