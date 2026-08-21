@@ -43,7 +43,7 @@ class MockCompletionResponse:
     content: str
     model_id: str
     input_tokens: int
-    output_tokens: int
+    response_tokens: int
     latency_ms: int
 
 
@@ -56,7 +56,7 @@ class MockOpenRouterClient:
             content="The answer is (B).",
             model_id="openai/gpt-4",
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             latency_ms=500,
         )
         self._chat_completion_side_effect = None
@@ -133,7 +133,6 @@ def mock_parser():
     parser.parse = MagicMock(return_value=ParsedAnswer(
         answer="B",
         confidence="clear",
-        raw_matches=["B"],
     ))
     return parser
 
@@ -639,7 +638,7 @@ class TestExecutionResultStructure:
             parse_confidence="clear",
             latency_ms=500,
             input_tokens=50,
-            output_tokens=10,
+            response_tokens=10,
             error_type=None,
             error_message=None,
             attempt_count=1,
@@ -657,7 +656,7 @@ class TestExecutionResultStructure:
         assert result.parse_confidence == "clear"
         assert result.latency_ms == 500
         assert result.input_tokens == 50
-        assert result.output_tokens == 10
+        assert result.response_tokens == 10
         assert result.error_type is None
         assert result.error_message is None
         assert result.attempt_count == 1
@@ -676,7 +675,7 @@ class TestExecutionResultStructure:
             parse_confidence=None,
             latency_ms=None,
             input_tokens=None,
-            output_tokens=None,
+            response_tokens=None,
             error_type="api_error",
             error_message="Connection timeout",
             attempt_count=3,
