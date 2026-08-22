@@ -128,6 +128,13 @@ class Response:
         review_status: Manual review status ('needs_review', 'reviewed', etc.)
         manual_answer: Human override (optional)
         raw_response: Complete JSON response from API
+        raw_response_consolidated: Consolidated/deduplicated raw response
+            JSON (see src/core/result_writer.py's serialization) — distinct
+            from raw_response, which is the response as originally
+            received.
+        request_json: The exact request payload sent to the API (audit
+            fidelity — see docs/contracts/idempotency.md's Implementation
+            Pattern and docs/status/model-seed-checkpoint-b-design.md).
         cost: Cost value from API response
         input_tokens: Number of input tokens used
         response_tokens: Number of response tokens (completion_tokens)
@@ -136,6 +143,19 @@ class Response:
         latency_ms: API call latency in milliseconds
         started_at: Local timestamp when request was sent
         finished_at: Local timestamp when response was fully received
+
+        # Experimental context (randomization tracking — see
+        # src/core/execution_engine.py::ExecutionResult's own docstring
+        # for the full randomization contract these fields preserve)
+        randomization_enabled: Whether answer options were randomized for
+            this response.
+        randomization_seed: Seed used for randomization (None if disabled).
+        options_presented: Options exactly as presented to the LLM (JSON
+            list, in presented order — never "de-randomized").
+        correct_option_presented: Correct answer letter in the presented
+            option space (not necessarily the original answer_key letter).
+        option_letter_map: JSON mapping from presented letter to original
+            letter.
     """
     response_id: str
     run_id: str
@@ -153,6 +173,8 @@ class Response:
     review_status: str | None = None
     manual_answer: str | None = None
     raw_response: str | None = None
+    raw_response_consolidated: str | None = None
+    request_json: str | None = None
     cost: float | None = None
     input_tokens: int | None = None
     response_tokens: int | None = None
@@ -161,5 +183,10 @@ class Response:
     latency_ms: int | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    randomization_enabled: bool = False
+    randomization_seed: int | None = None
+    options_presented: str | None = None
+    correct_option_presented: str | None = None
+    option_letter_map: str | None = None
 
 

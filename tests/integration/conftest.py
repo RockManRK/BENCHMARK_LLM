@@ -154,23 +154,31 @@ def full_experiment_setup(in_memory_db):
     exp_repo.save(experiment)
     
     # Add model variant
+    # Fixed 2026-08-21 (test-debt reconciliation, group 2): ModelVariant has
+    # no reasoning_mode/reasoning_effort/max_output_tokens/vision_enabled/
+    # structured_output/web_access_enabled fields — those either moved into
+    # the JSON `config` string or (reasoning_mode, web_access_enabled) were
+    # never real, unused factory kwargs (see tests/factories/variant.py's
+    # module docstring). Using the canonical VariantFactory instead of a
+    # manual construction, per the same rationale.
+    from tests.factories.variant import VariantFactory
     variant_id = f"var_{uuid.uuid4().hex[:8]}"
-    from src.db.models import ModelVariant
-    variant = ModelVariant(
-        variant_id=variant_id,
+    variant = VariantFactory.create(
         experiment_id=experiment_id,
         model_id="openai/gpt-4",
+        variant_id=variant_id,
         variant_signature="openai_gpt-4",
-        reasoning_mode="off",
-        reasoning_effort=None,
-        max_output_tokens=None,
         vision_enabled=False,
         structured_output=False,
-        web_access_enabled=False,
     )
     var_repo.save(variant)
-    
+
     # Add question snapshots
+    # Fixed 2026-08-21 (same reconciliation): question_id is not a real
+    # QuestionSnapshot field (real columns: json_question_id,
+    # question_position — src/db/models.py) — this call had never been
+    # reached before the ModelVariant fix above, since the fixture always
+    # raised TypeError first.
     snapshot_ids = []
     for i in range(1, 4):  # 3 questions by default
         snapshot_id = f"snap_{uuid.uuid4().hex[:8]}"
@@ -183,22 +191,28 @@ def full_experiment_setup(in_memory_db):
         snapshot = QuestionSnapshot(
             snapshot_id=snapshot_id,
             experiment_id=experiment_id,
-            question_id=f"Q{i:02d}",
+            json_question_id=f"Q{i:02d}",
+            question_position=i,
             question_payload=json.dumps(payload),
         )
         snap_repo.save(snapshot)
         snapshot_ids.append(snapshot_id)
-    
+
     # Create run
+    # Fixed 2026-08-21 (same reconciliation): Run has no seed= field — the
+    # Randomization Seed lives in the JSON config, and
+    # RunRepository.save() takes that config as its own separate dict
+    # argument (it serializes that, not run.config) — see
+    # src/db/repository.py::RunRepository.save. Also unreachable before
+    # the fixes above.
     run_id = f"run_{uuid.uuid4().hex[:8]}"
     from src.db.models import Run
     run = Run(
         run_id=run_id,
         experiment_id=experiment_id,
-        seed=42,
         status="pending",
     )
-    run_repo.save(run)
+    run_repo.save(run, {"RANDOMIZATION_SEED": 42})
     
     return {
         'experiment_id': experiment_id,

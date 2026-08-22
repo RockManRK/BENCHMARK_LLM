@@ -160,7 +160,7 @@ src/
 | `execution_engine.py` | Pure execution (API calls) | None |
 | `result_writer.py` | Persist results | Write-only |
 | `async_orchestrator.py` | Async bridge (sync caller → async internal) | Via writer |
-| `async_writer.py` | Async result queue consumer | Write-only |
+| `async_writer.py` | Async result queue consumer; also `drain_abandoned()` — best-effort `errors`-row audit trail for items abandoned after a writer abort (ADR-004/ASY-01) | Write-only |
 | `execution_plan.py` | Immutable plan dataclasses | None |
 | `run_finalizer.py` | Update run status/duration | Write-only |
 

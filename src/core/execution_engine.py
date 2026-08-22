@@ -39,7 +39,7 @@ IMPORTANT - Randomization Contract:
 
 Example:
     >>> engine = ExecutionEngine(api_client, randomizer, parser)
-    >>> results = engine.execute(plan)
+    >>> results = await engine.execute_async(plan, asyncio.Queue())
     >>> for result in results:
     ...     print(f"Item {result.item_id}: {result.status}")
 """
@@ -214,7 +214,7 @@ class ExecutionEngine:
 
     Example:
         >>> engine = ExecutionEngine(api_client, randomizer, parser)
-        >>> results = engine.execute(plan)
+        >>> results = await engine.execute_async(plan, asyncio.Queue())
     """
 
     def __init__(

@@ -566,9 +566,12 @@ class ResponseRepository:
             SELECT response_id, run_id, variant_id, snapshot_id,
                    model_id, question_id, status, finish_reason, error_details,
                    response_text, selected_answer, is_correct, parse_confidence,
-                   review_status, manual_answer, raw_response, cost,
+                   review_status, manual_answer, raw_response, raw_response_consolidated,
+                   request_json, cost,
                    input_tokens, response_tokens, reasoning_tokens, effective_tokens,
-                   latency_ms, started_at, finished_at
+                   latency_ms, started_at, finished_at,
+                   randomization_enabled, randomization_seed,
+                   options_presented, correct_option_presented, option_letter_map
             FROM responses
             WHERE response_id = ?
         """, (response_id,))
@@ -584,9 +587,12 @@ class ResponseRepository:
             SELECT response_id, run_id, variant_id, snapshot_id,
                    model_id, question_id, status, finish_reason, error_details,
                    response_text, selected_answer, is_correct, parse_confidence,
-                   review_status, manual_answer, raw_response, cost,
+                   review_status, manual_answer, raw_response, raw_response_consolidated,
+                   request_json, cost,
                    input_tokens, response_tokens, reasoning_tokens, effective_tokens,
-                   latency_ms, started_at, finished_at
+                   latency_ms, started_at, finished_at,
+                   randomization_enabled, randomization_seed,
+                   options_presented, correct_option_presented, option_letter_map
             FROM responses
             WHERE run_id = ?
             ORDER BY started_at ASC
@@ -600,9 +606,12 @@ class ResponseRepository:
             SELECT response_id, run_id, variant_id, snapshot_id,
                    model_id, question_id, status, finish_reason, error_details,
                    response_text, selected_answer, is_correct, parse_confidence,
-                   review_status, manual_answer, raw_response, cost,
+                   review_status, manual_answer, raw_response, raw_response_consolidated,
+                   request_json, cost,
                    input_tokens, response_tokens, reasoning_tokens, effective_tokens,
-                   latency_ms, started_at, finished_at
+                   latency_ms, started_at, finished_at,
+                   randomization_enabled, randomization_seed,
+                   options_presented, correct_option_presented, option_letter_map
             FROM responses
             WHERE review_status = 'needs_review'
             ORDER BY started_at ASC
@@ -674,6 +683,8 @@ class ResponseRepository:
             review_status=row["review_status"],
             manual_answer=row["manual_answer"],
             raw_response=row["raw_response"],
+            raw_response_consolidated=row["raw_response_consolidated"],
+            request_json=row["request_json"],
             cost=row["cost"],
             input_tokens=row["input_tokens"],
             response_tokens=row["response_tokens"],
@@ -682,4 +693,9 @@ class ResponseRepository:
             latency_ms=row["latency_ms"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
+            randomization_enabled=bool(row["randomization_enabled"]) if row["randomization_enabled"] is not None else False,
+            randomization_seed=row["randomization_seed"],
+            options_presented=row["options_presented"],
+            correct_option_presented=row["correct_option_presented"],
+            option_letter_map=row["option_letter_map"],
         )

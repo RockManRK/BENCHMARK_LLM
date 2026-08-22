@@ -65,6 +65,7 @@ class MockOpenRouterClient:
         self,
         payload: dict,
         base_url: str | None = None,
+        operation_id: str | None = None,
     ) -> MockCompletionResponse:
         """Mock chat completion that records calls.
 
@@ -73,6 +74,12 @@ class MockOpenRouterClient:
         keys are derived from it here for backward-compatible assertions
         below (see docs/status/model-seed-checkpoint-b-design.md, Part 1:
         the client no longer receives scalar kwargs, only the payload).
+        Fixed 2026-08-21 (test-debt reconciliation, group 3): this mock
+        was missing operation_id, which ExecutionEngine.api_call_with_retry
+        always passes as a keyword — raised TypeError on every real call,
+        invisible until execute_async's tests actually reached this
+        dispatch (previously masked entirely by the missing execute()
+        method itself).
         """
         self._call_args_list.append({
             'model_id': payload.get('model'),
@@ -226,7 +233,7 @@ class TestExecutionEngineDomainRules:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(sample_plan)
+        results = await engine.execute_async(sample_plan, asyncio.Queue())
 
         # Assert: API was called with model_id from variant
         assert len(mock_api_client.call_args_list) == 1
@@ -247,7 +254,7 @@ class TestExecutionEngineDomainRules:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(sample_plan)
+        results = await engine.execute_async(sample_plan, asyncio.Queue())
 
         # Assert: variant_id is preserved in results
         assert len(results) == 1
@@ -309,7 +316,7 @@ class TestExecutionEngineDomainRules:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan_with_config)
+        results = await engine.execute_async(plan_with_config, asyncio.Queue())
 
         # Assert: Engine used the effective config (no modification)
         call_args = mock_api_client.call_args_list[0]
@@ -371,7 +378,7 @@ class TestExecutionEngineExecute:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan_multi)
+        results = await engine.execute_async(plan_multi, asyncio.Queue())
 
         # Assert: All items were executed
         assert len(results) == 2
@@ -386,7 +393,7 @@ class TestExecutionEngineExecute:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(sample_plan)
+        results = await engine.execute_async(sample_plan, asyncio.Queue())
 
         # Assert: Returns list of ExecutionResult
         assert isinstance(results, list)
@@ -441,7 +448,7 @@ class TestExecutionEngineExecute:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan)
+        results = await engine.execute_async(plan, asyncio.Queue())
 
         # Assert: Both runs executed
         assert len(results) == 2
@@ -486,7 +493,7 @@ class TestExecutionEngineRandomization:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan)
+        results = await engine.execute_async(plan, asyncio.Queue())
 
         # Assert: Randomizer was called with seed
         mock_randomizer.set_seed.assert_called_once_with(42)
@@ -521,7 +528,7 @@ class TestExecutionEngineRandomization:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan)
+        results = await engine.execute_async(plan, asyncio.Queue())
 
         # Assert: Randomizer was NOT called
         mock_randomizer.set_seed.assert_not_called()
@@ -568,7 +575,7 @@ class TestExecutionEngineErrorHandling:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan)
+        results = await engine.execute_async(plan, asyncio.Queue())
 
         # Assert: Failure result returned
         assert len(results) == 1
@@ -608,7 +615,7 @@ class TestExecutionEngineErrorHandling:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan)
+        results = await engine.execute_async(plan, asyncio.Queue())
 
         # Assert: Attempt count is tracked
         assert len(results) == 1
@@ -725,7 +732,7 @@ class TestExecutionEngineIntegration:
         engine = ExecutionEngine(mock_api_client, mock_randomizer, mock_parser)
 
         # Act
-        results = engine.execute(plan)
+        results = await engine.execute_async(plan, asyncio.Queue())
 
         # Assert: Full flow completed
         assert len(results) == 1

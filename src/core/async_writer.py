@@ -30,6 +30,7 @@ Example:
 """
 
 import asyncio
+from dataclasses import replace
 from logging import Logger
 from typing import Optional
 
@@ -39,6 +40,55 @@ from src.utils.logging_config import get_logger
 from src.utils.log_emitter import emit_event
 from src.utils.log_events import Event
 import logging
+
+
+def _bounded_excerpt(text: str | None, max_len: int = 200) -> str | None:
+    """Truncate response_text for inclusion in a best-effort audit
+    error_message (ADR-004) — bounded, not the full verbatim content."""
+    if text is None:
+        return None
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "...(truncated)"
+
+
+def _build_persistence_failure_message(
+    result: ExecutionResult, reason: str, original_exception: Exception,
+) -> str:
+    """Build the error_message for a best-effort errors-row audit trail
+    (ADR-004, ASY-01) recording that a received ExecutionResult could not
+    be persisted as a response. Includes: that a result was received, that
+    the failure was one of persistence (not the original API/parse
+    outcome), the original exception, item identity, the ExecutionResult's
+    original status (and its own error_type/error_message, if it already
+    had one), a bounded response_text excerpt, and token/cost fields —
+    all already present on ExecutionResult, no new schema needed."""
+    parts = [
+        f"Received ExecutionResult could not be persisted as a response — {reason}.",
+        f"original_exception={original_exception!r}",
+        f"item_id={result.item_id!r} run_id={result.run_id!r} variant_id={result.variant_id!r} "
+        f"snapshot_id={result.snapshot_id!r} question_id={result.question_id!r}",
+        f"original_status={result.status!r}",
+    ]
+    if result.error_type is not None or result.error_message is not None:
+        parts.append(
+            f"original_error_type={result.error_type!r} original_error_message={result.error_message!r}"
+        )
+    excerpt = _bounded_excerpt(result.response_text)
+    if excerpt is not None:
+        parts.append(f"response_text_excerpt={excerpt!r}")
+    token_bits = []
+    if result.input_tokens is not None:
+        token_bits.append(f"input_tokens={result.input_tokens}")
+    if result.response_tokens is not None:
+        token_bits.append(f"response_tokens={result.response_tokens}")
+    if result.reasoning_tokens is not None:
+        token_bits.append(f"reasoning_tokens={result.reasoning_tokens}")
+    if result.cost is not None:
+        token_bits.append(f"cost={result.cost}")
+    if token_bits:
+        parts.append(" ".join(token_bits))
+    return " | ".join(parts)
 
 
 class AsyncWriter:
@@ -218,9 +268,100 @@ class AsyncWriter:
                         "attempts": self.MAX_RETRIES,
                     }
                     self._abort_event.set()
+                    # ADR-004/ASY-01: fail-fast is preserved — this does
+                    # NOT retry the response write again. It records one
+                    # additional, best-effort, already-shaped errors row
+                    # so the received result stays auditable and the run
+                    # can never be finalized as 'completed' having lost it.
+                    self._record_persistence_failure_as_error(
+                        result, error_type="write_failure",
+                        reason="persistence failed after all retries",
+                        original_exception=e,
+                        recorded_event=Event.WRITE_FAILURE_RECORDED,
+                    )
                     return False
 
         return False
+
+    def _record_persistence_failure_as_error(
+        self,
+        result: ExecutionResult,
+        error_type: str,
+        reason: str,
+        original_exception: Exception,
+        recorded_event: str,
+    ) -> None:
+        """Best-effort audit trail for a received ExecutionResult that
+        could not be durably persisted as a response (ADR-004, ASY-01).
+
+        Reuses ResultWriter._write_error() UNMODIFIED — it only ever reads
+        error_type/error_message/attempt_count, never `status`, so it
+        applies cleanly even to an originally-`status='success'` result
+        whose *persistence* failed, not its API call. Never raises: if
+        even this best-effort write fails (total DB unavailability), the
+        CRITICAL WRITE_FAILURE_TRACE_FAILED log event is the final,
+        explicitly-accepted fallback (ADR-004, Decision 2) — it must never
+        mask or interrupt the original abort.
+        """
+        message = _build_persistence_failure_message(result, reason, original_exception)
+        error_result = replace(result, error_type=error_type, error_message=message)
+        try:
+            self._result_writer._write_error(error_result)
+        except Exception as trace_exc:
+            emit_event(
+                self._logger, Event.WRITE_FAILURE_TRACE_FAILED, level=logging.CRITICAL,
+                operation_id=self._operation_id, item_id=result.item_id,
+                run_id=result.run_id, variant_id=result.variant_id, snapshot_id=result.snapshot_id,
+                error_type=error_type, original_exception=repr(original_exception),
+                trace_exception=repr(trace_exc),
+            )
+            return
+        emit_event(
+            self._logger, recorded_event, level=logging.ERROR,
+            operation_id=self._operation_id, item_id=result.item_id,
+            run_id=result.run_id, variant_id=result.variant_id, snapshot_id=result.snapshot_id,
+            error_type=error_type,
+        )
+
+    def drain_abandoned(self) -> int:
+        """Best-effort, non-blocking drain of any items left in the queue
+        after an abort (ADR-004, ASY-01). Called by the caller (e.g.
+        AsyncOrchestrator) once consume() has returned with abort_event
+        set — never resumes normal consumption, never retries a write,
+        never re-executes an item.
+
+        Each real ExecutionResult found is recorded as an auditable error
+        row (error_type='abandoned_after_writer_abort'), never persisted
+        as a normal response. A sentinel (None) or any other
+        non-ExecutionResult queue entry is drained and discarded safely —
+        never treated as a lost item. Never raises.
+
+        Returns:
+            Count of ExecutionResult items recorded as abandoned.
+        """
+        abandoned = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            self._queue.task_done()
+            if not isinstance(item, ExecutionResult):
+                # Sentinel or other structural entry — not a lost item.
+                continue
+            self._record_persistence_failure_as_error(
+                item, error_type="abandoned_after_writer_abort",
+                reason=(
+                    "never reached the writer — abandoned in the queue "
+                    "after a sibling item's writer abort"
+                ),
+                original_exception=RuntimeError(
+                    "writer aborted before this item could be attempted"
+                ),
+                recorded_event=Event.ITEM_ABANDONED_AFTER_WRITER_ABORT,
+            )
+            abandoned += 1
+        return abandoned
 
     @property
     def results_written(self) -> list[ExecutionResult]:

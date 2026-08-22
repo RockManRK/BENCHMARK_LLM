@@ -307,12 +307,14 @@ def test_writer_idempotent_writes(in_memory_db: sqlite3.Connection, setup_test_d
     writer = ResultWriter(in_memory_db)
 
     # Act: Write twice
-    written1 = writer.write_result(result)
-    written2 = writer.write_result(result)  # Duplicate
-
-    # Assert: Second write is skipped (idempotency)
-    assert written1 is True, "First write should succeed"
-    assert written2 is False, "Second write should be skipped (idempotency)"
+    # Fixed 2026-08-21 (test-debt reconciliation, group 5): write_result()
+    # is documented (docs/contracts/idempotency.md's Implementation
+    # Pattern) and implemented to return None — idempotency is proven by
+    # querying persisted state, not by an internal return value. No
+    # consumer (AsyncWriter._write_result_with_retry) uses or needs a
+    # return value from write_result() today.
+    writer.write_result(result)
+    writer.write_result(result)  # Duplicate — must be silently skipped
 
     # Verify only one row in DB
     cursor = in_memory_db.cursor()

@@ -196,6 +196,17 @@ class AsyncOrchestrator:
             await queue.put(None)
             await writer_task
 
+            # ADR-004/ASY-01: after the writer has fully stopped (fail-fast
+            # preserved — this does not resume consumption or retry any
+            # write), drain whatever is left in the queue. Any real
+            # ExecutionResult still sitting there was received but never
+            # even attempted — record it as an auditable error, never
+            # silently drop it. Only runs when the writer actually
+            # aborted; on a clean sentinel-only shutdown the queue is
+            # already empty and this is a no-op.
+            if writer_aborted:
+                writer.drain_abandoned()
+
             # Finalize each run via RunFinalizer (sole owner of runs.status/duration)
             # Even on abort — finalize with whatever was persisted
             for run in plan.runs:
@@ -225,6 +236,16 @@ class AsyncOrchestrator:
                     operation_id=operation_id,
                 )
                 self._logger.exception("Writer task failed during cleanup")
+
+            # ADR-004/ASY-01: same guarantee as the normal-completion path
+            # above — writer_task is confirmed done at this point (just
+            # awaited, whether it returned normally or raised, caught
+            # immediately above), so this cannot race with consume().
+            # Only drains when the writer itself aborted; if it didn't,
+            # its own consume() loop already drained everything queued
+            # before it reached the sentinel just sent above.
+            if writer.abort_event.is_set():
+                writer.drain_abandoned()
 
             raise
 

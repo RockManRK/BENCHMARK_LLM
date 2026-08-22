@@ -38,10 +38,16 @@ from src.core.answer_parser import AnswerParser
 
 def _execute_and_write(engine, plan, writer):
     """Helper: execute a plan async and write results individually."""
-    queue = asyncio.Queue()
-    results = asyncio.get_event_loop().run_until_complete(
-        engine.execute_async(plan, queue)
-    )
+    async def _run():
+        queue = asyncio.Queue()
+        return await engine.execute_async(plan, queue)
+
+    # Fixed 2026-08-21 (test-debt reconciliation): asyncio.get_event_loop()
+    # raises RuntimeError under Python 3.14 when called from a thread with
+    # no running/previously-set loop — asyncio.run() creates and tears
+    # down its own loop per call, which this helper's callers (each a
+    # single synchronous test method) don't need to reuse across calls.
+    results = asyncio.run(_run())
     for result in results:
         writer.write_result(result)
     return results
@@ -84,24 +90,29 @@ class TestFullExperimentLifecycle:
         ExperimentRepository(in_memory_db).save(exp)
         
         # Step 2: Add model
+        # Fixed 2026-08-21 (test-debt reconciliation, group 2 + adjacent
+        # site): ModelVariant has no reasoning_mode field — see
+        # tests/factories/variant.py's module docstring.
         var_id = f"var_{uuid.uuid4().hex[:8]}"
-        from src.db.models import ModelVariant
-        variant = ModelVariant(
-            variant_id=var_id,
+        from tests.factories.variant import VariantFactory
+        variant = VariantFactory.create(
             experiment_id=exp_id,
             model_id="openai/gpt-4",
+            variant_id=var_id,
             variant_signature="openai_gpt-4",
-            reasoning_mode="off",
         )
         VariantRepository(in_memory_db).save(variant)
-        
+
         # Step 3: Add questions
+        # Fixed 2026-08-21 (same reconciliation): question_id is not a real
+        # QuestionSnapshot field (real: json_question_id/question_position).
         snap_id = f"snap_{uuid.uuid4().hex[:8]}"
         from src.db.models import QuestionSnapshot
         snapshot = QuestionSnapshot(
             snapshot_id=snap_id,
             experiment_id=exp_id,
-            question_id="Q01",
+            json_question_id="Q01",
+            question_position=1,
             question_payload=json.dumps({
                 "stem": "Test question",
                 "options": ["A", "B", "C", "D"],
@@ -109,17 +120,20 @@ class TestFullExperimentLifecycle:
             }),
         )
         SnapshotRepository(in_memory_db).save(snapshot)
-        
+
         # Step 4: Create run
+        # Fixed 2026-08-21 (same reconciliation): Run has no seed= field,
+        # and RunRepository.save() takes the config as its own separate
+        # dict argument (serializes that, not run.config) — see
+        # src/db/repository.py::RunRepository.save.
         run_id = f"run_{uuid.uuid4().hex[:8]}"
         from src.db.models import Run
         run = Run(
             run_id=run_id,
             experiment_id=exp_id,
-            seed=42,
             status="pending",
         )
-        RunRepository(in_memory_db).save(run)
+        RunRepository(in_memory_db).save(run, {"RANDOMIZATION_SEED": 42})
         
         # Step 5: Execute run
         from src.core.planner import Planner
@@ -142,7 +156,11 @@ class TestFullExperimentLifecycle:
         assert len(responses) == 1
         assert responses[0].selected_answer == "B"
         assert responses[0].parse_confidence == "clear"
-        assert responses[0].needs_review == False
+        # Fixed 2026-08-21 (same reconciliation): Response has no
+        # needs_review field — real field is review_status
+        # ('needs_review'/'auto', src/core/result_writer.py's
+        # _calculate_review_status).
+        assert responses[0].review_status == "auto"
     
     def test_experiment_with_multiple_models(self, in_memory_db, mock_api_client):
         """
@@ -153,7 +171,8 @@ class TestFullExperimentLifecycle:
         - Execution creates responses for each model
         - Results are correctly associated with variants
         """
-        from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+        from src.db.models import Experiment, QuestionSnapshot, Run
+        from tests.factories.variant import VariantFactory
         from src.core.planner import Planner
         from src.core.execution_engine import ExecutionEngine
         from src.core.result_writer import ResultWriter
@@ -161,13 +180,13 @@ class TestFullExperimentLifecycle:
         from src.core.answer_parser import AnswerParser
         import json
         import uuid
-        
+
         # Setup: Create experiment with 2 models and 2 questions
         exp_repo = ExperimentRepository(in_memory_db)
         var_repo = VariantRepository(in_memory_db)
         snap_repo = SnapshotRepository(in_memory_db)
         run_repo = RunRepository(in_memory_db)
-        
+
         experiment = Experiment(
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="multi-model-exp",
@@ -176,31 +195,33 @@ class TestFullExperimentLifecycle:
             config_hash="",
         )
         exp_repo.save(experiment)
-        
+
         # Add 2 model variants
-        variant1 = ModelVariant(
-            variant_id=f"var_{uuid.uuid4().hex[:8]}",
+        # Fixed 2026-08-21 (test-debt reconciliation, group 2 — adjacent
+        # site, same root cause as the declared scope: ModelVariant has no
+        # reasoning_mode field).
+        variant1 = VariantFactory.create(
             experiment_id=experiment.experiment_id,
             model_id="openai/gpt-4",
             variant_signature="openai_gpt-4",
-            reasoning_mode="off",
         )
-        variant2 = ModelVariant(
-            variant_id=f"var_{uuid.uuid4().hex[:8]}",
+        variant2 = VariantFactory.create(
             experiment_id=experiment.experiment_id,
             model_id="anthropic/claude-3",
             variant_signature="anthropic_claude-3",
-            reasoning_mode="off",
         )
         var_repo.save(variant1)
         var_repo.save(variant2)
-        
+
         # Add 2 question snapshots
+        # Fixed 2026-08-21 (same reconciliation): question_id is not a
+        # real QuestionSnapshot field.
         for i in range(1, 3):
             snapshot = QuestionSnapshot(
                 snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
                 experiment_id=experiment.experiment_id,
-                question_id=f"Q{i:02d}",
+                json_question_id=f"Q{i:02d}",
+                question_position=i,
                 question_payload=json.dumps({
                     "stem": f"Question {i}",
                     "options": ["A", "B", "C", "D"],
@@ -208,15 +229,16 @@ class TestFullExperimentLifecycle:
                 }),
             )
             snap_repo.save(snapshot)
-        
+
         # Create run
+        # Fixed 2026-08-21 (same reconciliation): Run has no seed= field;
+        # RunRepository.save() takes config as its own dict argument.
         run = Run(
             run_id=f"run_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
-            seed=42,
             status="pending",
         )
-        run_repo.save(run)
+        run_repo.save(run, {"RANDOMIZATION_SEED": 42})
         
         # Execute: Planner → Engine → Writer
         planner = Planner(in_memory_db)
@@ -260,7 +282,8 @@ class TestFullExperimentLifecycle:
         - Each run executes independently
         - Results are correctly isolated by run_id
         """
-        from src.db.models import Experiment, ModelVariant, QuestionSnapshot, Run
+        from src.db.models import Experiment, QuestionSnapshot, Run
+        from tests.factories.variant import VariantFactory
         from src.core.planner import Planner
         from src.core.execution_engine import ExecutionEngine
         from src.core.result_writer import ResultWriter
@@ -268,13 +291,13 @@ class TestFullExperimentLifecycle:
         from src.core.answer_parser import AnswerParser
         import json
         import uuid
-        
+
         # Setup: Create experiment with 1 model and 2 questions
         exp_repo = ExperimentRepository(in_memory_db)
         var_repo = VariantRepository(in_memory_db)
         snap_repo = SnapshotRepository(in_memory_db)
         run_repo = RunRepository(in_memory_db)
-        
+
         experiment = Experiment(
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="multi-run-exp",
@@ -283,21 +306,24 @@ class TestFullExperimentLifecycle:
             config_hash="",
         )
         exp_repo.save(experiment)
-        
-        variant = ModelVariant(
-            variant_id=f"var_{uuid.uuid4().hex[:8]}",
+
+        # Fixed 2026-08-21 (test-debt reconciliation, group 2 — adjacent
+        # site, same root cause as the declared scope).
+        variant = VariantFactory.create(
             experiment_id=experiment.experiment_id,
             model_id="openai/gpt-4",
             variant_signature="openai_gpt-4",
-            reasoning_mode="off",
         )
         var_repo.save(variant)
-        
+
+        # Fixed 2026-08-21 (same reconciliation): question_id is not a
+        # real QuestionSnapshot field.
         for i in range(1, 3):
             snapshot = QuestionSnapshot(
                 snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
                 experiment_id=experiment.experiment_id,
-                question_id=f"Q{i:02d}",
+                json_question_id=f"Q{i:02d}",
+                question_position=i,
                 question_payload=json.dumps({
                     "stem": f"Question {i}",
                     "options": ["A", "B", "C", "D"],
@@ -305,22 +331,22 @@ class TestFullExperimentLifecycle:
                 }),
             )
             snap_repo.save(snapshot)
-        
+
         # Create 2 runs
+        # Fixed 2026-08-21 (same reconciliation): Run has no seed= field;
+        # RunRepository.save() takes config as its own dict argument.
         run1 = Run(
             run_id=f"run_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
-            seed=42,
             status="pending",
         )
         run2 = Run(
             run_id=f"run_{uuid.uuid4().hex[:8]}",
             experiment_id=experiment.experiment_id,
-            seed=123,
             status="pending",
         )
-        run_repo.save(run1)
-        run_repo.save(run2)
+        run_repo.save(run1, {"RANDOMIZATION_SEED": 42})
+        run_repo.save(run2, {"RANDOMIZATION_SEED": 123})
         
         # Execute both runs
         planner = Planner(in_memory_db)
@@ -531,93 +557,105 @@ class TestReviewWorkflow:
     
     def test_review_flag_calculation(self, in_memory_db):
         """
-        Test needs_review flag is calculated correctly.
-        
-        Domain Rules:
-        - needs_review = True when parse_confidence is 'no_answer' or 'low_confidence'
-        - needs_review = True when selected_answer is None
-        - needs_review = False otherwise
+        Test review_status is calculated correctly through the real
+        write path.
+
+        Domain Rules (src.core.result_writer.ResultWriter._calculate_review_status):
+        - review_status = 'needs_review' when parse_confidence is 'no_answer' or 'low_confidence'
+        - review_status = 'needs_review' when selected_answer is None
+        - review_status = 'auto' otherwise
+
+        Fixed 2026-08-21 (test-debt reconciliation, group 4):
+        _calculate_needs_review was renamed to _calculate_review_status
+        (bool -> str[[a-z_]] classification) with unchanged domain rules —
+        this test now calls the public write_result() and asserts the
+        persisted review_status column, mirroring
+        tests/unit/core/test_result_writer.py's
+        test_writer_calculates_review_status_* pattern, instead of
+        reaching into a private method directly. Kept as an
+        integration-level cross-check (per explicit instruction) even
+        though the unit-level sibling tests already cover the same 3
+        states plus 2 more (ambiguous, null_answer) — this one proves the
+        classification survives the real write_result() dispatch path,
+        not just the pure calculation function in isolation. Each case
+        uses a distinct run_id so its deterministic response_id
+        (f"resp-{run_id}-{variant_id}-{snapshot_id}") doesn't collide
+        with the others under write_result()'s INSERT OR IGNORE
+        idempotency.
         """
         from src.core.result_writer import ResultWriter
         from src.core.execution_engine import ExecutionResult
+        from src.db.models import Experiment, QuestionSnapshot, Run
+        from tests.factories.variant import VariantFactory
+        import json
         import uuid
-        
+
+        # responses has real FK constraints on variant_id/snapshot_id/
+        # run_id (src/core/result_writer.py::_write_response) — needs a
+        # real Experiment + ModelVariant + QuestionSnapshot + one Run per
+        # case (each case uses its own run_id) to exist first.
+        exp_repo = ExperimentRepository(in_memory_db)
+        exp_repo.save(Experiment(
+            experiment_id="exp-review-test",
+            name="review-test-exp",
+            description="",
+            config_json=json.dumps({}),
+            config_hash="",
+        ))
+        VariantRepository(in_memory_db).save(VariantFactory.create(
+            experiment_id="exp-review-test",
+            model_id="openai/gpt-4",
+            variant_id="var-test",
+            variant_signature="openai_gpt-4",
+        ))
+        SnapshotRepository(in_memory_db).save(QuestionSnapshot(
+            snapshot_id="snap-test",
+            experiment_id="exp-review-test",
+            json_question_id="q1",
+            question_position=1,
+            question_payload=json.dumps({
+                "stem": "What is 2+2?", "options": ["3", "4", "5", "6"], "answer_key": "4",
+            }),
+        ))
+        run_repo = RunRepository(in_memory_db)
+        for run_id in ("run-test-clear", "run-test-no-answer", "run-test-low-confidence"):
+            run_repo.save(Run(run_id=run_id, experiment_id="exp-review-test", status="pending"), {})
+
         writer = ResultWriter(in_memory_db)
-        
-        # Test case 1: Clear answer → needs_review = False
-        result1 = ExecutionResult(
-            item_id=f"item_{uuid.uuid4().hex[:8]}",
-            run_id="run-test",
-            variant_id="var-test",
-            snapshot_id="snap-test",
-            question_id="q1",
-            status='success',
-            response_text="The answer is (B).",
-            selected_answer="B",
-            parse_confidence="clear",
-            latency_ms=500,
-            input_tokens=50,
-            response_tokens=10,
-            error_type=None,
-            error_message=None,
-            attempt_count=1,
-        )
-        
-        needs_review1 = writer._calculate_needs_review(
-            result1.parse_confidence,
-            result1.selected_answer
-        )
-        assert needs_review1 == False
-        
-        # Test case 2: No answer → needs_review = True
-        result2 = ExecutionResult(
-            item_id=f"item_{uuid.uuid4().hex[:8]}",
-            run_id="run-test",
-            variant_id="var-test",
-            snapshot_id="snap-test",
-            question_id="q1",
-            status='success',
-            response_text="I don't know.",
-            selected_answer=None,
-            parse_confidence="no_answer",
-            latency_ms=500,
-            input_tokens=50,
-            response_tokens=10,
-            error_type=None,
-            error_message=None,
-            attempt_count=1,
-        )
-        
-        needs_review2 = writer._calculate_needs_review(
-            result2.parse_confidence,
-            result2.selected_answer
-        )
-        assert needs_review2 == True
-        
-        # Test case 3: Low confidence → needs_review = True
-        result3 = ExecutionResult(
-            item_id=f"item_{uuid.uuid4().hex[:8]}",
-            run_id="run-test",
-            variant_id="var-test",
-            snapshot_id="snap-test",
-            question_id="q1",
-            status='success',
-            response_text="Maybe (B)?",
-            selected_answer="B",
-            parse_confidence="low_confidence",
-            latency_ms=500,
-            input_tokens=50,
-            response_tokens=10,
-            error_type=None,
-            error_message=None,
-            attempt_count=1,
-        )
-        
-        needs_review3 = writer._calculate_needs_review(
-            result3.parse_confidence,
-            result3.selected_answer
-        )
-        assert needs_review3 == True
+        cursor = in_memory_db.cursor()
+
+        def _review_status_for(run_id, selected_answer, parse_confidence, response_text):
+            result = ExecutionResult(
+                item_id=f"item_{uuid.uuid4().hex[:8]}",
+                run_id=run_id,
+                variant_id="var-test",
+                snapshot_id="snap-test",
+                question_id="q1",
+                status='success',
+                response_text=response_text,
+                selected_answer=selected_answer,
+                parse_confidence=parse_confidence,
+                latency_ms=500,
+                input_tokens=50,
+                response_tokens=10,
+                error_type=None,
+                error_message=None,
+                attempt_count=1,
+            )
+            writer.write_result(result)
+            cursor.execute("SELECT review_status FROM responses WHERE run_id = ?", (run_id,))
+            row = cursor.fetchone()
+            assert row is not None, f"Response for {run_id} was not written"
+            return row[0]
+
+        # Case 1: Clear answer -> review_status = 'auto'
+        assert _review_status_for("run-test-clear", "B", "clear", "The answer is (B).") == "auto"
+
+        # Case 2: No answer -> review_status = 'needs_review'
+        assert _review_status_for("run-test-no-answer", None, "no_answer", "I don't know.") == "needs_review"
+
+        # Case 3: Low confidence -> review_status = 'needs_review'
+        assert _review_status_for("run-test-low-confidence", "B", "low_confidence", "Maybe (B)?") == "needs_review"
     
     def test_manual_answer_override(self, full_experiment_setup, in_memory_db):
         """
@@ -726,13 +764,14 @@ class TestErrorHandling:
         """
         from src.core.planner import Planner, PlannerValidationError
         from src.db.repository import ExperimentRepository, VariantRepository
-        from src.db.models import Experiment, ModelVariant
+        from src.db.models import Experiment
+        from tests.factories.variant import VariantFactory
         import uuid
-        
+
         # Create experiment with model but no snapshots
         exp_repo = ExperimentRepository(in_memory_db)
         var_repo = VariantRepository(in_memory_db)
-        
+
         experiment = Experiment(
             experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
             name="no-snapshots-exp",
@@ -741,13 +780,13 @@ class TestErrorHandling:
             config_hash="",
         )
         exp_repo.save(experiment)
-        
-        variant = ModelVariant(
-            variant_id=f"var_{uuid.uuid4().hex[:8]}",
+
+        # Fixed 2026-08-21 (test-debt reconciliation, group 2 — declared
+        # adjacent site).
+        variant = VariantFactory.create(
             experiment_id=experiment.experiment_id,
             model_id="openai/gpt-4",
             variant_signature="openai_gpt-4",
-            reasoning_mode="off",
         )
         var_repo.save(variant)
         

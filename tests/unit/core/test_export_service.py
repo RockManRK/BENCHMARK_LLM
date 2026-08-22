@@ -665,3 +665,180 @@ class TestLogging:
         assert len(complete_records) >= 1
         # Check that counts are logged
         assert any("responses=1" in record.message for record in complete_records)
+
+
+# =============================================================================
+# ENT-02: request_json / raw_response_consolidated / randomization context
+# =============================================================================
+#
+# Added 2026-08-21 (test-debt reconciliation, ENT-02 — deep-audit finding
+# on commit 922603c). Response/ResponseRepository silently omitted 7 real
+# `responses` columns (request_json, raw_response_consolidated,
+# randomization_enabled, randomization_seed, options_presented,
+# correct_option_presented, option_letter_map) that ResultWriter._write_response
+# writes directly via raw SQL — every export was structurally missing
+# request fidelity and randomization context, with no error anywhere,
+# because the columns never entered ResponseRepository's own SELECT.
+# ResponseRepository.save()/get_by_id/list_by_run/list_needs_review are the
+# fix's scope; ResultWriter (the real, already-correct write path) is left
+# untouched. This test proves the fix end-to-end through the REAL write
+# path (ResultWriter.write_result, not a raw INSERT), since that's the
+# only path that ever populates these fields in production.
+
+class TestExportIncludesRequestFidelityAndRandomizationContext:
+    """ENT-02 regression: export must surface request_json and the full
+    randomization context, not silently omit them."""
+
+    def test_export_includes_request_json_and_randomization_context(
+        self, in_memory_db: sqlite3.Connection,
+    ) -> None:
+        from src.core.execution_engine import ExecutionResult
+        from src.core.result_writer import ResultWriter
+
+        cursor = in_memory_db.cursor()
+        cursor.execute("""
+            INSERT INTO experiments (experiment_id, name, config_json, config_hash)
+            VALUES ('exp-ent02', 'ENT-02 export test', '{}', 'hash-ent02')
+        """)
+        cursor.execute("""
+            INSERT INTO model_variants (variant_id, experiment_id, model_id, variant_signature, config)
+            VALUES ('var-ent02', 'exp-ent02', 'openai/gpt-4', 'gpt-4-default', '{}')
+        """)
+        cursor.execute("""
+            INSERT INTO question_snapshots (snapshot_id, experiment_id, json_question_id, question_position, question_payload)
+            VALUES ('snap-ent02', 'exp-ent02', 'Q001', 1,
+                    '{"stem": "What is 2+2?", "options": ["3", "4", "5", "6"], "answer_key": "4"}')
+        """)
+        cursor.execute("""
+            INSERT INTO runs (run_id, experiment_id, config, status)
+            VALUES ('run-ent02', 'exp-ent02', '{"RANDOMIZATION_SEED": 7}', 'pending')
+        """)
+        in_memory_db.commit()
+
+        request_payload = {
+            "model": "openai/gpt-4",
+            "messages": [{"role": "user", "content": "What is 2+2?"}],
+            "temperature": 0.7,
+        }
+        raw_response_consolidated = {"id": "chatcmpl-ent02", "choices": [{"message": {"content": "The answer is (B)."}}]}
+
+        result = ExecutionResult(
+            item_id="item-ent02",
+            run_id="run-ent02",
+            variant_id="var-ent02",
+            snapshot_id="snap-ent02",
+            question_id="Q001",
+            status="success",
+            response_text="The answer is (B).",
+            selected_answer="B",
+            parse_confidence="clear",
+            latency_ms=500,
+            input_tokens=50,
+            response_tokens=10,
+            error_type=None,
+            error_message=None,
+            attempt_count=1,
+            request_json=json.dumps(request_payload),
+            raw_response_consolidated=raw_response_consolidated,
+            randomization_enabled=True,
+            randomization_seed=7,
+            options_presented=["6", "5", "4", "3"],
+            correct_option_presented="C",
+            option_letter_map={"A": "D", "B": "C", "C": "B", "D": "A"},
+        )
+
+        writer = ResultWriter(in_memory_db)
+        writer.write_result(result)
+
+        export_service = ExportService(in_memory_db)
+        export_result = export_service.export_run("run-ent02")
+
+        assert export_result.total_responses == 1
+        exported = export_result.responses[0]
+
+        # Request fidelity: the exact payload that was sent, byte-for-byte
+        # recoverable from the export, not silently dropped.
+        assert exported["request_json"] is not None
+        assert json.loads(exported["request_json"]) == request_payload
+
+        assert exported["raw_response_consolidated"] is not None
+        assert json.loads(exported["raw_response_consolidated"]) == raw_response_consolidated
+
+        # Full randomization context — the experimental truth of what was
+        # actually shown to the model, per execution_engine.py's own
+        # randomization contract (never "de-randomized" after the fact).
+        assert exported["randomization_enabled"] is True
+        assert exported["randomization_seed"] == 7
+        assert json.loads(exported["options_presented"]) == ["6", "5", "4", "3"]
+        assert exported["correct_option_presented"] == "C"
+        assert json.loads(exported["option_letter_map"]) == {"A": "D", "B": "C", "C": "B", "D": "A"}
+
+        # The export is valid, self-contained JSON — request fidelity and
+        # randomization context survive round-tripping through to_json(),
+        # not just the in-memory dataclass.
+        json_str = export_result.to_json()
+        parsed = json.loads(json_str)
+        exported_via_json = parsed["responses"][0]
+        assert json.loads(exported_via_json["request_json"]) == request_payload
+        assert exported_via_json["randomization_seed"] == 7
+
+    def test_export_omits_nothing_when_randomization_disabled(
+        self, in_memory_db: sqlite3.Connection,
+    ) -> None:
+        """The 7 fields must round-trip correctly for the equally-real
+        randomization-disabled case, not just the randomized one."""
+        from src.core.execution_engine import ExecutionResult
+        from src.core.result_writer import ResultWriter
+
+        cursor = in_memory_db.cursor()
+        cursor.execute("""
+            INSERT INTO experiments (experiment_id, name, config_json, config_hash)
+            VALUES ('exp-ent02b', 'ENT-02 export test 2', '{}', 'hash-ent02b')
+        """)
+        cursor.execute("""
+            INSERT INTO model_variants (variant_id, experiment_id, model_id, variant_signature, config)
+            VALUES ('var-ent02b', 'exp-ent02b', 'openai/gpt-4', 'gpt-4-default', '{}')
+        """)
+        cursor.execute("""
+            INSERT INTO question_snapshots (snapshot_id, experiment_id, json_question_id, question_position, question_payload)
+            VALUES ('snap-ent02b', 'exp-ent02b', 'Q001', 1,
+                    '{"stem": "What is 2+2?", "options": ["3", "4", "5", "6"], "answer_key": "4"}')
+        """)
+        cursor.execute("""
+            INSERT INTO runs (run_id, experiment_id, config, status)
+            VALUES ('run-ent02b', 'exp-ent02b', '{"RANDOMIZATION_SEED": null}', 'pending')
+        """)
+        in_memory_db.commit()
+
+        result = ExecutionResult(
+            item_id="item-ent02b",
+            run_id="run-ent02b",
+            variant_id="var-ent02b",
+            snapshot_id="snap-ent02b",
+            question_id="Q001",
+            status="success",
+            response_text="The answer is (B).",
+            selected_answer="B",
+            parse_confidence="clear",
+            latency_ms=500,
+            input_tokens=50,
+            response_tokens=10,
+            error_type=None,
+            error_message=None,
+            attempt_count=1,
+            request_json=json.dumps({"model": "openai/gpt-4"}),
+            randomization_enabled=False,
+            randomization_seed=None,
+        )
+
+        writer = ResultWriter(in_memory_db)
+        writer.write_result(result)
+
+        export_service = ExportService(in_memory_db)
+        exported = export_service.export_run("run-ent02b").responses[0]
+
+        assert exported["randomization_enabled"] is False
+        assert exported["randomization_seed"] is None
+        assert exported["options_presented"] is None
+        assert exported["correct_option_presented"] is None
+        assert exported["option_letter_map"] is None

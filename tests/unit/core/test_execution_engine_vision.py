@@ -55,15 +55,30 @@ class MockOpenRouterClient:
 
     async def chat_completion(
         self,
-        model_id: str,
-        messages: list[dict],
-        **kwargs,
+        payload: dict,
+        base_url: str | None = None,
+        operation_id: str | None = None,
     ) -> MockCompletionResponse:
-        """Mock chat completion that records calls."""
+        """Mock chat completion that records calls.
+
+        `payload` is the single canonical request dict built by
+        `build_chat_completion_payload` — 'model_id'/'messages' keys are
+        derived from it here for backward-compatible assertions below
+        (see docs/status/model-seed-checkpoint-b-design.md, Part 1: the
+        client no longer receives scalar kwargs, only the payload).
+        Fixed 2026-08-21 (test-debt reconciliation, group 1): this mock
+        still declared the pre-refactor model_id/messages/**kwargs
+        signature, so every real call (payload=..., base_url=...,
+        operation_id=...) raised TypeError — see
+        tests/unit/core/test_execution_engine.py's MockOpenRouterClient
+        for the already-fixed sibling this mirrors.
+        """
         self._call_args_list.append({
-            'model_id': model_id,
-            'messages': messages,
-            'kwargs': kwargs,
+            'model_id': payload.get('model'),
+            'messages': payload.get('messages'),
+            'payload': payload,
+            'kwargs': payload,
+            'base_url': base_url,
         })
 
         if self._chat_completion_side_effect is not None:

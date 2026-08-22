@@ -153,6 +153,17 @@ class Event:
     WRITE_RETRY = "write_retry"
     WRITE_ABORT = "write_abort"
 
+    # --- async_writer.py — new (ADR-004 / ASY-01, 2026-08-22). A received
+    # ExecutionResult that could not be persisted as a normal response must
+    # still be traceable — these mark the best-effort errors-row audit
+    # trail ADR-004 requires, distinct from the pre-existing WRITE_ABORT
+    # (which only marks the triggering item's write failure, not whether an
+    # auditable trace of it was actually recorded). ERROR/CRITICAL severity
+    # — bypass LogProfile gating like WRITE_FAIL/WRITE_ABORT already do. ---
+    WRITE_FAILURE_RECORDED = "write_failure_recorded"
+    ITEM_ABANDONED_AFTER_WRITER_ABORT = "item_abandoned_after_writer_abort"
+    WRITE_FAILURE_TRACE_FAILED = "write_failure_trace_failed"
+
     # --- result_writer.py, existing (migrated verbatim) ---
     WRITE_COMPLETE = "write_complete"
     WRITE_SKIP_IDEMPOTENT = "write_skip_idempotent"

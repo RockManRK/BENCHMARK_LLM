@@ -54,8 +54,20 @@ class ExportedResponse:
         cost: Cost value from API response
         started_at: Local timestamp when request was sent
         finished_at: Local timestamp when response was received
+        request_json: Exact request payload sent to the API (audit
+            fidelity — ENT-02 fix, 2026-08-21: previously silently
+            omitted from every export, with no error, because it was
+            missing from Response/ResponseRepository entirely).
+        raw_response_consolidated: Consolidated raw response JSON.
+        randomization_enabled: Whether answer options were randomized.
+        randomization_seed: Seed used for randomization (None if disabled).
+        options_presented: Options exactly as presented to the LLM (JSON).
+        correct_option_presented: Correct answer letter in the presented
+            option space.
+        option_letter_map: JSON mapping from presented letter to original
+            letter.
     """
-    
+
     response_id: str
     question_id: str
     variant_id: str
@@ -78,6 +90,13 @@ class ExportedResponse:
     cost: Optional[float]
     started_at: Optional[datetime]
     finished_at: Optional[datetime]
+    request_json: Optional[str]
+    raw_response_consolidated: Optional[str]
+    randomization_enabled: bool
+    randomization_seed: Optional[int]
+    options_presented: Optional[str]
+    correct_option_presented: Optional[str]
+    option_letter_map: Optional[str]
 
 
 @dataclass
@@ -309,6 +328,13 @@ class ExportService:
             cost=response.cost,
             started_at=response.started_at,
             finished_at=response.finished_at,
+            request_json=response.request_json,
+            raw_response_consolidated=response.raw_response_consolidated,
+            randomization_enabled=response.randomization_enabled,
+            randomization_seed=response.randomization_seed,
+            options_presented=response.options_presented,
+            correct_option_presented=response.correct_option_presented,
+            option_letter_map=response.option_letter_map,
         )
 
     def _get_experiment_name_for_run(self, run_id: str) -> Optional[str]:
