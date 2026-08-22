@@ -798,23 +798,50 @@ class TestErrorHandling:
         
         assert "no questions" in str(exc_info.value).lower() or "snapshot" in str(exc_info.value).lower()
     
-    def test_execution_run_not_found_fails(self, in_memory_db):
+    def test_execution_run_not_found_fails(self, in_memory_db, capsys):
         """
         Test CLI validation error when run is not found.
-        
+
         Verifies:
         - CLI validates run exists
         - Exit code is 1
         - Error message is user-friendly
+
+        Fixed 2026-08-22 (test-debt reconciliation, group F): the old
+        version drove this through bcllm_execute.py's CLI entry point
+        (`main()`), which since the marco 4C Typer migration requires a
+        `mode` positional argument this test never passed —
+        `TypeError: main() missing 1 required positional argument:
+        'mode'`. Following the same class's own established convention
+        (test_execution_without_models_fails/
+        test_execution_without_snapshots_fails call the real handler
+        directly against in_memory_db, not the CLI process) rather than
+        reintroducing a stale call signature — this is squarely a
+        handler-level test (asserting the return code and the printed
+        error message from validate_filters/handle_execute), not a
+        subprocess-level one; real subprocess CLI coverage already
+        exists in tests/cli_suite/cases/execute.yaml.
         """
-        from src.cli.bcllm_execute import main as execute_main
-        
-        with patch.object(sys, "argv", [
-            "bcllm_execute.py",
-            "--experiment", "test-exp",
-            "--run", "run-nonexistent",
-            "--execute",
-        ]):
-            with patch("sqlite3.connect", return_value=in_memory_db):
-                result = execute_main()
-                assert result == 1
+        from src.cli.bcllm_execute import handle_execute
+        from src.cli.commands.execute import ExecuteParsedArgs
+        from src.db.repository import ExperimentRepository
+        from src.db.models import Experiment
+        import uuid
+
+        experiment = Experiment(
+            experiment_id=f"exp_{uuid.uuid4().hex[:8]}",
+            name="test-exp",
+            description="",
+            config_json='{"SYSTEM_PROMPT": "You are helpful.", "USER_PROMPT": "Answer: {question}"}',
+            config_hash="",
+        )
+        ExperimentRepository(in_memory_db).save(experiment)
+
+        args = ExecuteParsedArgs(
+            experiment="test-exp", run="run-nonexistent",
+            questions=None, models=None, retry_policy=None, execute=True,
+        )
+        result = handle_execute(args, in_memory_db)
+
+        assert result == 1
+        assert "run not found" in capsys.readouterr().err.lower()

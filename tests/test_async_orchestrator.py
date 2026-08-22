@@ -82,6 +82,43 @@ def _make_plan(num_items: int = 2) -> ExecutionPlan:
     )
 
 
+def _make_item_async_side_effect(
+    canned_results: list[ExecutionResult] | None = None,
+    results_by_item_id: dict[str, ExecutionResult] | None = None,
+    raises: Exception | None = None,
+):
+    """Build an async side_effect for engine._execute_item_async matching
+    its real contract (src/core/execution_engine.py) — puts the result on
+    result_queue (if given) and returns it. Exactly one of
+    canned_results/results_by_item_id/raises should be provided.
+
+    Added 2026-08-22 (test-debt reconciliation, group B): the real
+    scheduler (AsyncOrchestrator._execute_plan_with_semaphore ->
+    _execute_run_with_semaphore -> _execute_item_with_semaphore) calls
+    engine._execute_item_async per item, never engine.execute_async(plan)
+    — these tests previously mocked the wrong method entirely (a stale
+    fixture predating the semaphore-based scheduler), so the mocked
+    return value was never consumed, and the real code crashed instead
+    on `engine.randomizer` (not exposed by autospec, which only reflects
+    class-level members, never instance attributes set in __init__).
+    """
+    call_index = {"i": 0}
+
+    async def _side_effect(item, run, retry_handler, result_queue, item_index, run_option_map, operation_id=None):
+        if raises is not None:
+            raise raises
+        if results_by_item_id is not None:
+            result = results_by_item_id[item.item_id]
+        else:
+            result = canned_results[call_index["i"]]
+            call_index["i"] += 1
+        if result_queue is not None:
+            await result_queue.put(result)
+        return result
+
+    return _side_effect
+
+
 def _make_success_result(item_id: str) -> ExecutionResult:
     """Build a successful ExecutionResult."""
     return ExecutionResult(
@@ -165,21 +202,24 @@ class TestAsyncOrchestratorLifecycle:
         "asyncio.run() cannot be called from a running event loop"
         """
         plan = _make_plan(num_items=1)
-        mock_results = [_make_success_result("item-1")]
+        mock_results = [_make_success_result("run-001::var-001::snap-000::it-1")]
 
         with patch(
             'src.core.async_orchestrator.ExecutionEngine',
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(return_value=mock_results)
+            mock_engine.randomizer = orchestrator.randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(canned_results=mock_results)
+            )
 
             results = orchestrator.execute(plan)
 
             assert len(results) == 1
             assert results[0].status == "success"
-            # Engine.execute_async was called once inside the event loop
-            mock_engine.execute_async.assert_awaited_once()
+            # The real per-item method was called once inside the event loop
+            mock_engine._execute_item_async.assert_awaited_once()
 
     def test_httpx_client_closed_once(self, orchestrator, mock_api_client):
         """Verify httpx client is closed after all items complete.
@@ -198,7 +238,12 @@ class TestAsyncOrchestratorLifecycle:
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(return_value=mock_results)
+            mock_engine.randomizer = orchestrator.randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(
+                    results_by_item_id={r.item_id: r for r in mock_results}
+                )
+            )
 
             results = orchestrator.execute(plan)
 
@@ -207,17 +252,22 @@ class TestAsyncOrchestratorLifecycle:
             assert len(results) == 2
 
     def test_sentinel_shutdown_order(self, mock_api_client, mock_db, randomizer, parser):
-        """Verify sentinel is put on queue after engine completes, before writer shutdown.
+        """Verify sentinel is put on queue after every item result, before
+        writer shutdown.
 
         The lifecycle order is:
-        1. Engine executes all items
-        2. Sentinel (None) is put on queue
+        1. Engine executes all items, each pushed onto the queue as it completes
+        2. Sentinel (None) is put on queue after all items are scheduled
         3. Writer task is awaited (drains all items + sentinel)
         4. API client is closed
 
-        NOTE: The orchestrator currently calls engine.execute_async(plan)
-        without passing result_queue (source code gap). We patch the engine
-        to simulate correct behavior: pushing results to the queue.
+        Fixed 2026-08-22 (test-debt reconciliation, group B): now drives
+        the real per-item path (engine._execute_item_async, which puts
+        its own result on result_queue — see
+        src/core/execution_engine.py) instead of a no-longer-called
+        engine.execute_async(plan), so the sentinel-after-items ordering
+        is proven against the real queue-population mechanism, not
+        merely asserted about a queue nothing real ever populated.
         """
         plan = _make_plan(num_items=2)
         queue_items_captured = []
@@ -235,19 +285,17 @@ class TestAsyncOrchestratorLifecycle:
                 queue_items_captured.append(item)
                 return await super().put(item)
 
-        async def patched_execute_async(self, plan):
-            """Simulates engine pushing results to the queue."""
-            # Access the queue from the outer scope via the orchestrator's _execute_async
-            # Since we can't access the queue directly, we just return results
-            # The orchestrator will put the sentinel after this returns
-            return mock_results
-
         with patch(
             'src.core.async_orchestrator.ExecutionEngine',
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(return_value=mock_results)
+            mock_engine.randomizer = randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(
+                    results_by_item_id={r.item_id: r for r in mock_results}
+                )
+            )
 
             with patch('asyncio.Queue', TrackedQueue):
                 orchestrator = AsyncOrchestrator(
@@ -259,11 +307,18 @@ class TestAsyncOrchestratorLifecycle:
 
                 results = orchestrator.execute(plan)
 
-        # Verify sentinel (None) appears after engine returns
+        # Verify sentinel (None) appears after both item results
         sentinel_indices = [
             i for i, item in enumerate(queue_items_captured) if item is None
         ]
+        item_indices = [
+            i for i, item in enumerate(queue_items_captured) if item is not None
+        ]
         assert len(sentinel_indices) >= 1, "Sentinel (None) was not put on queue"
+        assert len(item_indices) == 2, "Both item results should have been queued"
+        assert max(item_indices) < min(sentinel_indices), (
+            "Sentinel must be queued after every item result"
+        )
 
         # Verify API client was closed
         mock_api_client.close.assert_awaited_once()
@@ -287,8 +342,11 @@ class TestAsyncOrchestratorLifecycle:
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(
-                side_effect=RuntimeError("Simulated engine failure")
+            mock_engine.randomizer = orchestrator.randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(
+                    raises=RuntimeError("Simulated engine failure")
+                )
             )
 
             with pytest.raises(RuntimeError, match="Simulated engine failure"):
@@ -308,18 +366,40 @@ class TestAsyncOrchestratorLifecycle:
         """
         plan = _make_plan(num_items=1)
 
-        # Create an AsyncWriter that fails on consume
+        # Create an AsyncWriter stand-in that fails on consume.
+        # Fixed 2026-08-22 (test-debt reconciliation, group C): this
+        # stand-in no longer represented the minimal real AsyncWriter
+        # interface the orchestrator actually depends on —
+        # AsyncOrchestrator._execute_async reads writer.abort_event
+        # unconditionally (as an argument to
+        # _execute_plan_with_semaphore, well before any exception path)
+        # and, since ADR-004/ASY-01, also calls writer.drain_abandoned()
+        # in its except-Exception cleanup branch when the writer aborted.
+        # A fake lacking abort_event crashed with AttributeError instead
+        # of letting the intended ValueError propagate. Not a production
+        # bug — production always constructs a real AsyncWriter, which
+        # always has both.
         class FailingWriter:
+            def __init__(self):
+                self.abort_event = asyncio.Event()
+                self.abort_info = None
+
             async def consume(self):
                 raise RuntimeError("Writer failure during cleanup")
+
+            def drain_abandoned(self):
+                return 0
 
         with patch(
             'src.core.async_orchestrator.ExecutionEngine',
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(
-                side_effect=ValueError("Original engine error")
+            mock_engine.randomizer = orchestrator.randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(
+                    raises=ValueError("Original engine error")
+                )
             )
 
             # Patch AsyncWriter import inside _execute_async
@@ -364,7 +444,12 @@ class TestAsyncOrchestratorLifecycle:
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(return_value=mock_results)
+            mock_engine.randomizer = randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(
+                    results_by_item_id={r.item_id: r for r in mock_results}
+                )
+            )
 
             with patch(
                 'src.core.async_writer.AsyncWriter.consume',
@@ -477,7 +562,12 @@ class TestAsyncOrchestratorLifecycle:
             autospec=True,
         ) as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
-            mock_engine.execute_async = AsyncMock(return_value=mock_results)
+            mock_engine.randomizer = randomizer
+            mock_engine._execute_item_async = AsyncMock(
+                side_effect=_make_item_async_side_effect(
+                    results_by_item_id={r.item_id: r for r in mock_results}
+                )
+            )
 
             orchestrator = AsyncOrchestrator(
                 api_client=mock_api_client,

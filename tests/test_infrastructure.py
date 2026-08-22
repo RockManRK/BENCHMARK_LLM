@@ -145,49 +145,29 @@ class TestFixtures:
         assert mock_api_client is not None
         assert mock_api_client.chat_completion is not None
 
-    def test_randomizer_is_deterministic(self, randomizer):
-        """randomizer fixture should produce deterministic results with fixed seed."""
-        # The randomizer fixture uses seed=42
-        # Create two lists with same content
-        list1 = ['A', 'B', 'C', 'D']
-        list2 = ['A', 'B', 'C', 'D']
-        
-        # Shuffle both - since randomizer uses a seeded Random instance,
-        # we need to test that calling shuffle on the same instance
-        # produces consistent sequences
-        shuffled1 = randomizer.shuffle(list1)
-        
-        # Reset the randomizer by creating a new one with same seed
-        # Import from conftest fallback
-        try:
-            from src.core.randomizer import AnswerRandomizer
-        except ImportError:
-            # Fallback implementation from conftest
-            import random
-            class AnswerRandomizer:
-                def __init__(self, seed: int = 42):
-                    self._random = random.Random(seed)
-                def shuffle(self, items: list) -> list:
-                    result = items.copy()
-                    self._random.shuffle(result)
-                    return result
-        
-        randomizer2 = AnswerRandomizer(seed=42)
-        shuffled2 = randomizer2.shuffle(list2)
-        
-        # Same seed should produce same result
-        assert shuffled1 == shuffled2
-
-    def test_parser_extracts_answer(self, parser):
-        """parser fixture should extract answer from response text."""
-        result = parser.parse("The answer is (B).")
-        
-        assert result.selected_answer == 'B'
-        assert result.confidence == 'clear'
-
-    def test_parser_handles_no_answer(self, parser):
-        """parser fixture should handle responses with no answer."""
-        result = parser.parse("I don't know the answer to this question.")
-        
-        assert result.selected_answer is None
-        assert result.confidence == 'no_answer'
+    # Removed 2026-08-22 (test-debt reconciliation, group D):
+    # test_randomizer_is_deterministic tested AnswerRandomizer.shuffle(),
+    # an API that never shipped in production — this file's own module
+    # docstring ("Smoke tests for test infrastructure (Phase 4)... will
+    # be removed or expanded in Phase 5") and the randomizer fixture's
+    # docstring in tests/conftest.py ("Fallback for Phase 4 when src
+    # doesn't exist yet") confirm .shuffle() was aspirational scaffolding
+    # written before AnswerRandomizer was actually implemented — the real
+    # class only ever had randomize_options(options, seed=...), a pure
+    # per-call function, never a stateful instance method. Not a rename
+    # to chase. Equivalent, real coverage of the underlying guarantee
+    # (same seed -> same shuffle) already exists end-to-end via
+    # tests/integration/test_seed_independence.py::
+    # test_randomization_shuffle_identical_regardless_of_model_seed and
+    # tests/unit/core/test_execution_engine.py::
+    # TestExecutionEngineRandomization.
+    #
+    # test_parser_extracts_answer / test_parser_handles_no_answer tested
+    # ParsedAnswer.selected_answer, renamed to .answer (confirmed real
+    # rename, not fictional). Removed rather than updated because
+    # tests/test_answer_parser.py already covers both exact scenarios
+    # more thoroughly against the real API: test_paren_letter
+    # (parenthesized-letter extraction, confidence='clear' — the same
+    # pattern "The answer is (B)." exercises) and test_no_letters /
+    # test_text_without_letters / test_empty_string / test_whitespace_only
+    # (answer is None, confidence='no_answer').
